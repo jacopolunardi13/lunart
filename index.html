@@ -14,7 +14,7 @@ a{color:inherit;text-decoration:none}
 .serif{font-family:'Cormorant Garamond',serif}
 .tag{font-size:10px;letter-spacing:2px;text-transform:uppercase;background:#ede9e3;padding:3px 8px;display:inline-block;margin:2px}
 section{padding:80px 40px}
-@media(max-width:680px){section{padding:60px 20px}nav{padding:0 20px!important}.hero-text{font-size:clamp(70px,18vw,130px)!important}.two-col{grid-template-columns:1fr!important}.gallery{grid-template-columns:1fr 1fr!important}.rooms-grid{grid-template-columns:1fr!important}.svc-grid{grid-template-columns:1fr 1fr!important}.steps{grid-template-columns:1fr 1fr!important}.partners-grid{grid-template-columns:1fr!important}.contacts-grid{grid-template-columns:1fr!important}.info-grid{grid-template-columns:1fr 1fr!important}.ztl-grid{grid-template-columns:1fr 1fr!important}
+@media(max-width:680px){section{padding:60px 20px}nav{padding:8px 16px!important;height:auto!important;flex-wrap:wrap;gap:4px}.hero-text{font-size:clamp(70px,18vw,130px)!important}.two-col{grid-template-columns:1fr!important}.gallery{grid-template-columns:1fr 1fr!important}.rooms-grid{grid-template-columns:1fr!important}.svc-grid{grid-template-columns:1fr 1fr!important}.steps{grid-template-columns:1fr 1fr!important}.partners-grid{grid-template-columns:1fr!important}.contacts-grid{grid-template-columns:1fr!important}.info-grid{grid-template-columns:1fr 1fr!important}.ztl-grid{grid-template-columns:1fr 1fr!important}
 /* NAV */
 nav{position:fixed;top:0;left:0;right:0;z-index:200;height:64px;padding:0 40px;display:flex;align-items:center;justify-content:space-between;transition:all .3s}
 nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-bottom:1px solid rgba(26,26,26,.08)}
@@ -484,7 +484,7 @@ function toggleLang(){
   // Reset chat welcome
   var msgs = document.getElementById('chatMsgs');
   if(msgs && msgs.children.length===1){
-    msgs.innerHTML = '<div class="msg-bot">' + (lang==='it' ? 'Benvenuto a LunArt! 🌙 Sono il tuo assistente virtuale. Come posso aiutarti?' : 'Welcome to LunArt! 🌙 I'm your virtual assistant. How can I help?') + '</div>';
+    msgs.innerHTML = '<div class="msg-bot">' + (lang==='it' ? 'Benvenuto a LunArt! 🌙 Sono il tuo assistente virtuale. Come posso aiutarti?' : 'Welcome to LunArt! 🌙 I am your virtual assistant. How can I help?') + '</div>';
   }
 }
 
@@ -511,7 +511,7 @@ function toggleChat(){
     box.style.display = 'flex';
     box.style.flexDirection = 'column';
     if(document.getElementById('chatMsgs').children.length===0){
-      addMsg(lang==='it' ? 'Benvenuto a LunArt! 🌙 Sono il tuo assistente virtuale. Come posso aiutarti?' : 'Welcome to LunArt! 🌙 I'm your virtual assistant. How can I help?', false);
+      addMsg(lang==='it' ? 'Benvenuto a LunArt! 🌙 Sono il tuo assistente virtuale. Come posso aiutarti?' : 'Welcome to LunArt! 🌙 I am your virtual assistant. How can I help?', false);
     }
   } else {
     box.style.display = 'none';
@@ -541,10 +541,10 @@ var FAQ = [
     it:'☕ Colazione <strong>inclusa</strong> · 8:30–11:00\n<strong>Opera Caffè</strong> · Piazza del Duomo 62R\nAlternativa light: <strong>Caffè Maioli</strong>\n\n🎁 <strong>30% sconto</strong> su tutti gli ordini al tavolo!',
     en:'☕ Breakfast <strong>included</strong> · 8:30–11:00am\n<strong>Opera Caffè</strong> · Piazza del Duomo 62R\nLight option: <strong>Caffè Maioli</strong>\n\n🎁 <strong>30% off</strong> all table orders!'},
   {k:['bagagli','bagaglio','valigia','deposito','lasciare','prima delle'],
-    it:'🧳 Deposito bagagli <strong>gratuito</strong> all'Opera Caffè (P.za Duomo 62R)\nOrari: <strong>8:30–20:00</strong> (mezzanotte in alta stagione)\nRitiro in <strong>qualsiasi orario</strong>\nValido per check-in e check-out\n\nAlternativa a pagamento: luggage store vicino alla struttura',
+    it:'🧳 Deposito bagagli <strong>gratuito</strong> all’Opera Caffè (P.za Duomo 62R)\nOrari: <strong>8:30–20:00</strong> (mezzanotte in alta stagione)\nRitiro in <strong>qualsiasi orario</strong>\nValido per check-in e check-out\n\nAlternativa a pagamento: luggage store vicino alla struttura',
     en:'🧳 <strong>Free</strong> luggage storage at Opera Caffè (P.za Duomo 62R)\nHours: <strong>8:30am–8pm</strong> (midnight in high season)\nCollect at <strong>any time</strong>\nValid for check-in and check-out'},
   {k:['garage','parcheggio','parking','auto','macchina','ztl','zona traffico','telecamera','multa','targa'],
-    it:'🅿️ <strong>Garage Lungarno</strong> · accanto all'edificio\nPrenota: <strong>garagelungarno.it</strong>\n\n⚠️ <strong>ZTL</strong>: dal momento della telecamera hai <strong>MAX 2h30</strong> per arrivare al garage e registrare la targa.\nAll'uscita la targa NON può essere re-registrata — evita le telecamere ZTL.',
+    it:'🅿️ <strong>Garage Lungarno</strong> · accanto all’edificio\nPrenota: <strong>garagelungarno.it</strong>\n\n⚠️ <strong>ZTL</strong>: dal momento della telecamera hai <strong>MAX 2h30</strong> per arrivare al garage e registrare la targa.\nAll’uscita la targa NON può essere re-registrata — evita le telecamere ZTL.',
     en:'🅿️ <strong>Garage Lungarno</strong> · right next door\nBook: <strong>garagelungarno.it</strong>\n\n⚠️ <strong>ZTL</strong>: from the camera shot you have <strong>MAX 2h30</strong> to register your plate at the garage.\nOn exit, plate cannot be re-registered — avoid ZTL cameras.'},
   {k:['prezzo','prezzi','costo','quanto','preventivo','disponibilit','prenota','booking'],
     it:'💬 I prezzi variano per stagione e camera.\n\nContatta <strong>Jacopo</strong> per preventivo:\n📱 <strong>+39 392 472 5263</strong> (WhatsApp)\n✉️ lunartfirenze@gmail.com',
@@ -553,7 +553,7 @@ var FAQ = [
     it:'🛏️ Le nostre camere:\n• <strong>301 Standard</strong> — Vista strada + Arno\n• <strong>302 Deluxe</strong> — Vista Arno + Uffizi parziale\n• <strong>303 Superior ⭐</strong> — Doppia finestra, Arno + Uffizi. Tripla disponibile\n• <strong>304 Deluxe</strong> — Vista Uffizi + Arno\n• <strong>305 Superior</strong> — Doppia esposizione, Arno + Uffizi. Tripla disponibile\n• <strong>306 Family</strong> — In arrivo',
     en:'🛏️ Our rooms:\n• <strong>301 Standard</strong> — Street + Arno views\n• <strong>302 Deluxe</strong> — Arno + partial Uffizi views\n• <strong>303 Superior ⭐</strong> — Double window, Arno + Uffizi. Triple available\n• <strong>304 Deluxe</strong> — Uffizi + Arno views\n• <strong>305 Superior</strong> — Dual aspect, Arno + Uffizi. Triple available\n• <strong>306 Family</strong> — Coming soon'},
   {k:['dove','indirizzo','arrivare','trovare','mappa','ingresso','portone','posizione'],
-    it:'📍 <strong>Vicolo del Canneto 2, Firenze</strong> · 3° piano (ascensore)\n200m da Ponte Vecchio · 500m dagli Uffizi\n\n<a href="https://goo.gl/maps/mQsN2cY8eihAXVjb8" target="_blank" style="color:#1a1a1a;text-decoration:underline">→ Link preciso all'ingresso</a>',
+    it:'📍 <strong>Vicolo del Canneto 2, Firenze</strong> · 3° piano (ascensore)\n200m da Ponte Vecchio · 500m dagli Uffizi\n\n<a href="https://goo.gl/maps/mQsN2cY8eihAXVjb8" target="_blank" style="color:#1a1a1a;text-decoration:underline">→ Link preciso all’ingresso</a>',
     en:'📍 <strong>Vicolo del Canneto 2, Florence</strong> · 3rd floor (lift)\n200m from Ponte Vecchio · 500m from Uffizi\n\n<a href="https://goo.gl/maps/mQsN2cY8eihAXVjb8" target="_blank" style="color:#1a1a1a;text-decoration:underline">→ Precise entrance link</a>'},
   {k:['contatto','contatti','telefono','numero','chiamare','whatsapp','email','jacopo','diego'],
     it:'📞 <strong>Prenotazioni — Jacopo</strong>\n📱 +39 392 472 5263\n✉️ lunartfirenze@gmail.com\n\n🗝️ <strong>Check-in — Diego</strong>\n📱 +39 334 211 5505',
@@ -568,10 +568,10 @@ var FAQ = [
     it:'🛁 Cambio ogni <strong>3 giorni</strong> su richiesta.\nTelo extra: <strong>€5 al pezzo</strong>\nSet completo (2 grandi + 2 medi + tappetino): <strong>€15</strong>',
     en:'🛁 Changed every <strong>3 days</strong> on request.\nExtra towel: <strong>€5 per piece</strong>\nFull set (2 large + 2 medium + bath mat): <strong>€15</strong>'},
   {k:['alba','presto','volo','treno','partenza presto','5','6 di'],
-    it:'🌅 <strong>Colazione dell'Alba</strong>\nParti presto? Cesto su richiesta <strong>entro la sera prima</strong>: salato, dolce, succo, acqua.',
+    it:'🌅 <strong>Colazione dell’Alba</strong>\nParti presto? Cesto su richiesta <strong>entro la sera prima</strong>: salato, dolce, succo, acqua.',
     en:'🌅 <strong>Sunrise Breakfast</strong>\nEarly departure? Request by the <strong>evening before</strong>: savoury, sweet, juice, water.'},
   {k:['fattura','scontrino','ricevuta','fiscale','invoice'],
-    it:'🧾 La fattura va richiesta <strong>prima</strong> che venga emesso lo scontrino — comunicacelo all'arrivo.\nDopo lo scontrino: solo copia.',
+    it:'🧾 La fattura va richiesta <strong>prima</strong> che venga emesso lo scontrino — comunicacelo all’arrivo.\nDopo lo scontrino: solo copia.',
     en:'🧾 Invoice must be requested <strong>before</strong> the receipt is issued — let us know on arrival.\nAfter receipt: copy only.'},
   {k:['vegano','vegan','glutine','celiachia','intolleranza','allergia','dieta'],
     it:'🌿 Su richiesta almeno <strong>il giorno prima</strong>: vegano, vegetariano, senza glutine, intolleranze.\n📱 Jacopo: <strong>+39 392 472 5263</strong>',
@@ -604,7 +604,7 @@ function faqAnswer(input){
   if(best && score >= 3) return best[lang] || best.it;
   return lang==='it'
     ? 'Non ho trovato una risposta precisa. 😊<br><br>Contattaci direttamente:<br>📱 Jacopo: <strong>+39 392 472 5263</strong> (WhatsApp)<br>✉️ lunartfirenze@gmail.com'
-    : 'I couldn't find a precise answer. 😊<br><br>Contact us directly:<br>📱 Jacopo: <strong>+39 392 472 5263</strong> (WhatsApp)<br>✉️ lunartfirenze@gmail.com';
+    : 'I could not find a precise answer. 😊<br><br>Contact us directly:<br>📱 Jacopo: <strong>+39 392 472 5263</strong> (WhatsApp)<br>✉️ lunartfirenze@gmail.com';
 }
 
 function sendChat(){
