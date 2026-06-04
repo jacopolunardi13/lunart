@@ -14,7 +14,7 @@ a{color:inherit;text-decoration:none}
 .serif{font-family:'Cormorant Garamond',serif}
 .tag{font-size:10px;letter-spacing:2px;text-transform:uppercase;background:#ede9e3;padding:3px 8px;display:inline-block;margin:2px}
 section{padding:80px 40px}
-@media(max-width:680px){section{padding:60px 20px}nav{padding:0 20px!important}.hero-text{font-size:clamp(70px,18vw,130px)!important}.two-col{grid-template-columns:1fr!important}.gallery{grid-template-columns:1fr 1fr!important}.rooms-grid{grid-template-columns:1fr!important}.svc-grid{grid-template-columns:1fr 1fr!important}.steps{grid-template-columns:1fr 1fr!important}.partners-grid{grid-template-columns:1fr!important}.contacts-grid{grid-template-columns:1fr!important}.info-grid{grid-template-columns:1fr 1fr!important}.ztl-grid{grid-template-columns:1fr 1fr!important}}
+@media(max-width:680px){section{padding:60px 20px}nav{padding:0 20px!important}.hero-text{font-size:clamp(70px,18vw,130px)!important}.two-col{grid-template-columns:1fr!important}.gallery{grid-template-columns:1fr 1fr!important}.rooms-grid{grid-template-columns:1fr!important}.svc-grid{grid-template-columns:1fr 1fr!important}.steps{grid-template-columns:1fr 1fr!important}.partners-grid{grid-template-columns:1fr!important}.contacts-grid{grid-template-columns:1fr!important}.info-grid{grid-template-columns:1fr 1fr!important}.ztl-grid{grid-template-columns:1fr 1fr!important}
 /* NAV */
 nav{position:fixed;top:0;left:0;right:0;z-index:200;height:64px;padding:0 40px;display:flex;align-items:center;justify-content:space-between;transition:all .3s}
 nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-bottom:1px solid rgba(26,26,26,.08)}
@@ -118,9 +118,9 @@ nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-
 .chat-input input{flex:1;border:1px solid #ccc;padding:9px 12px;font-size:12px;outline:none;background:#fff;font-family:inherit}
 .chat-input button{background:#1a1a1a;color:#faf9f7;border:none;padding:9px 14px;font-size:11px;cursor:pointer;font-family:inherit}
 /* ANIMATIONS */
-@keyframes fadeUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
-@keyframes arrowBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}
-@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}
+@keyframes arrowBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}
+@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}
 .fade-in{opacity:0;transform:translateY(24px);transition:opacity .75s ease,transform .75s ease}
 .fade-in.visible{opacity:1;transform:none}
 </style>
