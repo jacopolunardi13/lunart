@@ -18,11 +18,11 @@ section{padding:80px 40px}
 /* NAV */
 nav{position:fixed;top:0;left:0;right:0;z-index:200;height:64px;padding:0 40px;display:flex;align-items:center;justify-content:space-between;transition:all .3s}
 nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-bottom:1px solid rgba(26,26,26,.08)}
-.nav-logo{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:500;letter-spacing:4px;cursor:pointer}
+.nav-logo{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:500;letter-spacing:4px;cursor:pointer;text-decoration:none;color:inherit}
 .nav-links{display:flex;gap:22px;align-items:center}
-.nav-link{font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.6;cursor:pointer;transition:opacity .2s}
+.nav-link{font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.6;cursor:pointer;transition:opacity .2s;text-decoration:none;color:inherit}
 .nav-link:hover{opacity:1}
-.nav-btn{font-size:10px;letter-spacing:2px;text-transform:uppercase;background:#1a1a1a;color:#faf9f7;padding:8px 20px;cursor:pointer;transition:background .2s}
+.nav-btn{font-size:10px;letter-spacing:2px;text-transform:uppercase;background:#1a1a1a;color:#faf9f7;padding:8px 20px;cursor:pointer;transition:background .2s;text-decoration:none}
 .nav-btn:hover{background:#333}
 .lang-btn{background:none;border:1px solid rgba(26,26,26,.25);padding:5px 13px;font-size:10px;letter-spacing:2px;cursor:pointer;font-family:inherit;transition:border-color .2s}
 .lang-btn:hover{border-color:#1a1a1a}
@@ -38,7 +38,7 @@ nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-
 .hero-sub{font-family:'Cormorant Garamond',serif;font-size:12px;letter-spacing:8px;opacity:.4;text-transform:uppercase}
 .hero-tag{font-family:'Cormorant Garamond',serif;font-size:clamp(18px,3vw,34px);font-weight:300;font-style:italic;margin-bottom:14px;line-height:1.2}
 .hero-addr{font-size:11px;letter-spacing:4px;opacity:.4;text-transform:uppercase}
-.hero-arrow{position:absolute;bottom:32px;display:flex;flex-direction:column;align-items:center;gap:6px;opacity:.3;animation:arrowBounce 2.5s ease-in-out infinite;cursor:pointer}
+.hero-arrow{position:absolute;bottom:32px;display:flex;flex-direction:column;align-items:center;gap:6px;opacity:.3;animation:arrowBounce 2.5s ease-in-out infinite;cursor:pointer;text-decoration:none;color:inherit}
 .hero-arrow span{font-size:9px;letter-spacing:4px;text-transform:uppercase}
 .hero-arrow-line{width:1px;height:32px;background:#1a1a1a}
 /* SECTION LABELS */
@@ -129,13 +129,13 @@ nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-
 
 <!-- NAV -->
 <nav id="nav">
-  <span class="nav-logo" onclick="window.scrollTo(0,0)">LunArt</span>
+  <a class="nav-logo" href="#top">LunArt</a>
   <div class="nav-links">
-    <span class="nav-link" onclick="goTo('about')" data-it="Chi Siamo" data-en="About">Chi Siamo</span>
-    <span class="nav-link" onclick="goTo('rooms')" data-it="Camere" data-en="Rooms">Camere</span>
-    <span class="nav-link" onclick="goTo('services')" data-it="Servizi" data-en="Services">Servizi</span>
-    <span class="nav-link" onclick="goTo('partners')" data-it="Partner" data-en="Partners">Partner</span>
-    <span class="nav-btn" onclick="goTo('contact')" data-it="Prenota" data-en="Book">Prenota</span>
+    <a class="nav-link" href="#about" data-it="Chi Siamo" data-en="About">Chi Siamo</a>
+    <a class="nav-link" href="#rooms" data-it="Camere" data-en="Rooms">Camere</a>
+    <a class="nav-link" href="#services" data-it="Servizi" data-en="Services">Servizi</a>
+    <a class="nav-link" href="#partners" data-it="Partner" data-en="Partners">Partner</a>
+    <a class="nav-btn" href="#contact" data-it="Prenota" data-en="Book">Prenota</a>
     <button class="lang-btn" onclick="toggleLang()" id="langBtn">EN</button>
   </div>
 </nav>
@@ -154,10 +154,10 @@ nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-
     <p class="hero-tag" data-it="Nel cuore di Firenze, di fronte all'Arno" data-en="In the heart of Florence, facing the Arno">Nel cuore di Firenze, di fronte all'Arno</p>
     <p class="hero-addr">B&B · Vicolo del Canneto 2 · <span data-it="200m da Ponte Vecchio" data-en="200m from Ponte Vecchio">200m da Ponte Vecchio</span></p>
   </div>
-  <div class="hero-arrow" onclick="goTo('about')">
+  <a class="hero-arrow" href="#about">
     <span>Scopri</span>
     <div class="hero-arrow-line"></div>
-  </div>
+  </a>
 </div>
 
 <!-- GALLERY -->
@@ -507,10 +507,14 @@ var chatOpen = false;
 function toggleChat(){
   chatOpen = !chatOpen;
   var box = document.getElementById('chatBox');
-  var btn = document.getElementById('chatBtn');
-  box.style.display = chatOpen ? 'flex' : 'none';
-  if(chatOpen && document.getElementById('chatMsgs').children.length===0){
-    addMsg(lang==='it' ? 'Benvenuto a LunArt! 🌙 Sono il tuo assistente virtuale. Come posso aiutarti?' : 'Welcome to LunArt! 🌙 I'm your virtual assistant. How can I help?', false);
+  if(chatOpen){
+    box.style.display = 'flex';
+    box.style.flexDirection = 'column';
+    if(document.getElementById('chatMsgs').children.length===0){
+      addMsg(lang==='it' ? 'Benvenuto a LunArt! 🌙 Sono il tuo assistente virtuale. Come posso aiutarti?' : 'Welcome to LunArt! 🌙 I'm your virtual assistant. How can I help?', false);
+    }
+  } else {
+    box.style.display = 'none';
   }
 }
 
