@@ -129,13 +129,13 @@ nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-
 
 <!-- NAV -->
 <nav id="nav">
-  <span class="nav-logo" onclick="window.scrollTo({top:0,behavior:'smooth'})">LunArt</span>
+  <span class="nav-logo" onclick="window.scrollTo(0,0)">LunArt</span>
   <div class="nav-links">
-    <span class="nav-link" onclick="scrollTo('about')" data-it="Chi Siamo" data-en="About">Chi Siamo</span>
-    <span class="nav-link" onclick="scrollTo('rooms')" data-it="Camere" data-en="Rooms">Camere</span>
-    <span class="nav-link" onclick="scrollTo('services')" data-it="Servizi" data-en="Services">Servizi</span>
-    <span class="nav-link" onclick="scrollTo('partners')" data-it="Partner" data-en="Partners">Partner</span>
-    <span class="nav-btn" onclick="scrollTo('contact')" data-it="Prenota" data-en="Book">Prenota</span>
+    <span class="nav-link" onclick="goTo('about')" data-it="Chi Siamo" data-en="About">Chi Siamo</span>
+    <span class="nav-link" onclick="goTo('rooms')" data-it="Camere" data-en="Rooms">Camere</span>
+    <span class="nav-link" onclick="goTo('services')" data-it="Servizi" data-en="Services">Servizi</span>
+    <span class="nav-link" onclick="goTo('partners')" data-it="Partner" data-en="Partners">Partner</span>
+    <span class="nav-btn" onclick="goTo('contact')" data-it="Prenota" data-en="Book">Prenota</span>
     <button class="lang-btn" onclick="toggleLang()" id="langBtn">EN</button>
   </div>
 </nav>
@@ -154,7 +154,7 @@ nav.scrolled{background:rgba(250,249,247,.96);backdrop-filter:blur(12px);border-
     <p class="hero-tag" data-it="Nel cuore di Firenze, di fronte all'Arno" data-en="In the heart of Florence, facing the Arno">Nel cuore di Firenze, di fronte all'Arno</p>
     <p class="hero-addr">B&B · Vicolo del Canneto 2 · <span data-it="200m da Ponte Vecchio" data-en="200m from Ponte Vecchio">200m da Ponte Vecchio</span></p>
   </div>
-  <div class="hero-arrow" onclick="scrollTo('about')">
+  <div class="hero-arrow" onclick="goTo('about')">
     <span>Scopri</span>
     <div class="hero-arrow-line"></div>
   </div>
@@ -489,7 +489,7 @@ function toggleLang(){
 }
 
 // ── SCROLL ────────────────────────────────────────────────────────────────
-function scrollTo(id){ document.getElementById(id).scrollIntoView({behavior:'smooth'}); }
+function goTo(id){ document.getElementById(id).scrollIntoView({behavior:'smooth'}); }
 
 // ── NAV SCROLL ────────────────────────────────────────────────────────────
 window.addEventListener('scroll', function(){
