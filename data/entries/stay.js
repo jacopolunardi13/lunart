@@ -173,6 +173,26 @@ export const stay = [
     intents: ['pets'],
   },
   {
+    id: 'children',
+    section: 'stay',
+    phase: ['before', 'staying'],
+    icon: 'child',
+    priority: 10,
+    title: { it: 'Bambini, culle e lettini', en: 'Children, cots and extra beds' },
+    summary: {
+      it: 'Le famiglie sono benvenute. Culle e lettini si possono avere su richiesta: chiedili almeno il giorno prima, non all’arrivo.',
+      en: 'Families are welcome. Cots and extra beds are available on request: ask at least the day before, not on arrival.',
+    },
+    detail: {
+      it: 'Le camere 303 e 305 sono quelle che si possono allestire con un letto aggiuntivo.\n\nLa soluzione Familiare, con due ambienti separati, non è ancora prenotabile.',
+      en: 'Rooms 303 and 305 are the ones that can take an extra bed.\n\nThe family suite, with two separate rooms, is not bookable yet.',
+    },
+    actions: [{ kind: 'entry', label: { it: 'Richiedi una culla', en: 'Request a cot' }, value: 'contacts' }],
+    intents: ['children'],
+    verify: { level: 'confirm',
+      note: 'La knowledge storica diceva insieme «Bambini: sì» e «età minima 18 anni», che si contraddicono. Qui resta solo che le famiglie sono benvenute e che culle e lettini si chiedono prima: confermare se esiste davvero una regola sui minori e, se sì, quale.' },
+  },
+  {
     id: 'water',
     section: 'stay',
     phase: ['staying'],

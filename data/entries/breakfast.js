@@ -13,8 +13,8 @@ export const breakfast = [
     priority: -15,
     title: { it: 'Dove si fa colazione', en: 'Where breakfast happens' },
     summary: {
-      it: 'All’Opera Caffè, in Piazza del Duomo, ai piedi del Campanile di Giotto: colazione completa con servizio al tavolo. È una passeggiata di circa quindici minuti.',
-      en: 'At Opera Caffè in Piazza del Duomo, at the foot of Giotto’s bell tower: a full breakfast served at the table. It is about a fifteen-minute walk.',
+      it: 'È inclusa nel soggiorno e si fa all’Opera Caffè, in Piazza del Duomo, ai piedi del Campanile di Giotto: colazione completa con servizio al tavolo, a una passeggiata di circa quindici minuti.',
+      en: 'It is included in your stay and happens at Opera Caffè in Piazza del Duomo, at the foot of Giotto’s bell tower: a full breakfast served at the table, about a fifteen-minute walk away.',
     },
     detail: {
       it: 'Sì, non è sotto casa — ed è voluto. Fai colazione guardando il Duomo invece che un muro, e la strada per arrivarci è una delle più belle della città.\n\nMostra la conferma di prenotazione LunArt prima di ordinare.\n\nNello stesso posto puoi lasciare i bagagli, gratis, prima del check-in o dopo il check-out.',
@@ -23,6 +23,7 @@ export const breakfast = [
     facts: [
       { label: { it: 'Dove', en: 'Where' }, value: 'Opera Caffè · Piazza del Duomo 62R' },
       { label: { it: 'A piedi', en: 'On foot' }, value: { it: '~15 minuti', en: '~15 minutes' } },
+      { label: { it: 'Orari', en: 'Hours' }, value: { it: 'te li confermiamo all’arrivo', en: 'we confirm them on arrival' } },
     ],
     actions: [
       { kind: 'map', label: { it: 'Apri in Maps', en: 'Open in Maps' }, value: 'https://maps.app.goo.gl/uok3CmvHBLmwieoV9' },

@@ -1,0 +1,13 @@
+{
+  "name": "lunart-guest-guide",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "LunArt — Guest Guide & Concierge",
+  "scripts": {
+    "test": "node --test test/",
+    "serve": "node tools/serve.mjs",
+    "images": "node tools/optimize-images.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
