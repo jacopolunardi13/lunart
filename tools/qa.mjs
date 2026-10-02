@@ -150,6 +150,76 @@ await page.screenshot({ path: `${OUT}/help-390.png` });
 
 note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2).join(' | ') || 'none'})`);
 
+// ── Language, deep links, review mode, desktop ────────────────────────────────
+{
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on('pageerror', (e) => errs.push(String(e)));
+  console.log('\n── language, routing, review ──');
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.click('#lang-toggle');
+  await page.waitForTimeout(250);
+  note((await page.getAttribute('html', 'lang')) === 'it', 'language toggle sets <html lang>');
+  const italian = await page.textContent('.quick__grid');
+  note(/arriv|ingress|bagagl|auto/i.test(italian), `quick actions render in Italian (${italian.replace(/\s+/g, ' ').trim().slice(0, 48)}…)`);
+
+  await page.click('#open-concierge');
+  await page.waitForTimeout(300);
+  await page.fill('#concierge-input', 'dove posso cenare?');
+  await page.press('#concierge-input', 'Enter');
+  await page.waitForTimeout(300);
+  const dinner = await page.locator('.bubble--concierge').last().textContent();
+  note(/mangiare|ristorante|bistecca/i.test(dinner), `"dove posso cenare?" answers about eating (${dinner.replace(/\s+/g, ' ').trim().slice(0, 44)}…)`);
+  note(!/Canneto/.test(dinner), 'it does not answer with the street address');
+  await page.click('.concierge [data-close]');
+  await page.waitForTimeout(400);
+
+  // Phase changes what is offered first.
+  const beforeQuick = await page.textContent('.quick__grid');
+  await page.click('[data-phase="leaving"]');
+  await page.waitForTimeout(250);
+  const leavingQuick = await page.textContent('.quick__grid');
+  note(beforeQuick !== leavingQuick, 'changing phase changes the quick actions');
+
+  // Entries are linkable, so staff can send a guest straight to an answer.
+  await page.goto(`${BASE}#/e/wifi`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  note(await page.isVisible('.sheet[data-open="true"]'), 'deep link opens the sheet directly');
+  note((await page.textContent('.sheet__body')).includes('LOPERACAFFE62R'), 'deep-linked sheet shows the right entry');
+
+  await page.goto(`${BASE}?review=1`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(300);
+  const flagged = await page.locator('.review__item').count();
+  note(flagged > 0, `review mode lists flagged content (${flagged} items)`);
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  note((await page.locator('.review__item').count()) === 0, 'review list is absent without ?review=1');
+
+  note(errs.length === 0, `no page errors (${errs.slice(0, 2).join(' | ') || 'none'})`);
+  await ctx.close();
+}
+
+{
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on('pageerror', (e) => errs.push(String(e)));
+  console.log('\n── desktop (1280px) ──');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(300);
+  const wide = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, win: window.innerWidth }));
+  note(wide.doc <= wide.win + 1, `no horizontal overflow (${wide.doc} vs ${wide.win})`);
+  const bar = await page.evaluate(() => document.querySelector('#tabbar').getBoundingClientRect().top);
+  note(bar < 100, `navigation moves to the top on desktop (top: ${Math.round(bar)}px)`);
+  await page.click('#open-concierge');
+  await page.waitForTimeout(400);
+  note(await page.isVisible('.concierge[data-open="true"]'), 'concierge opens as a panel');
+  await page.screenshot({ path: `${OUT}/desktop-1280.png` });
+  note(errs.length === 0, `no page errors (${errs.slice(0, 2).join(' | ') || 'none'})`);
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

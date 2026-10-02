@@ -499,6 +499,10 @@ h3 { font-size: var(--step-1); }
   }
   .tab { flex-direction: row; gap: 8px; padding: 0 16px; font-size: var(--small); }
   .header { top: 56px; }
+  /* The header spans the window, but its contents line up with the column below
+     it, so the wordmark does not float off on its own at the far left. */
+  .header { padding-inline: max(var(--gutter), calc((100% - 820px) / 2 + var(--gutter))); }
+  .footer { padding-inline: 0; }
   .concierge {
     inset: auto 24px 24px auto; width: 400px; height: min(620px, 82vh);
     border-radius: 20px; box-shadow: var(--shadow-lifted);
