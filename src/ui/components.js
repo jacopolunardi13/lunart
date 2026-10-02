@@ -98,21 +98,30 @@ export function quickTile(entry, lang) {
   </button>`;
 }
 
+/**
+ * One recommendation.
+ *
+ * The whole row opens Maps, rather than carrying a separate button: a guest
+ * reading this wants to know where the place is, and six restaurants each with
+ * their own button turned the page into a column of buttons.
+ */
 export function placeRow(place, lang) {
-  const links = [
-    `<a class="action" href="${esc(place.maps)}" target="_blank" rel="noopener">
-       ${icon('map', 16)}${esc(UI[lang].openMaps)}</a>`,
-    place.url
-      ? `<a class="action" href="${esc(place.url)}" target="_blank" rel="noopener">
-           ${icon('external', 16)}${esc(UI[lang].website)}</a>`
-      : '',
-  ].join('');
+  const site = place.url
+    ? `<a class="place__site" href="${esc(place.url)}" target="_blank" rel="noopener">
+         ${icon('external', 14)}${esc(UI[lang].website)}</a>`
+    : '';
 
-  return `<li class="place">
-    <p class="place__name">${esc(place.name)}</p>
-    <p class="place__area">${esc(t(place.area, lang))}</p>
-    <p class="place__note">${esc(t(place.note, lang))}</p>
-    <div class="place__links">${links}</div>
+  return `<li>
+    <a class="place" href="${esc(place.maps)}" target="_blank" rel="noopener">
+      <span class="place__body">
+        <span class="place__name">${esc(place.name)}</span>
+        <span class="place__area">${esc(t(place.area, lang))}</span>
+        <span class="place__note">${esc(t(place.note, lang))}</span>
+      </span>
+      <span class="place__go" aria-hidden="true">${icon('map', 18)}</span>
+      <span class="visually-hidden">${esc(UI[lang].openMaps)}</span>
+    </a>
+    ${site}
   </li>`;
 }
 

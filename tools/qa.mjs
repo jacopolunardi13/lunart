@@ -220,6 +220,77 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
   await ctx.close();
 }
 
+// ── Contrast ─────────────────────────────────────────────────────────────────
+{
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  console.log('\n── contrast (WCAG AA) ──');
+
+  for (const [view, label] of [['', 'guide'], ['#/florence', 'florence'], ['#/help', 'help']]) {
+    await page.goto(BASE + view, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(350);
+
+    const failures = await page.evaluate(() => {
+      const channel = (c) => (c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+      const parse = (value) => (value.match(/[\d.]+/g) ?? []).map(Number);
+      const blend = (fg, bg) => {
+        const a = fg[3] ?? 1;
+        return [0, 1, 2].map((i) => fg[i] * a + bg[i] * (1 - a));
+      };
+      const ratio = (a, b) => {
+        const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+        return (hi + 0.05) / (lo + 0.05);
+      };
+
+      /** Walk up for the first opaque background; a photo behind the text is skipped. */
+      function backdrop(el) {
+        for (let node = el; node && node !== document.documentElement; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (style.backgroundImage !== 'none') return null;
+          const bg = parse(style.backgroundColor);
+          if (bg.length && (bg[3] ?? 1) > 0.95) return bg.slice(0, 3);
+        }
+        return [250, 249, 247];
+      }
+
+      const out = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const text = [...el.childNodes]
+          .filter((n) => n.nodeType === Node.TEXT_NODE)
+          .map((n) => n.textContent.trim()).join('');
+        if (!text) continue;
+        if (!el.offsetParent && getComputedStyle(el).position !== 'fixed') continue;
+
+        // Text over the hero photograph cannot be measured against a parent colour.
+        // It is measured against the scrim instead, composited over white — the
+        // worst backdrop a photograph could present.
+        const overPhoto = el.closest('.hero__caption');
+        const bg = overPhoto
+          ? blend([...parse(getComputedStyle(document.documentElement).getPropertyValue('--hero-scrim'))], [255, 255, 255])
+          : backdrop(el);
+        if (!bg) continue;
+
+        const style = getComputedStyle(el);
+        const colour = blend(parse(style.color), bg);
+        const size = parseFloat(style.fontSize);
+        const bold = Number(style.fontWeight) >= 700;
+        const large = size >= 24 || (size >= 18.66 && bold);
+        const needed = large ? 3 : 4.5;
+        const got = ratio(colour, bg);
+        if (got < needed) {
+          out.push({ cls: el.className || el.tagName, size: Math.round(size), got: got.toFixed(2), needed, text: text.slice(0, 24) });
+        }
+      }
+      return out;
+    });
+
+    note(failures.length === 0,
+      `${label}: every text colour meets AA (${failures.length} below: ${failures.slice(0, 3).map((f) => `${f.cls} ${f.size}px ${f.got}:1`).join(', ')})`);
+  }
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

@@ -228,7 +228,7 @@ export function reviewView(lang) {
       <span class="review__level" data-level="${esc(item.level)}">${esc(item.level)}</span>
       <strong> ${esc(t(item.title, lang))}</strong>
       ${item.field ? ` <em>(${esc(item.field)})</em>` : ''}
-      <p style="margin-top:6px;color:var(--ink-70)">${esc(item.note)}</p>
+      <p style="margin-top:6px;color:var(--ink-strong)">${esc(item.note)}</p>
     </div>`).join('');
 
   return `<section class="review">
