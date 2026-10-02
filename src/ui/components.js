@@ -34,7 +34,7 @@ export function facts(list, lang) {
     const value = esc(t(fact.value, lang));
     const copy = fact.copy
       ? `<button class="fact__copy" type="button" data-copy="${value}">
-           ${icon('copy', 14)}<span>${esc(UI[lang].copy)}</span>
+           <span data-copy-icon>${icon('copy', 14)}</span><span data-copy-label>${esc(UI[lang].copy)}</span>
          </button>`
       : '';
     return `<div class="fact">

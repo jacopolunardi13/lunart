@@ -291,6 +291,82 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
   await ctx.close();
 }
 
+// ── Copy to clipboard, and the offline fallback ──────────────────────────────
+{
+  const ctx = await browser.newContext({ ...devices['iPhone 13'], permissions: ['clipboard-read', 'clipboard-write'] });
+  const page = await ctx.newPage();
+  console.log('\n── clipboard and offline ──');
+
+  await page.goto(`${BASE}#/e/wifi`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  await page.click('.sheet [data-copy]:last-of-type, .sheet [data-copy]');
+  await page.waitForTimeout(250);
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  note(clip === 'LunArt-Guest' || clip === 'LOPERACAFFE62R', `copy button copies the value (${clip})`);
+  note((await page.getAttribute('.sheet [data-copy]', 'data-copied')) === 'true', 'copy button confirms it worked');
+
+  // A guest in a stairwell with no signal should still get the Wi-Fi password.
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  const registered = await page.evaluate(async () => {
+    if (!('serviceWorker' in navigator)) return false;
+    const reg = await navigator.serviceWorker.ready.catch(() => null);
+    return Boolean(reg && reg.active);
+  });
+  note(registered, 'service worker registers and activates');
+
+  if (registered) {
+    await page.waitForTimeout(1200);          // let the runtime cache fill
+    await ctx.setOffline(true);
+    const response = await page.goto(BASE, { waitUntil: 'load' }).catch(() => null);
+    await page.waitForTimeout(900);
+    const offlineCards = await page.locator('.card').count();
+    note(Boolean(response) && offlineCards > 5, `the guide still renders offline (${offlineCards} cards)`);
+    await ctx.setOffline(false);
+  }
+
+  await ctx.close();
+}
+
+// ── Slider: the dot you tap is the photo you get ─────────────────────────────
+{
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  console.log('\n── room slider ──');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+
+  // Room 302 carries four photographs, which is where the old off-by-one showed.
+  const slider = page.locator('[data-slider]').nth(1);
+  await slider.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
+
+  const dots = slider.locator('[data-slide]');
+  const count = await dots.count();
+  note(count >= 3, `a multi-photo slider is on the page (${count} dots)`);
+
+  // Tap the third dot: the third photo must be shown, not the second.
+  await dots.nth(2).click();
+  await page.waitForTimeout(700);
+  const index = await slider.evaluate((el) => {
+    const track = el.querySelector('[data-track]');
+    return Math.round(track.scrollLeft / track.clientWidth);
+  });
+  note(index === 2, `tapping dot 3 shows photo 3 (showing ${index + 1})`);
+  const marked = await slider.evaluate((el) =>
+    [...el.querySelectorAll('[data-slide]')].findIndex((d) => d.getAttribute('aria-current') === 'true'));
+  note(marked === 2, `the dots agree with the photo (dot ${marked + 1} marked)`);
+
+  // Then back to the first, to check it does not simply step forward.
+  await dots.nth(0).click();
+  await page.waitForTimeout(700);
+  const back = await slider.evaluate((el) => {
+    const track = el.querySelector('[data-track]');
+    return Math.round(track.scrollLeft / track.clientWidth);
+  });
+  note(back === 0, `tapping dot 1 goes back to photo 1 (showing ${back + 1})`);
+
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

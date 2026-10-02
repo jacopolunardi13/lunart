@@ -53,9 +53,27 @@ function go(view) {
   location.hash = `#/${view}`;
 }
 
+/**
+ * True when this session is what put an entry in the URL. A guest who arrived on a
+ * deep link has nothing to go back to, so closing the sheet must not walk them off
+ * the site; it rewrites the hash in place instead.
+ */
+let pushedEntry = false;
+
 function openEntry(entryId) {
   if (!getEntry(entryId)) return;
+  pushedEntry = true;
   location.hash = `#/e/${encodeURIComponent(entryId)}`;
+}
+
+function dismissEntry() {
+  if (!parseHash().entry) return;
+  if (pushedEntry) {
+    pushedEntry = false;
+    history.back();
+  } else {
+    history.replaceState(null, '', `#/${state.view}`);
+  }
 }
 
 function onRoute() {
@@ -67,9 +85,7 @@ function onRoute() {
   }
 
   if (route.entry) {
-    const opened = openSheet(route.entry, state.lang, {
-      onClose: () => { if (parseHash().entry) history.back(); },
-    });
+    const opened = openSheet(route.entry, state.lang, { onClose: dismissEntry });
     if (!opened) go(state.view);
   } else {
     closeSheet();
@@ -151,12 +167,15 @@ function buildChrome() {
     if (copyButton) {
       try {
         await navigator.clipboard.writeText(copyButton.dataset.copy);
+        const label = copyButton.querySelector('[data-copy-label]');
+        const mark = copyButton.querySelector('[data-copy-icon]');
         copyButton.dataset.copied = 'true';
-        copyButton.querySelector('span').textContent = UI[state.lang].copied;
+        if (label) label.textContent = UI[state.lang].copied;
+        if (mark) mark.innerHTML = icon('check', 14);
         setTimeout(() => {
           delete copyButton.dataset.copied;
-          const span = copyButton.querySelector('span');
-          if (span) span.textContent = UI[state.lang].copy;
+          if (label) label.textContent = UI[state.lang].copy;
+          if (mark) mark.innerHTML = icon('copy', 14);
         }, 1600);
       } catch { /* clipboard blocked: the value is on screen anyway */ }
     }

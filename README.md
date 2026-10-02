@@ -115,17 +115,28 @@ the same way and ten questions that must be declined.
 ## Checking a change
 
 ```sh
-npm test                            # unit tests, no browser needed
+npm test                            # 152 unit tests, no browser needed
 npm run serve &                     # then, in another shell:
 npm install --no-save playwright
-node tools/qa.mjs                   # 360 / 390 / 430 px, overflow, tap targets, a11y
-node tools/measure.mjs http://localhost:4173/ "v2"
+npm run qa                          # 59 browser checks
+npm run measure -- http://localhost:4173/ "v2"
 ```
 
-`tools/qa.mjs` drives a real browser and checks the things that were actually broken
-before: the navigation escaping the viewport on a phone, horizontal overflow, tap
-targets too small to hit, images without alt text, and the Concierge declining
-"avete biscotti?". Screenshots land in `tools/.qa-screens/`.
+`npm run qa` drives a real browser and checks the things that were actually broken
+before, plus the ones easy to break next time:
+
+- three phone widths (360 / 390 / 430) for overflow, the navigation staying in the
+  viewport, tap targets, alt text and console errors;
+- WCAG AA contrast for every visible text node across all three views, with the
+  hero caption measured against its scrim over white;
+- the room slider — tapping the third dot must show the third photograph, which is
+  exactly what the old one got wrong;
+- the Concierge declining "avete biscotti?" and answering "dove posso cenare?"
+  about dinner rather than the street address;
+- Italian, phase switching, deep links, the review screen, the desktop layout,
+  copy-to-clipboard, and the guide still rendering with the network switched off.
+
+Screenshots land in `tools/.qa-screens/`.
 
 ## Weight
 

@@ -13,7 +13,7 @@ import { entryCard, quickTile, placeRow, slider, facts, actions, picture } from 
 import {
   SECTIONS, PHASES, entries, entriesInSection, getEntry, getPlace,
   QUICK_ACTIONS, property, contacts, emergency, rooms, roomsCommon,
-  itineraries, dayTrips, verifyList,
+  itineraries, dayTrips, verifyList, unverifiedContacts,
 } from '../../data/index.js';
 
 const GUIDE_SECTIONS = ['arrival', 'stay', 'breakfast', 'departure'];
@@ -231,10 +231,20 @@ export function reviewView(lang) {
       <p style="margin-top:6px;color:var(--ink-strong)">${esc(item.note)}</p>
     </div>`).join('');
 
+  // Details an external draft introduced that LunArt has not confirmed. They are
+  // deliberately absent from the guide; this is the only place they appear.
+  const held = unverifiedContacts.map((item) => `
+    <div class="review__item">
+      <span class="review__level" data-level="blocker">non pubblicato</span>
+      <strong> ${esc(item.label)}</strong> — <code>${esc(item.value)}</code>
+      <p style="margin-top:6px;color:var(--ink-strong)">${esc(item.note)}</p>
+    </div>`).join('');
+
   return `<section class="review">
     <p class="eyebrow">${esc(UI[lang].reviewNote)}</p>
     <h2 style="margin:8px 0 4px">${esc(UI[lang].reviewTitle)}</h2>
     ${items}
+    ${held}
   </section>`;
 }
 

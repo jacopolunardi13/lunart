@@ -10,7 +10,7 @@
 import { esc, t, paragraphs, trapFocus, lockScroll } from './dom.js';
 import { icon } from './icons.js';
 import { UI } from '../i18n.js';
-import { facts, actions, placeRow, hydrateSliders } from './components.js';
+import { facts, actions, placeRow } from './components.js';
 import { getEntry, getPlace } from '../../data/index.js';
 
 let root = null;
@@ -73,7 +73,6 @@ export function openSheet(entryId, lang, { onClose } = {}) {
   });
 
   lockScroll(true);
-  hydrateSliders(root);
   root.querySelector('[data-close]')?.addEventListener('click', () => closeSheet(onClose));
   releaseFocus = trapFocus(root, { onEscape: () => closeSheet(onClose) });
   root.querySelector('[data-close]')?.focus();

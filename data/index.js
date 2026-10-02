@@ -33,13 +33,6 @@ export const getPlace = (id) => placesById.get(id);
 
 export const entriesInSection = (sectionId) => entries.filter((e) => e.section === sectionId);
 
-/**
- * Entries worth surfacing first for a given phase. Phase only reorders: an entry
- * tagged for another moment of the stay is still reachable through its section,
- * through search and through the Concierge.
- */
-export const entriesForPhase = (phaseId) => entries.filter((e) => e.phase.includes(phaseId));
-
 /** The handful of things a guest taps for without reading anything first. */
 export const QUICK_ACTIONS = {
   before:  ['checkin', 'access', 'parking', 'luggage-early'],
