@@ -12,9 +12,12 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-  entries, getEntry, getPlace, places, rooms, contacts, emergency,
+  entries, getEntry, getPlace, places, rooms, contacts, emergency, property,
   SECTION_IDS, PHASE_IDS, QUICK_ACTIONS, verifyList, itineraries, dayTrips, CATEGORIES,
 } from '../data/index.js';
+import { ICON_IDS } from '../src/ui/icons.js';
+import { SECTIONS } from '../data/schema.js';
+import { UI } from '../src/i18n.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const LANGS = ['it', 'en'];
@@ -197,5 +200,36 @@ test('no entry restates another entry’s summary', () => {
       assert.ok(!previous, `"${entry.id}" repeats the ${lang} summary of "${previous}"`);
       seen.set(text, entry.id);
     }
+  }
+});
+
+test('the property block has every localised field a view asks for', () => {
+  // A missing one renders as an empty string rather than throwing, so it has to
+  // be caught here: `shortTagline` once vanished silently from the hero.
+  for (const field of ['tagline', 'shortTagline', 'intro']) {
+    assertL10n(property[field], `property.${field}`);
+  }
+  assertL10n(property.address.city, 'property.address.city');
+  assertL10n(property.address.floor, 'property.address.floor');
+  assert.match(property.address.maps, /^https:\/\//);
+});
+
+test('every icon an entry or section names actually exists', () => {
+  const used = new Set([
+    ...entries.map((e) => e.icon),
+    ...SECTIONS.map((s) => s.icon),
+    ...CATEGORIES.map((c) => c.icon),
+  ]);
+  for (const id of used) {
+    assert.ok(ICON_IDS.includes(id), `icon "${id}" is referenced but not drawn`);
+  }
+});
+
+test('the interface is translated in both languages', () => {
+  const it = Object.keys(UI.it).sort();
+  const en = Object.keys(UI.en).sort();
+  assert.deepEqual(it, en, 'UI string tables have drifted apart');
+  for (const key of it) {
+    assert.ok(UI.it[key].trim() && UI.en[key].trim(), `UI key "${key}" is empty somewhere`);
   }
 });

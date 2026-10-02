@@ -15,6 +15,11 @@ export const property = {
     it: 'Bed & Breakfast · Vicolo del Canneto 2, Firenze',
     en: 'Bed & Breakfast · Vicolo del Canneto 2, Florence',
   },
+  /* Short enough to sit on one line over the hero photograph at 360px. */
+  shortTagline: {
+    it: 'Bed & Breakfast · Firenze',
+    en: 'Bed & Breakfast · Florence',
+  },
   address: {
     street: 'Vicolo del Canneto 2',
     postcode: '50125',

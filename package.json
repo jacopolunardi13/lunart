@@ -5,7 +5,7 @@
   "type": "module",
   "description": "LunArt — Guest Guide & Concierge",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "serve": "node tools/serve.mjs",
     "images": "node tools/optimize-images.mjs"
   },
