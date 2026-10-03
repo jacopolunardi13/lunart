@@ -14,7 +14,8 @@
     "start": "node server/index.js",
     "qa:commerce": "node tools/qa-commerce.mjs",
     "qa:reservations": "node tools/qa-reservations.mjs",
-    "preview:shots": "node tools/preview-shots.mjs"
+    "preview:shots": "node tools/preview-shots.mjs",
+    "qa:shots": "node tools/guest-shots.mjs"
   },
   "engines": {
     "node": ">=20"

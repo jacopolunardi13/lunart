@@ -1,0 +1,355 @@
+/**
+ * The home of a guest who has already booked.
+ *
+ * The guide holds everything LunArt knows, and the previous home showed all of it
+ * in one column: thirty-five entry cards, five room carousels, eleven screens of
+ * scrolling. Every fact was right and nothing was findable.
+ *
+ * So this page is shorter without being smaller. Five sections, each answering one
+ * question a guest actually has — what is my stay, what happens while I am here,
+ * what else can I ask for, what about Florence, and where is everything else — and
+ * the everything else sits behind disclosures that are still in the document. The
+ * Concierge, the search and every `#/e/<id>` link reach the same content they
+ * always did; a closed `<details>` hides it from the eye, not from the app.
+ *
+ * On a personal link it goes further: the greeting is theirs, the room shown is the
+ * room they are sleeping in, and the question "where are you up to?" is not asked,
+ * because the dates already answered it.
+ */
+
+import { esc, t } from './dom.js';
+import { icon } from './icons.js';
+import { UI } from '../i18n.js';
+import {
+  entryCard, slider, picture, sectionBlock, primaryTile, briefRow, disclosure,
+} from './components.js';
+import { guest, isPersonal } from '../guest.js';
+import {
+  PHASES, getEntry, property, rooms, roomsCommon,
+} from '../../data/index.js';
+
+/**
+ * Filled in by `src/commerce/boot.js` once the shop has loaded. Until then — and
+ * on a copy of the guide with no commerce server behind it — it renders nothing,
+ * which is exactly what should happen.
+ */
+let renderShopTeaser = () => '';
+export const setShopTeaser = (fn) => { renderShopTeaser = fn; };
+
+/* --- The welcome ----------------------------------------------------------- */
+
+/**
+ * The greeting.
+ *
+ * Time of day and a first name, which is how an Italian concierge greets you and
+ * is the one welcome that is always right: "benvenuta" and "benvenuto" differ, a
+ * reservation carries no gender, and a name is not evidence of one. Guessing would
+ * misgender real guests for the sake of one word.
+ */
+function greeting(lang) {
+  const hour = new Date().getHours();
+  const time = hour < 12 ? (lang === 'it' ? 'Buongiorno' : 'Good morning')
+    : hour < 18 ? (lang === 'it' ? 'Buon pomeriggio' : 'Good afternoon')
+      : (lang === 'it' ? 'Buonasera' : 'Good evening');
+  const name = guest()?.first_name;
+  return name ? `${time}, ${name}` : time;
+}
+
+const MONTH = (date, lang) => new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB',
+  { month: 'long', timeZone: 'Europe/Rome' }).format(new Date(`${date}T12:00:00Z`));
+const DAY = (date) => Number(date.slice(8, 10));
+
+/**
+ * The stay in as few words as it takes: "31 ottobre – 2 novembre", or
+ * "3 – 6 ottobre" when both ends fall in the same month. No year — a guest knows
+ * which one they are in — and no booking number, which is not theirs to carry
+ * around in a URL.
+ */
+function stayDates(lang) {
+  const context = guest();
+  if (!context?.check_in || !context?.check_out) return '';
+  const from = context.check_in;
+  const to = context.check_out;
+  if (from.slice(0, 7) === to.slice(0, 7)) {
+    return `${DAY(from)} – ${DAY(to)} ${MONTH(from, lang)}`;
+  }
+  return `${DAY(from)} ${MONTH(from, lang)} – ${DAY(to)} ${MONTH(to, lang)}`;
+}
+
+/**
+ * The personal header.
+ *
+ * A photograph, a greeting, and one line of fact: the room if we know it and the
+ * dates. Compact on purpose — it is the frame around the stay, not the stay — so
+ * the four things a guest came for are on the first screen with it.
+ */
+function welcome(lang) {
+  const context = guest();
+  const line = [
+    context?.room ? `${UI[lang].roomLabel} ${context.room}` : '',
+    stayDates(lang),
+  ].filter(Boolean).join(' · ');
+
+  return `
+    <section class="welcome" aria-labelledby="h-hero">
+      <div class="welcome__frame${isPersonal() ? ' welcome__frame--compact' : ''}">
+        ${picture('views/arno-ponte-vecchio',
+    lang === 'it' ? 'L’Arno e Ponte Vecchio visti dalle finestre di LunArt'
+      : 'The Arno and Ponte Vecchio seen from the windows of LunArt',
+    { sizes: '(min-width: 760px) 720px, 100vw', eager: true })}
+        <div class="welcome__caption">
+          <p class="eyebrow">${esc(t(property.shortTagline, lang))}</p>
+          <h1 id="h-hero" class="welcome__greeting">${esc(greeting(lang))}</h1>
+        </div>
+      </div>
+      ${line || context?.cancelled ? `<div class="stay">
+        ${line ? `<p class="stay__line">${esc(line)}</p>` : ''}
+        ${context?.cancelled ? `<div class="notice notice--attention">
+          <span>${icon('alert', 18)}</span>
+          <div>
+            <p><strong>${esc(UI[lang].stayCancelled)}</strong></p>
+            <p>${esc(UI[lang].stayCancelledBody)}</p>
+          </div>
+        </div>` : ''}
+      </div>` : ''}
+    </section>`;
+}
+
+/* --- The four primary actions ---------------------------------------------- */
+
+/**
+ * The four things reached with one thumb.
+ *
+ * Fixed in meaning, reordered by the moment: a guest who has not arrived wants the
+ * door first, a guest in the room wants the Wi-Fi, a guest leaving wants check-out.
+ * Each one opens content that already exists — the arrival slot resolves to the
+ * check-in entry before arrival and to the door-and-keys entry once they are
+ * inside, because that is the same question asked from two places.
+ */
+function primaryActions(lang, phase) {
+  const SLOTS = {
+    arrival:   { label: UI[lang].primaryArrival,   iconId: 'key',      entry: 'checkin' },
+    access:    { label: UI[lang].primaryArrival,   iconId: 'key',      entry: 'access' },
+    departure: { label: UI[lang].primaryDeparture, iconId: 'suitcase', entry: 'checkout' },
+    wifi:      { label: UI[lang].primaryWifi,      iconId: 'wifi',     entry: 'wifi' },
+    breakfast: { label: UI[lang].primaryBreakfast, iconId: 'cup',      entry: 'breakfast' },
+    help:      { label: UI[lang].primaryHelp,      iconId: 'lifebuoy', goto: 'help' },
+  };
+
+  const order = {
+    before:  ['arrival', 'wifi', 'breakfast', 'help'],
+    staying: ['wifi', 'breakfast', 'access', 'help'],
+    leaving: ['departure', 'breakfast', 'wifi', 'help'],
+  }[phase] ?? ['arrival', 'wifi', 'breakfast', 'help'];
+
+  return `<section class="quick" aria-labelledby="h-quick">
+    <h2 class="visually-hidden" id="h-quick">${esc(UI[lang].quickTitle)}</h2>
+    <div class="quick__grid">
+      ${order.map((slot) => primaryTile(SLOTS[slot], lang)).join('')}
+    </div>
+  </section>`;
+}
+
+/* --- A. Your stay ---------------------------------------------------------- */
+
+/**
+ * The guest's own room, and only theirs.
+ *
+ * A guest in 303 has no use for a catalogue of five rooms on their home — they
+ * have already chosen, and they are standing in the answer. The other four are
+ * still in the guide, at the end, behind a disclosure.
+ */
+function assignedRoom(lang) {
+  const number = guest()?.room;
+  const room = number ? rooms.find((r) => r.number === String(number)) : null;
+  if (!room) return '';
+
+  return `<article class="room room--assigned">
+    ${slider(room.photos, lang, { label: `${t(room.category, lang)} ${room.number}` })}
+    <div class="room__head">
+      <h3 class="room__number">${esc(UI[lang].roomLabel)} ${esc(room.number)}</h3>
+      <span class="room__badge room__badge--highlight">${esc(t(room.category, lang))}</span>
+    </div>
+    ${room.view ? `<p class="room__meta">${esc(t(room.view, lang))}</p>` : ''}
+    <p class="room__summary">${esc(t(room.summary, lang))}</p>
+  </article>`;
+}
+
+/** The logistics of the moment: three cards, not a section's worth. */
+const STAY_ESSENTIALS = {
+  before:  ['checkin', 'access', 'parking'],
+  staying: ['access', 'climate', 'amenities'],
+  leaving: ['checkout', 'luggage-late', 'taxi'],
+};
+
+function yourStay(lang, phase) {
+  const essentials = (STAY_ESSENTIALS[phase] ?? STAY_ESSENTIALS.before).map(getEntry).filter(Boolean);
+  const room = assignedRoom(lang);
+  if (!room && essentials.length === 0) return '';
+
+  return `<section class="section" aria-labelledby="h-your-stay">
+    <div class="section__head">
+      <span style="color:var(--accent)">${icon('home', 20)}</span>
+      <h2 id="h-your-stay">${esc(UI[lang].sectionYourStay)}</h2>
+    </div>
+    ${room}
+    <div class="cards${room ? ' cards--after-room' : ''}">${essentials.map((e) => entryCard(e, lang)).join('')}</div>
+  </section>`;
+}
+
+/* --- B. During the stay ---------------------------------------------------- */
+
+/**
+ * The five things that come up while a guest is here.
+ *
+ * Breakfast and the Opera benefit, the cleaning, the bags, and a person to talk
+ * to. One line each: the text was written once, in the entry, and repeating it
+ * here would only make the page longer without making it say more.
+ */
+function duringTheStay(lang, phase) {
+  const luggage = phase === 'before' ? 'luggage-early' : 'luggage-late';
+  const list = ['breakfast', 'opera-benefit', 'cleaning', luggage, 'contacts']
+    .map(getEntry).filter(Boolean);
+  if (list.length === 0) return '';
+
+  return `<section class="section" aria-labelledby="h-during">
+    <div class="section__head">
+      <span style="color:var(--accent)">${icon('clock', 20)}</span>
+      <h2 id="h-during">${esc(UI[lang].sectionDuring)}</h2>
+    </div>
+    <div class="brief">${list.map((e) => briefRow(e, lang)).join('')}</div>
+
+    <!-- Filled in after the first paint with whatever this guest already holds. -->
+    <div data-guest-blocks></div>
+  </section>`;
+}
+
+/* --- D. Florence ----------------------------------------------------------- */
+
+/**
+ * Florence, as one door rather than as a second guide.
+ *
+ * The restaurants, the gelato, the itineraries and the day trips are all still
+ * there — in their own view, which this opens. They were never the operational
+ * half of a stay, and on the home they buried it.
+ */
+function florenceCard(lang) {
+  return `<section class="section" aria-labelledby="h-florence-card">
+    <h2 class="visually-hidden" id="h-florence-card">${esc(UI[lang].florence)}</h2>
+    <button class="feature" type="button" data-goto="florence">
+      <span class="feature__frame">
+        ${picture('views/arno-palazzi',
+    lang === 'it' ? 'I palazzi sull’Arno al tramonto' : 'The palazzi along the Arno at dusk',
+    { sizes: '(min-width: 760px) 720px, 100vw' })}
+      </span>
+      <span class="feature__caption">
+        <span class="feature__title">${esc(UI[lang].discoverFlorence)}</span>
+        <span class="feature__note">${esc(UI[lang].discoverFlorenceNote)}</span>
+      </span>
+      <span class="feature__mark">${icon('chevron', 18)}</span>
+    </button>
+  </section>`;
+}
+
+/* --- E. Everything else ---------------------------------------------------- */
+
+/**
+ * The whole knowledge base, one tap away instead of one scroll long.
+ *
+ * Nothing is dropped: every entry of every section is here, and the five rooms
+ * with it. They sit inside disclosures, which keeps the page short without taking
+ * the content out of the document — the search finds them, the Concierge answers
+ * from them, and a link straight to one still opens it.
+ */
+function everythingElse(lang) {
+  const SECTION_ICONS = { arrival: 'key', stay: 'home', breakfast: 'cup', departure: 'suitcase' };
+  const folds = ['arrival', 'stay', 'breakfast', 'departure'].map((id) => disclosure({
+    id: `fold-${id}`,
+    iconId: SECTION_ICONS[id],
+    title: t(sectionTitle(id), lang),
+    body: sectionBlock(id, lang, { heading: false }),
+  })).join('');
+
+  return `<section class="section" aria-labelledby="h-more">
+    <div class="section__head">
+      <span style="color:var(--accent)">${icon('compass', 20)}</span>
+      <h2 id="h-more">${esc(UI[lang].sectionMore)}</h2>
+    </div>
+    <div class="folds">
+      ${folds}
+      ${disclosure({
+    id: 'fold-rooms',
+    iconId: 'door',
+    title: UI[lang].rooms,
+    body: `<p class="fold__lead">${esc(t(roomsCommon, lang))}</p>${rooms.map((room) => roomCard(room, lang)).join('')}`,
+  })}
+    </div>
+  </section>`;
+}
+
+const sectionTitle = (id) => ({
+  arrival:   { it: 'Arrivo e accesso',  en: 'Arrival and access' },
+  stay:      { it: 'In camera',         en: 'In the room' },
+  breakfast: { it: 'Colazione',         en: 'Breakfast' },
+  departure: { it: 'Partenza',          en: 'Departure' },
+}[id]);
+
+/** The catalogue entry for one room, as it reads in the secondary list. */
+function roomCard(room, lang) {
+  const badge = room.comingSoon
+    ? `<span class="room__badge">${esc(UI[lang].comingSoon)}</span>`
+    : `<span class="room__badge${room.highlight ? ' room__badge--highlight' : ''}">${esc(t(room.category, lang))}</span>`;
+
+  return `<article class="room">
+    ${slider(room.photos, lang, { label: `${t(room.category, lang)} ${room.number}` })}
+    <div class="room__head">
+      <h3 class="room__number">${esc(room.number)}</h3>
+      ${badge}
+    </div>
+    ${room.view ? `<p class="room__meta">${esc(t(room.view, lang))}</p>` : ''}
+    <p class="room__summary">${esc(t(room.summary, lang))}</p>
+  </article>`;
+}
+
+/* --- The page -------------------------------------------------------------- */
+
+export function homeView(lang, phase) {
+  /**
+   * The phase question, asked only when nobody has answered it.
+   *
+   * A personal link carries dates, so the guide already knows; asking anyway would
+   * be a form where an answer exists. Without a link we genuinely do not know, and
+   * a wrong guess hides the one thing the guest came for — so the public guide
+   * still asks, and the choice still only reorders.
+   */
+  const phases = isPersonal() ? '' : `
+    <section class="phases" aria-labelledby="h-phase">
+      <p class="eyebrow phases__label" id="h-phase">${esc(UI[lang].phaseLabel)}</p>
+      <div class="phases__list" role="group" aria-labelledby="h-phase">
+        ${PHASES.map((p) => `
+          <button class="phase-chip" type="button" data-phase="${esc(p.id)}"
+            aria-pressed="${p.id === phase}">${esc(t(p.short, lang))}</button>`).join('')}
+      </div>
+    </section>`;
+
+  return `
+    ${welcome(lang)}
+    ${primaryActions(lang, phase)}
+    ${phases}
+    ${yourStay(lang, phase)}
+    ${duringTheStay(lang, phase)}
+    ${renderShopTeaser(lang)}
+    ${florenceCard(lang)}
+
+    <button class="search-trigger" type="button" data-open-search>
+      ${icon('search', 18)}<span>${esc(UI[lang].search)}</span>
+    </button>
+
+    ${everythingElse(lang)}
+
+    <section class="about" aria-labelledby="h-about">
+      <p class="eyebrow" id="h-about">${esc(UI[lang].about)}</p>
+      <p>${esc(t(property.intro, lang))}</p>
+    </section>
+  `;
+}

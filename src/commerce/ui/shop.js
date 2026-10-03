@@ -16,10 +16,21 @@ import { PRODUCTS } from '../../../commerce/catalog.js';
 import { isPurchasable } from '../../../commerce/index.js';
 import { catalogueAvailable, catalogueProblem } from '../api.js';
 
-/** The strip that lives inside the guide, before a guest ever opens the shop. */
+/**
+ * The offer that lives inside the guide, before a guest ever opens the shop.
+ *
+ * Three things, chosen rather than listed, each with what it is and what it costs:
+ * a concierge saying "we can also do this", not a menu asking to be browsed. The
+ * whole catalogue is one tap further on, and that is where a service nobody has
+ * priced yet belongs — a home that offers something unbuyable is a home that wastes
+ * the tap.
+ */
 export function shopTeaser(lang) {
   if (!catalogueAvailable()) return '';
-  const featured = PRODUCTS.filter((p) => p.active && p.featured).slice(0, 4);
+  const featured = PRODUCTS
+    .filter((p) => p.active && p.featured && !p.comingSoon && p.status !== 'coming-soon')
+    .filter((p) => isPurchasable(p, { allowPlaceholders: true }) || p.purchaseMode === 'request-only')
+    .slice(0, 3);
   if (featured.length === 0) return '';
 
   return `<section class="section" aria-labelledby="h-extras">
@@ -27,39 +38,46 @@ export function shopTeaser(lang) {
       <span style="color:var(--accent)">${icon('gift', 20)}</span>
       <h2 id="h-extras">${esc(UI[lang].extras)}</h2>
     </div>
-    <p class="section__blurb">${esc(UI[lang].extrasBlurb)}</p>
-    <div class="quick__grid">
-      ${featured.map((product) => productTile(product, lang)).join('')}
+    <p class="section__blurb">${esc(UI[lang].extrasHomeBlurb)}</p>
+    <div class="offers">
+      ${featured.map((product) => offerCard(product, lang)).join('')}
     </div>
-    <div class="actions" style="margin-top:12px">
-      <button class="action" type="button" data-shop>${icon('chevron', 16)}${esc(UI[lang].seeAllExtras)}</button>
-    </div>
+    <button class="action action--wide" type="button" data-shop>
+      ${esc(UI[lang].seeAllExtras)}${icon('chevron', 16)}
+    </button>
   </section>`;
 }
 
-function productTile(product, lang) {
-  const range = priceRange(product);
-  if (product.comingSoon) return comingSoonTile(product, lang, 'quick__item');
-  return `<button class="quick__item" type="button" data-product="${esc(product.id)}">
-    ${icon(tileIcon(product), 24)}
-    <span class="quick__title">${esc(t(product.title, lang))}</span>
-    ${range ? `<span class="price-tag">${esc(fromLabel(range, lang))}</span>` : ''}
-  </button>`;
-}
-
 /**
- * A service nobody has defined yet.
+ * One offer.
  *
- * Grey, not a button, no price, no sheet, and no copy written to make it look
- * finished — one word, so a guest knows it is coming and knows there is nothing to
- * read. Rendered as a <div> precisely so it cannot be tapped.
+ * Warmer and larger than an entry card, because this is something being offered
+ * rather than something being explained — but still the guide's typography, the
+ * guide's radius, the guide's accent. A guest who has booked a room should not feel
+ * handed over to a shop halfway down their own guide.
  */
-function comingSoonTile(product, lang, className) {
-  return `<div class="${className} is-coming-soon" aria-disabled="true">
-    ${icon(tileIcon(product), 24)}
-    <span class="quick__title">${esc(t(product.title, lang))}</span>
-    <span class="badge">${esc(UI[lang].comingSoonBadge)}</span>
-  </div>`;
+function offerCard(product, lang) {
+  const range = priceRange(product);
+  const purchasable = isPurchasable(product, { allowPlaceholders: true });
+
+  const note = product.purchaseMode === 'request-only'
+    ? `<span class="badge">${esc(UI[lang].onRequestBadge)}</span>`
+    : range?.anyPlaceholder
+      // Never a figure nobody has signed off, shown as though it were final.
+      ? `<span class="badge badge--warn">${esc(UI[lang].provisionalPrice)}</span>`
+      : '';
+
+  return `<button class="offer" type="button" data-product="${esc(product.id)}">
+    <span class="offer__icon">${icon(tileIcon(product), 22)}</span>
+    <span class="offer__body">
+      <span class="offer__title">${esc(t(product.title, lang))}</span>
+      <span class="offer__summary">${esc(t(product.summary, lang))}</span>
+    </span>
+    <span class="offer__meta">
+      ${range && purchasable ? `<span class="offer__price">${esc(fromLabel(range, lang))}</span>` : ''}
+      ${note}
+    </span>
+  </button>`;
 }
 
 const tileIcon = (product) => ({

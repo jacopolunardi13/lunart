@@ -10,7 +10,8 @@ import { $, esc, fill } from './ui/dom.js';
 import { icon } from './ui/icons.js';
 import { UI, initialLang, saveLang } from './i18n.js';
 import { hydrateSliders } from './ui/components.js';
-import { guideView, florenceView, helpView, reviewView, setShopTeaser } from './ui/views.js';
+import { homeView, setShopTeaser } from './ui/home.js';
+import { florenceView, helpView, reviewView } from './ui/views.js';
 import { openSheet, closeSheet } from './ui/sheet.js';
 
 /**
@@ -24,7 +25,7 @@ import { loadGuest, tokenFromPath, guest } from './guest.js';
 import { PHASES, getEntry } from '../data/index.js';
 
 const PHASE_KEY = 'lunart.phase';
-const VIEWS = { guide: guideView, florence: florenceView, help: helpView };
+const VIEWS = { guide: homeView, florence: florenceView, help: helpView };
 const reviewMode = new URLSearchParams(location.search).get('review') === '1';
 
 const state = {
@@ -137,7 +138,7 @@ function onRoute() {
 /* --- Rendering ------------------------------------------------------------- */
 function render() {
   const main = $('#main');
-  const view = viewFor(state.view) ?? guideView;
+  const view = viewFor(state.view) ?? homeView;
   fill(main, view(state.lang, state.phase) + (reviewMode ? reviewView(state.lang) : ''));
   hydrateSliders(main);
   main.scrollTop = 0;
@@ -151,6 +152,9 @@ function render() {
     const active = tab.dataset.view === state.view;
     tab.setAttribute('aria-current', active ? 'page' : 'false');
     tab.querySelector('[data-tab-label]').textContent = UI[state.lang][tab.dataset.view];
+    // On the static copy of the guide there is no shop, so there is no tab for it
+    // either; the bar divides itself between whatever is left.
+    if (tab.dataset.view === 'shop') tab.hidden = !commerce?.catalogueAvailable();
   }
   updateCartBadge();
   fillGuestBlocks();
@@ -193,9 +197,18 @@ function buildChrome() {
     render();
   });
 
-  $('#tabbar').innerHTML = ['guide', 'florence', 'help']
+  /**
+   * Four destinations, and not one of them is a filing cabinet.
+   *
+   * The bar used to carry Help, which overlapped with the Concierge — both are
+   * "ask somebody" — while the Extras, which a guest can actually buy from, had no
+   * place in it at all. So Help moved up to where it is quicker, as one of the four
+   * primary actions on the home, and the Extras took its seat. `#/help` still
+   * resolves: the route did not go anywhere, only the tab did.
+   */
+  $('#tabbar').innerHTML = ['guide', 'shop', 'florence']
     .map((view) => `<button class="tab" type="button" data-view="${view}">
-        ${icon({ guide: 'compass', florence: 'museum', help: 'lifebuoy' }[view], 21)}
+        ${icon({ guide: 'home', shop: 'gift', florence: 'museum' }[view], 21)}
         <span data-tab-label></span>
       </button>`)
     .concat(`<button class="tab" type="button" id="open-concierge">
@@ -243,6 +256,11 @@ function buildChrome() {
 
     const cardTrigger = event.target.closest('[data-card]');
     if (cardTrigger) { event.preventDefault(); openCard(cardTrigger.dataset.card); return; }
+
+    // A card that leads to a whole view — Florence, Help — rather than to one
+    // entry. The tabbar has its own listener; this is for the ones in the page.
+    const goTrigger = event.target.closest('[data-goto]');
+    if (goTrigger) { event.preventDefault(); go(goTrigger.dataset.goto); return; }
 
     if (event.target.closest('[data-shop]')) { go('shop'); return; }
     if (event.target.closest('#cart-button')) { openCart(); return; }

@@ -8,7 +8,7 @@
  * Bump CACHE when the shell changes; old caches are cleared on activate.
  */
 
-const CACHE = 'lunart-guide-v2.0.0';
+const CACHE = 'lunart-guide-v2.1.0';
 
 /** The shell, plus the one photograph that is above the fold. */
 const PRECACHE = [
@@ -46,6 +46,20 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== location.origin) return;  // fonts and maps stay on the network
+
+  /**
+   * The API is never cached. Not cache-first, not at all.
+   *
+   * Everything else here is a file that only changes when the guide is
+   * republished, so serving it from the cache is simply faster. `/api/` is the
+   * opposite: prices, what is available, what a slot costs, what an order has
+   * come to. A cached copy of any of those is a figure the guest is shown as
+   * current when it is not, and the whole point of recalculating every price on
+   * the server is that the browser is not the one who decides. So these go to the
+   * network or they fail, and a failure is handled where it is understood — the
+   * guide drops the shop and keeps working.
+   */
+  if (url.pathname.startsWith('/api/')) return;
 
   // Documents: network first, so a republished guide is picked up straight away,
   // with the cache as the fallback when there is no signal.

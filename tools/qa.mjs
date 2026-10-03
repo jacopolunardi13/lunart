@@ -78,17 +78,32 @@ for (const width of [360, 390, 430]) {
     .filter((x) => x.h < 40 || x.w < 40));
   note(small.length === 0, `tap targets >= 40px (${small.length} small: ${small.slice(0,4).map(s=>`${s.c} ${s.w}x${s.h}`).join(', ')})`);
 
-  const counts = await page.evaluate(() => ({
-    cards: document.querySelectorAll('.card').length,
-    quick: document.querySelectorAll('.quick .quick__item').length,
-    extras: document.querySelectorAll('.section .quick__item').length,
-    sliders: document.querySelectorAll('[data-slider]').length,
-    h1: document.querySelectorAll('h1').length,
-    imgNoAlt: [...document.querySelectorAll('img')].filter((i) => !i.getAttribute('alt')).length,
-  }));
-  note(counts.cards > 10, `entry cards rendered (${counts.cards})`);
-  note(counts.quick === 4, `quick actions rendered (${counts.quick})`);
-  note(counts.extras > 0, `featured extras rendered (${counts.extras})`);
+  const counts = await page.evaluate(() => {
+    const shown = (sel) => [...document.querySelectorAll(sel)]
+      .filter((el) => el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })).length;
+    return {
+      cards: document.querySelectorAll('.card').length,
+      shownCards: shown('#main .card, #main .room'),
+      folded: document.querySelectorAll('#main details:not([open]) .card, #main details:not([open]) .room').length,
+      quick: document.querySelectorAll('.quick .quick__item').length,
+      offers: document.querySelectorAll('.offer').length,
+      folds: document.querySelectorAll('.fold').length,
+      height: document.body.scrollHeight,
+      screens: +(document.body.scrollHeight / window.innerHeight).toFixed(1),
+      sliders: document.querySelectorAll('[data-slider]').length,
+      h1: document.querySelectorAll('h1').length,
+      imgNoAlt: [...document.querySelectorAll('img')].filter((i) => !i.getAttribute('alt')).length,
+    };
+  });
+  note(counts.cards > 30, `the whole knowledge base is still in the document (${counts.cards} cards)`);
+  // The home used to be eleven screens of continuous scroll. The content did not
+  // shrink — only what is on screen at once did.
+  note(counts.screens <= 6, `the home is short (${counts.height}px, ${counts.screens} screens)`);
+  note(counts.folded >= 25, `and most of it waits behind a fold (${counts.folded} cards folded away)`);
+  note(counts.shownCards < 12, `with little on screen at once (${counts.shownCards} visible)`);
+  note(counts.folds >= 5, `every section has its own fold (${counts.folds})`);
+  note(counts.quick === 4, `four primary actions (${counts.quick})`);
+  note(counts.offers > 0, `featured extras rendered (${counts.offers})`);
   note(counts.h1 === 1, `exactly one h1 (${counts.h1})`);
   note(counts.imgNoAlt === 0, `every image has alt (${counts.imgNoAlt} missing)`);
 
@@ -145,10 +160,28 @@ await page.waitForTimeout(400);
 note((await page.locator('.place').count()) > 5, `florence view lists places (${await page.locator('.place').count()})`);
 await page.screenshot({ path: `${OUT}/florence-390.png`, fullPage: false });
 
-await page.click('[data-view="help"]');
+// Back to the home: the Help action lives there, not in the bar.
+await page.click('[data-view="guide"]');
 await page.waitForTimeout(400);
+await page.click('[data-primary][data-goto="help"]');
+await page.waitForTimeout(400);
+note(page.url().includes('#/help'), `the Help action reaches the help view (${page.url().split('#')[1]})`);
 note((await page.locator('.card').count()) > 4, 'help view lists contacts');
 await page.screenshot({ path: `${OUT}/help-390.png` });
+
+// Everything demoted into a fold is still one tap away, and the fold opens it.
+await page.click('[data-view="guide"]');
+await page.waitForTimeout(400);
+const beforeOpen = await page.locator('#fold-stay .card').first().isVisible();
+await page.click('#fold-stay .fold__summary');
+await page.waitForTimeout(300);
+note(!beforeOpen && await page.locator('#fold-stay .card').first().isVisible(),
+  'a fold opens the section it was hiding');
+await page.click('#fold-stay .card');
+await page.waitForTimeout(450);
+note(await page.isVisible('.sheet[data-open="true"]'), 'and a card inside it still opens its sheet');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(400);
 
 note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2).join(' | ') || 'none'})`);
 
@@ -200,6 +233,86 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
 
   note(errs.length === 0, `no page errors (${errs.slice(0, 2).join(' | ') || 'none'})`);
   await ctx.close();
+}
+
+// ── Nothing was dropped, only folded ─────────────────────────────────────────
+// The shortening is only honest if every entry that used to be on the home is
+// still on the home. This asks the knowledge layer itself rather than trusting
+// the markup: every entry outside the two sections that have their own views has
+// to have a card somewhere in the page, open or folded.
+{
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  console.log('\n── nothing dropped ──');
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+
+  const reach = await page.evaluate(async () => {
+    const data = await import('/data/index.js');
+    const onPage = new Set([...document.querySelectorAll('#main [data-entry]')].map((el) => el.dataset.entry));
+    const owned = data.entries.filter((e) => e.section !== 'florence' && e.section !== 'help');
+    return {
+      total: data.entries.length,
+      owned: owned.length,
+      missing: owned.filter((e) => !onPage.has(e.id)).map((e) => e.id),
+      rooms: document.querySelectorAll('#main .room').length,
+    };
+  });
+  note(reach.missing.length === 0,
+    `every entry the home owns is still on it (${reach.owned} entries, ${reach.missing.join(', ') || 'none missing'})`);
+  note(reach.rooms >= 5, `and all five rooms (${reach.rooms})`);
+
+  // The Florence and Help sections have their own views; check they still fill.
+  await page.goto(`${BASE}#/florence`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  note((await page.locator('.place').count()) > 5, `Florence keeps its recommendations (${await page.locator('.place').count()})`);
+  await page.goto(`${BASE}#/help`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  note((await page.locator('.card').count()) > 4, `Help keeps its contacts (${await page.locator('.card').count()})`);
+  await ctx.close();
+}
+
+// ── The two languages say the same things ────────────────────────────────────
+{
+  console.log('\n── Italian and English ──');
+  const read = async (lang) => {
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 844 }, isMobile: true, hasTouch: true });
+    const page = await ctx.newPage();
+    await page.goto(BASE, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(600);
+    // The toggle shows the language it switches TO, so flip until we are there.
+    for (let i = 0; i < 2 && (await page.getAttribute('html', 'lang')) !== lang; i++) {
+      await page.click('#lang-toggle');
+      await page.waitForTimeout(300);
+    }
+    const shape = await page.evaluate(() => ({
+      lang: document.documentElement.lang,
+      primary: [...document.querySelectorAll('[data-primary] .quick__title')].map((el) => el.textContent.trim()),
+      headings: [...document.querySelectorAll('#main h2')].map((el) => el.textContent.trim()).filter(Boolean),
+      folds: [...document.querySelectorAll('.fold__title')].map((el) => el.textContent.trim()),
+      brief: document.querySelectorAll('.brief__row').length,
+      offers: document.querySelectorAll('.offer').length,
+      tabs: [...document.querySelectorAll('.tab:not([hidden]) span')].map((el) => el.textContent.trim()).filter(Boolean),
+      overflow: document.documentElement.scrollWidth - window.innerWidth,
+      empty: [...document.querySelectorAll('#main h2, .fold__title, [data-primary] .quick__title, .tab span')]
+        .filter((el) => !el.textContent.trim()).length,
+    }));
+    await ctx.close();
+    return shape;
+  };
+
+  const it = await read('it');
+  const en = await read('en');
+  note(it.lang === 'it' && en.lang === 'en', `both languages render (${it.lang}, ${en.lang})`);
+  note(it.primary.length === 4 && en.primary.length === 4,
+    `four primary actions either way (${it.primary.join(' · ')} | ${en.primary.join(' · ')})`);
+  note(it.headings.length === en.headings.length, `the same sections (${it.headings.length} vs ${en.headings.length})`);
+  note(it.folds.length === en.folds.length, `the same folds (${it.folds.join(', ')} | ${en.folds.join(', ')})`);
+  note(it.brief === en.brief && it.offers === en.offers, `the same rows and offers (${it.brief}/${it.offers})`);
+  note(it.tabs.length === en.tabs.length, `the same bar (${it.tabs.join(' · ')} | ${en.tabs.join(' · ')})`);
+  note(it.empty === 0 && en.empty === 0, `no untranslated label is blank (${it.empty + en.empty})`);
+  // Italian is the longer language; 360px is the narrowest phone.
+  note(it.overflow <= 1 && en.overflow <= 1, `neither overflows at 360px (${it.overflow}, ${en.overflow})`);
 }
 
 {
@@ -267,7 +380,7 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
         // Text over the hero photograph cannot be measured against a parent colour.
         // It is measured against the scrim instead, composited over white — the
         // worst backdrop a photograph could present.
-        const overPhoto = el.closest('.hero__caption');
+        const overPhoto = el.closest('.welcome__caption, .feature__caption');
         const bg = overPhoto
           ? blend([...parse(getComputedStyle(document.documentElement).getPropertyValue('--hero-scrim'))], [255, 255, 255])
           : backdrop(el);
@@ -324,6 +437,27 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
     const offlineCards = await page.locator('.card').count();
     note(Boolean(response) && offlineCards > 5, `the guide still renders offline (${offlineCards} cards)`);
     await ctx.setOffline(false);
+
+    /**
+     * And nothing the API said is kept.
+     *
+     * The service worker caches the guide, which only changes when the guide is
+     * republished. It must never cache `/api/`: a cached price, a cached
+     * availability or a cached order total is a figure shown to a guest as
+     * current when it is not — and the server recalculating everything is
+     * worthless if the browser can answer from last week.
+     */
+    await page.waitForTimeout(400);
+    const cachedApi = await page.evaluate(async () => {
+      const names = await caches.keys();
+      const urls = [];
+      for (const name of names) {
+        const keys = await (await caches.open(name)).keys();
+        urls.push(...keys.map((r) => new URL(r.url).pathname).filter((p) => p.startsWith('/api/')));
+      }
+      return urls;
+    });
+    note(cachedApi.length === 0, `no API response is ever cached (${cachedApi.join(', ') || 'none'})`);
   }
 
   await ctx.close();
@@ -336,8 +470,12 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
   console.log('\n── room slider ──');
   await page.goto(BASE, { waitUntil: 'networkidle' });
 
+  // The room catalogue is secondary now, so it waits inside a fold.
+  await page.click('#fold-rooms .fold__summary');
+  await page.waitForTimeout(400);
+
   // Room 302 carries four photographs, which is where the old off-by-one showed.
-  const slider = page.locator('[data-slider]').nth(1);
+  const slider = page.locator('#fold-rooms [data-slider]').nth(1);
   await slider.scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
 

@@ -6,6 +6,7 @@
 import { esc, t, paragraphs } from './dom.js';
 import { icon } from './icons.js';
 import { UI } from '../i18n.js';
+import { SECTIONS, entriesInSection } from '../../data/index.js';
 
 /** Source photographs are 3:2; the attributes reserve the space before it loads. */
 const PHOTO_W = 1024;
@@ -188,6 +189,85 @@ export function hydrateSliders(root) {
 
     sync();
   }
+}
+
+/**
+ * One whole section of the knowledge layer, as a titled list of cards.
+ *
+ * Used by the Help view and, inside a disclosure, by the home — which is why it
+ * lives here rather than in either of them.
+ */
+export function sectionBlock(sectionId, lang, { only, heading = true } = {}) {
+  const meta = SECTIONS.find((s) => s.id === sectionId);
+  let list = entriesInSection(sectionId);
+  if (only) list = list.filter(only);
+  if (list.length === 0) return '';
+
+  const cards = `<div class="cards">${list.map((e) => entryCard(e, lang)).join('')}</div>`;
+  if (!heading) return cards;
+
+  return `<section class="section" id="section-${esc(sectionId)}" aria-labelledby="h-${esc(sectionId)}">
+    <div class="section__head">
+      <span style="color:var(--accent)">${icon(meta.icon, 20)}</span>
+      <h2 id="h-${esc(sectionId)}">${esc(t(meta.title, lang))}</h2>
+    </div>
+    <p class="section__blurb">${esc(t(meta.blurb, lang))}</p>
+    ${cards}
+  </section>`;
+}
+
+/**
+ * A primary action: one of the four things a guest reaches for without reading.
+ *
+ * The label is interface chrome rather than an entry title, because an entry is
+ * titled to be read in a list ("Check-in e arrivo") and this is read in a glance
+ * ("Arrivo"). The destination is always existing content — no fact is restated
+ * here.
+ */
+export function primaryTile({ label, iconId, entry, goto }, lang) {
+  const target = entry ? `data-entry="${esc(entry)}"` : `data-goto="${esc(goto)}"`;
+  return `<button class="quick__item" type="button" data-primary ${target}>
+    ${icon(iconId, 24)}
+    <span class="quick__title">${esc(label)}</span>
+  </button>`;
+}
+
+/**
+ * A one-line row: icon, title, chevron. No summary.
+ *
+ * The card carries the answer in its summary, which is right in a list a guest is
+ * reading to decide. In the during-the-stay block they have already decided — they
+ * want the five things that matter, close together — so the text stays in the
+ * sheet where it was written once.
+ */
+export function briefRow(entry, lang) {
+  return `<button class="brief__row" type="button" data-entry="${esc(entry.id)}">
+    <span class="brief__icon">${icon(entry.icon, 19)}</span>
+    <span class="brief__title">${esc(t(entry.title, lang))}</span>
+    <span class="brief__chevron">${icon('chevron', 15)}</span>
+  </button>`;
+}
+
+/**
+ * A disclosure: a heading that opens.
+ *
+ * Native `<details>`, so it needs no JavaScript, answers to the keyboard and the
+ * screen reader on its own, and keeps working on the static copy of the guide. The
+ * contents are in the document either way — which is what makes this shortening
+ * the page rather than removing anything from it: search, the Concierge and every
+ * `#/e/<id>` link reach inside a closed one exactly as before.
+ */
+export function disclosure({ id, title, note = '', iconId = null, body, open = false }) {
+  if (!body) return '';
+  return `<details class="fold" id="${esc(id)}"${open ? ' open' : ''}>
+    <summary class="fold__summary">
+      ${iconId ? `<span class="fold__icon">${icon(iconId, 19)}</span>` : ''}
+      <span class="fold__title">${esc(title)}</span>
+      ${note ? `<span class="fold__note">${esc(note)}</span>` : ''}
+      <span class="fold__mark">${icon('chevron', 16)}</span>
+    </summary>
+    <div class="fold__body">${body}</div>
+  </details>`;
 }
 
 export { paragraphs };

@@ -1,180 +1,21 @@
 /**
- * The three top-level views.
+ * The views that are not the home.
  *
- * Each returns an HTML string; `main.js` owns when they are drawn and what
- * happens when they are tapped. No view invents content — every string comes from
- * `data/`, which is also what the Concierge answers from.
+ * Florence, Help and the review screen. Each returns an HTML string; `main.js`
+ * owns when they are drawn and what happens when they are tapped. No view invents
+ * content — every string comes from `data/`, which is also what the Concierge
+ * answers from. The home lives in `home.js`, which has enough composition of its
+ * own to be read on its own.
  */
 
 import { esc, t, paragraphs } from './dom.js';
 import { icon } from './icons.js';
 import { UI } from '../i18n.js';
-import { entryCard, quickTile, placeRow, slider, facts, actions, picture } from './components.js';
-import { guest, isPersonal } from '../guest.js';
-
-/**
- * Filled in by `src/commerce/boot.js` once the shop has loaded. Until then — and
- * on a copy of the guide with no commerce server behind it — it renders nothing,
- * which is exactly what should happen.
- */
-let renderShopTeaser = () => '';
-export const setShopTeaser = (fn) => { renderShopTeaser = fn; };
+import { placeRow, facts, actions, sectionBlock } from './components.js';
 import {
-  SECTIONS, PHASES, entries, entriesInSection, getEntry, getPlace,
-  QUICK_ACTIONS, property, contacts, emergency, rooms, roomsCommon,
+  getEntry, getPlace, entriesInSection, contacts, emergency,
   itineraries, dayTrips, verifyList, unverifiedContacts,
 } from '../../data/index.js';
-
-const GUIDE_SECTIONS = ['arrival', 'stay', 'breakfast', 'departure'];
-
-/** Sections, ordered so the one that matches the guest's moment comes first. */
-function orderedSections(phase) {
-  const weight = (sectionId) => {
-    const relevant = entriesInSection(sectionId).filter((e) => e.phase.includes(phase)).length;
-    return -relevant;
-  };
-  return [...GUIDE_SECTIONS].sort((a, b) => weight(a) - weight(b));
-}
-
-function greeting(lang) {
-  const hour = new Date().getHours();
-  const time = hour < 12 ? (lang === 'it' ? 'Buongiorno' : 'Good morning')
-    : hour < 18 ? (lang === 'it' ? 'Buon pomeriggio' : 'Good afternoon')
-      : (lang === 'it' ? 'Buonasera' : 'Good evening');
-  const name = guest()?.first_name;
-  return name ? `${time}, ${name}` : time;
-}
-
-/**
- * The stay, when the guest arrived by their own link.
- *
- * Small and factual: dates, nights, room. It is the one place the guide says
- * something only this guest could see, and it is what makes the rest of the page
- * — the phase it opens on, the room already filled in — make sense.
- */
-function stayBlock(lang) {
-  const context = guest();
-  if (!context?.check_in) return '';
-
-  const dates = `${shortDate(context.check_in, lang)} → ${shortDate(context.check_out, lang)}`;
-  const parts = [
-    dates,
-    context.nights ? `${context.nights} ${esc(UI[lang].nights)}` : '',
-    context.room ? `${esc(UI[lang].roomLabel)} ${esc(context.room)}` : '',
-  ].filter(Boolean);
-
-  return `<section class="stay" aria-labelledby="h-stay">
-    <p class="eyebrow" id="h-stay">${esc(UI[lang].yourStay)}</p>
-    <p class="stay__line">${parts.join(' · ')}</p>
-    ${context.cancelled ? `<div class="notice notice--attention">
-      <span>${icon('alert', 18)}</span>
-      <div>
-        <p><strong>${esc(UI[lang].stayCancelled)}</strong></p>
-        <p>${esc(UI[lang].stayCancelledBody)}</p>
-      </div>
-    </div>` : ''}
-  </section>`;
-}
-
-const shortDate = (date, lang) => new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB',
-  { day: 'numeric', month: 'short', timeZone: 'Europe/Rome' }).format(new Date(`${date}T12:00:00Z`));
-
-function sectionBlock(sectionId, lang, { only } = {}) {
-  const meta = SECTIONS.find((s) => s.id === sectionId);
-  let list = entriesInSection(sectionId);
-  if (only) list = list.filter(only);
-  if (list.length === 0) return '';
-
-  return `<section class="section" id="section-${esc(sectionId)}" aria-labelledby="h-${esc(sectionId)}">
-    <div class="section__head">
-      <span style="color:var(--accent)">${icon(meta.icon, 20)}</span>
-      <h2 id="h-${esc(sectionId)}">${esc(t(meta.title, lang))}</h2>
-    </div>
-    <p class="section__blurb">${esc(t(meta.blurb, lang))}</p>
-    <div class="cards">${list.map((e) => entryCard(e, lang)).join('')}</div>
-  </section>`;
-}
-
-function roomsBlock(lang) {
-  const cards = rooms.map((room) => {
-    const badge = room.comingSoon
-      ? `<span class="room__badge">${esc(UI[lang].comingSoon)}</span>`
-      : `<span class="room__badge${room.highlight ? ' room__badge--highlight' : ''}">${esc(t(room.category, lang))}</span>`;
-
-    return `<article class="room">
-      ${slider(room.photos, lang, { label: `${t(room.category, lang)} ${room.number}` })}
-      <div class="room__head">
-        <h3 class="room__number">${esc(room.number)}</h3>
-        ${badge}
-      </div>
-      ${room.view ? `<p class="room__meta">${esc(t(room.view, lang))}</p>` : ''}
-      <p class="room__summary">${esc(t(room.summary, lang))}</p>
-    </article>`;
-  }).join('');
-
-  return `<section class="section" aria-labelledby="h-rooms">
-    <div class="section__head">
-      <span style="color:var(--accent)">${icon('home', 20)}</span>
-      <h2 id="h-rooms">${esc(UI[lang].rooms)}</h2>
-    </div>
-    <p class="section__blurb">${esc(t(roomsCommon, lang))}</p>
-    ${cards}
-  </section>`;
-}
-
-export function guideView(lang, phase) {
-  const quick = (QUICK_ACTIONS[phase] ?? []).map(getEntry).filter(Boolean);
-
-  const phaseChips = PHASES.map((p) => `
-    <button class="phase-chip" type="button" data-phase="${esc(p.id)}"
-      aria-pressed="${p.id === phase}">${esc(t(p.title, lang))}</button>`).join('');
-
-  // Order matters more than it looks: a guest standing in the stairwell wants the
-  // door code, not the story of the name. The story is still here — at the end.
-  return `
-    <section class="hero" aria-labelledby="h-hero">
-      <div class="hero__frame">
-        ${picture('views/arno-ponte-vecchio',
-          lang === 'it' ? 'L’Arno e Ponte Vecchio visti dalle finestre di LunArt'
-                        : 'The Arno and Ponte Vecchio seen from the windows of LunArt',
-          { sizes: '(min-width: 760px) 720px, 100vw', eager: true })}
-        <div class="hero__caption">
-          <p class="eyebrow">${esc(t(property.shortTagline, lang))}</p>
-          <h1 id="h-hero" class="hero__greeting">${esc(greeting(lang))}</h1>
-        </div>
-      </div>
-    </section>
-
-    ${stayBlock(lang)}
-
-    <section class="phases" aria-labelledby="h-phase">
-      <p class="eyebrow phases__label" id="h-phase">${esc(UI[lang].phaseLabel)}</p>
-      <div class="phases__list" role="group" aria-labelledby="h-phase">${phaseChips}</div>
-    </section>
-
-    <section class="quick" aria-labelledby="h-quick">
-      <p class="eyebrow" id="h-quick">${esc(UI[lang].quickTitle)}</p>
-      <div class="quick__grid">${quick.map((e) => quickTile(e, lang)).join('')}</div>
-    </section>
-
-    <button class="search-trigger" type="button" data-open-search>
-      ${icon('search', 18)}<span>${esc(UI[lang].search)}</span>
-    </button>
-
-    <!-- Filled in after the first paint with whatever this guest already holds. -->
-    <div data-guest-blocks></div>
-
-    ${renderShopTeaser(lang)}
-
-    ${orderedSections(phase).map((id) => sectionBlock(id, lang)).join('')}
-    ${roomsBlock(lang)}
-
-    <section class="about" aria-labelledby="h-about">
-      <p class="eyebrow" id="h-about">${esc(UI[lang].about)}</p>
-      <p>${esc(t(property.intro, lang))}</p>
-    </section>
-  `;
-}
 
 export function florenceView(lang) {
   const blocks = entriesInSection('florence').map((entry) => {

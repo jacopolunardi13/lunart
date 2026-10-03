@@ -641,3 +641,45 @@ test('a card runs to the end of its last day, inclusive', () => {
   assert.equal(lastDayOf('2026-10-05', 8), '2026-10-12');
   assert.equal(lastDayOf('2026-12-30', 5), '2027-01-03', 'across a year end');
 });
+
+/**
+ * Both languages, on everything a guest can actually buy.
+ *
+ * An untranslated title is not a cosmetic slip: it is an English sentence in the
+ * middle of an Italian page, and it got into the catalogue once already — the wine
+ * went on sale titled "Wine in your room" in both. The coming-soon products are
+ * exempt from having a summary on purpose: a service nobody has defined yet has no
+ * copy, and inventing some to fill the field is the thing that rule exists to stop.
+ */
+test('every product a guest can buy reads in both languages', () => {
+  const gaps = [];
+  for (const product of PRODUCTS.filter((p) => p.active)) {
+    for (const field of ['title', 'summary']) {
+      const value = product[field];
+      // A coming-soon product carries no summary, and must not be given one.
+      if (field === 'summary' && (product.comingSoon || product.status === 'coming-soon')) continue;
+      if (typeof value?.it !== 'string' || value.it.trim() === '') gaps.push(`${product.id}.${field}: no Italian`);
+      if (typeof value?.en !== 'string' || value.en.trim() === '') gaps.push(`${product.id}.${field}: no English`);
+    }
+  }
+  assert.deepEqual(gaps, []);
+});
+
+/**
+ * And the Italian is Italian.
+ *
+ * A title identical in both columns is usually an English string someone forgot —
+ * which is exactly how the wine shipped as "Wine in your room" to Italian guests.
+ * Three names are the same in both languages because LunArt calls them that: the
+ * card carries the house name, and the hair and celebration services were named in
+ * English on purpose, the way "Experiences & Extras" is. Everything else has to be
+ * translated, and this list is the place to say so deliberately rather than let a
+ * forgotten one pass as a brand.
+ */
+test('no product title is left in one language and copied into the other', () => {
+  const NAMED_IN_ENGLISH = new Set(['privilege-card', 'hair-service', 'celebration']);
+  const copied = PRODUCTS
+    .filter((p) => p.active && p.title.it === p.title.en && !NAMED_IN_ENGLISH.has(p.id))
+    .map((p) => `${p.id}: "${p.title.it}"`);
+  assert.deepEqual(copied, []);
+});

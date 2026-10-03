@@ -92,11 +92,60 @@ console.log('\n── the personal guide link ──');
 await page.goto(link.link, { waitUntil: 'networkidle' });
 await page.waitForTimeout(900);
 
-const greeting = await page.textContent('.hero__greeting');
+const greeting = await page.textContent('.welcome__greeting');
 note(greeting.includes(chosen.first_name), `the guide greets the guest by name (${greeting.trim()})`);
 note(await page.isVisible('.stay'), 'it shows the stay');
-const stayLine = await page.textContent('.stay__line');
-note(stayLine.includes(chosen.room), `with the room on it (${stayLine.replace(/\s+/g, ' ').trim()})`);
+const stayLine = (await page.textContent('.stay__line')).replace(/\s+/g, ' ').trim();
+note(stayLine.includes(chosen.room), `with the room on it (${stayLine})`);
+note(/\d+\s*[–-]\s*\d+|\d+ \w+ [–-] \d+ \w+/.test(stayLine), 'and the dates, written out compactly');
+note(stayLine.length < 60, `on one short line (${stayLine.length} characters)`);
+
+// A guide that knows the dates has no business asking which part of the stay the
+// guest is in — it already knows.
+note((await page.locator('[data-phase]').count()) === 0, 'and does not ask a question it can answer itself');
+
+/* The room on the home is the room they are sleeping in, not a catalogue. */
+const roomsOnScreen = await page.evaluate(() => [...document.querySelectorAll('#main .room')]
+  .filter((el) => el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true }))
+  .map((el) => el.querySelector('.room__number')?.textContent.trim()));
+note(roomsOnScreen.length === 1, `one room on the home, not five (${roomsOnScreen.length})`);
+note(roomsOnScreen[0]?.includes(chosen.room), `and it is theirs (${roomsOnScreen[0]})`);
+note((await page.locator('#fold-rooms .room').count()) >= 5,
+  'the other rooms are still in the guide, one fold away');
+
+/* Short on screen, whole underneath. */
+const shape = await page.evaluate(() => ({
+  height: document.body.scrollHeight,
+  screens: +(document.body.scrollHeight / window.innerHeight).toFixed(1),
+  cards: document.querySelectorAll('#main .card').length,
+  folded: document.querySelectorAll('#main details:not([open]) .card, #main details:not([open]) .room').length,
+}));
+note(shape.screens <= 6, `the personal home is short (${shape.height}px, ${shape.screens} screens)`);
+note(shape.cards > 30, `with the whole knowledge base still in it (${shape.cards} cards)`);
+note(shape.folded >= 25, `most of it folded away (${shape.folded})`);
+
+/* The four primary actions, and where each one goes. */
+const primary = await page.locator('[data-primary]');
+note((await primary.count()) === 4, `four primary actions (${await primary.count()})`);
+await primary.nth(0).click();
+await page.waitForTimeout(500);
+note(await page.isVisible('.sheet[data-open="true"]'), 'the first opens its sheet');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(400);
+await page.locator('[data-primary][data-goto="help"]').click();
+await page.waitForTimeout(500);
+note(page.url().includes('#/help'), 'and Help reaches the help view');
+await page.goBack();
+await page.waitForTimeout(500);
+
+/* Extras and Florence stay reachable without leaving the personal link. */
+note(await page.isVisible('[data-shop]'), 'the extras are offered on the home');
+await page.click('[data-goto="florence"]');
+await page.waitForTimeout(500);
+note((await page.locator('.place').count()) > 5, `Florence is one card away (${await page.locator('.place').count()} places)`);
+note(page.url().includes('/g/'), 'and the personal link is still the page we are on');
+await page.click('[data-view="guide"]');
+await page.waitForTimeout(500);
 
 // Nothing private leaked into the page.
 const pageText = await page.textContent('body');
@@ -109,6 +158,7 @@ note(overflow.doc <= overflow.win + 1, `no horizontal overflow (${overflow.doc} 
 await page.screenshot({ path: `${OUT}/personal-390.png` });
 
 // What comes with the stay is listed without anything being bought.
+await page.screenshot({ path: `${OUT}/personal-top-390.png` });
 const included = await page.locator('.privileges__list .privilege').count();
 note(included >= 1, `what the stay includes is listed (${included})`);
 const includedText = await page.textContent('[data-guest-blocks]');

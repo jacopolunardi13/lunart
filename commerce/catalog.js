@@ -253,7 +253,7 @@ export const PRODUCTS = [
     featured: true,
     status: 'active',
     active: true,
-    title: { it: 'Wine in your room', en: 'Wine in your room' },
+    title: { it: 'Vino in camera', en: 'Wine in your room' },
     summary: {
       it: 'Una bottiglia che ti aspetta in camera, consegnata fra le 11:00 e le 22:00.',
       en: 'A bottle waiting in your room, delivered between 11:00 and 22:00.',
