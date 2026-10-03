@@ -10,21 +10,20 @@ import { $, esc, fill } from './ui/dom.js';
 import { icon } from './ui/icons.js';
 import { UI, initialLang, saveLang } from './i18n.js';
 import { hydrateSliders } from './ui/components.js';
-import { guideView, florenceView, helpView, reviewView } from './ui/views.js';
+import { guideView, florenceView, helpView, reviewView, setShopTeaser } from './ui/views.js';
 import { openSheet, closeSheet } from './ui/sheet.js';
-import { loadCatalogue, catalogueAvailable } from './commerce/api.js';
-import { shopView } from './commerce/ui/shop.js';
-import { openProductSheet } from './commerce/ui/product-sheet.js';
-import { openCartSheet } from './commerce/ui/cart-sheet.js';
-import { openOrderSheet, purchasesBlock } from './commerce/ui/orders.js';
-import { openCardSheet, cardBlock } from './commerce/ui/card-sheet.js';
-import * as cart from './commerce/cart.js';
+
+/**
+ * The shop, once it has loaded. Null until then, which every caller checks —
+ * the guide works without it, and must not wait on it to draw.
+ */
+let commerce = null;
 import { openSearch, closeSearch, isSearchOpen } from './ui/search.js';
 import * as concierge from './concierge/ui.js';
 import { PHASES, getEntry } from '../data/index.js';
 
 const PHASE_KEY = 'lunart.phase';
-const VIEWS = { guide: guideView, florence: florenceView, help: helpView, shop: shopView };
+const VIEWS = { guide: guideView, florence: florenceView, help: helpView };
 const reviewMode = new URLSearchParams(location.search).get('review') === '1';
 
 const state = {
@@ -55,12 +54,15 @@ function parseHash() {
   if (head === 'order' && tail) return { view: state.view, order: decodeURIComponent(tail) };
   if (head === 'card' && tail) return { view: state.view, card: decodeURIComponent(tail) };
   if (head === 'cart') return { view: state.view, cart: true };
-  if (head in VIEWS) return { view: head, entry: null };
+  if (knownView(head)) return { view: head, entry: null };
   return { view: 'guide', entry: null };
 }
 
+const viewFor = (name) => (name === 'shop' ? commerce?.shopView : VIEWS[name]);
+const knownView = (name) => Boolean(viewFor(name));
+
 function go(view) {
-  if (!(view in VIEWS)) return;
+  if (!knownView(view)) return;
   location.hash = `#/${view}`;
 }
 
@@ -105,17 +107,18 @@ function onRoute() {
   if (route.entry) {
     if (!openSheet(route.entry, state.lang, { onClose: dismissSheet })) go(state.view);
   } else if (route.product) {
-    const opened = openProductSheet(route.product, {
+    if (!commerce) return;
+    const opened = commerce.openProductSheet(route.product, {
       lang: state.lang,
       onAdded: () => { updateCartBadge(); openCart(); },
     });
     if (!opened) go(state.view);
   } else if (route.cart) {
-    openCartSheet({ lang: state.lang, onShop: () => go('shop') });
+    commerce?.openCartSheet({ lang: state.lang, onShop: () => go('shop') });
   } else if (route.order) {
-    openOrderSheet(route.order, { lang: state.lang, onCard: openCard });
+    commerce?.openOrderSheet(route.order, { lang: state.lang, onCard: openCard });
   } else if (route.card) {
-    openCardSheet(route.card, { lang: state.lang });
+    commerce?.openCardSheet(route.card, { lang: state.lang });
   } else {
     closeSheet();
   }
@@ -124,7 +127,8 @@ function onRoute() {
 /* --- Rendering ------------------------------------------------------------- */
 function render() {
   const main = $('#main');
-  fill(main, VIEWS[state.view](state.lang, state.phase) + (reviewMode ? reviewView(state.lang) : ''));
+  const view = viewFor(state.view) ?? guideView;
+  fill(main, view(state.lang, state.phase) + (reviewMode ? reviewView(state.lang) : ''));
   hydrateSliders(main);
   main.scrollTop = 0;
 
@@ -148,9 +152,9 @@ function render() {
 
 function updateCartBadge() {
   const button = $('#cart-button');
-  if (!button) return;
-  const total = cart.count();
-  button.hidden = total === 0 && !catalogueAvailable();
+  if (!button || !commerce) return;
+  const total = commerce.cart.count();
+  button.hidden = total === 0 && !commerce.catalogueAvailable();
   const badge = button.querySelector('.cart-button__count');
   badge.textContent = total > 0 ? String(total) : '';
   badge.hidden = total === 0;
@@ -164,8 +168,8 @@ function updateCartBadge() {
  */
 async function fillGuestBlocks() {
   const slot = $('[data-guest-blocks]');
-  if (!slot || !catalogueAvailable()) return;
-  const [cards, purchases] = await Promise.all([cardBlock(state.lang), purchasesBlock(state.lang)]);
+  if (!slot || !commerce?.catalogueAvailable()) return;
+  const [cards, purchases] = await Promise.all([commerce.cardBlock(state.lang), commerce.purchasesBlock(state.lang)]);
   if (!document.body.contains(slot)) return;
   slot.innerHTML = cards + purchases;
 }
@@ -262,16 +266,25 @@ function buildChrome() {
 
 async function start() {
   buildChrome();
-  cart.onCartChange(updateCartBadge);
 
-  // Drawn first, then enriched. The guide is useful without the commerce API, so
-  // it must never wait on it — a guest looking for the Wi-Fi password should not
-  // pay for a shop they did not open.
+  // Drawn first, then enriched. The shop is a third of the JavaScript and none of
+  // it belongs in the critical path: a guest looking for the Wi-Fi password should
+  // not wait on a shop they did not open.
   state.view = parseHash().view;
   render();
   onRoute();
 
-  await loadCatalogue();
+  try {
+    commerce = await import('./commerce/boot.js');
+    await commerce.init();
+    setShopTeaser(commerce.shopTeaser);
+    commerce.cart.onCartChange(updateCartBadge);
+  } catch (error) {
+    // No shop is a smaller problem than no guide.
+    console.warn('[commerce] unavailable:', error.message);
+    return;
+  }
+
   render();
   onRoute();
 }

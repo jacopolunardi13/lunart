@@ -10,7 +10,14 @@ import { esc, t, paragraphs } from './dom.js';
 import { icon } from './icons.js';
 import { UI } from '../i18n.js';
 import { entryCard, quickTile, placeRow, slider, facts, actions, picture } from './components.js';
-import { shopTeaser } from '../commerce/ui/shop.js';
+
+/**
+ * Filled in by `src/commerce/boot.js` once the shop has loaded. Until then — and
+ * on a copy of the guide with no commerce server behind it — it renders nothing,
+ * which is exactly what should happen.
+ */
+let renderShopTeaser = () => '';
+export const setShopTeaser = (fn) => { renderShopTeaser = fn; };
 import {
   SECTIONS, PHASES, entries, entriesInSection, getEntry, getPlace,
   QUICK_ACTIONS, property, contacts, emergency, rooms, roomsCommon,
@@ -118,7 +125,7 @@ export function guideView(lang, phase) {
     <!-- Filled in after the first paint with whatever this guest already holds. -->
     <div data-guest-blocks></div>
 
-    ${shopTeaser(lang)}
+    ${renderShopTeaser(lang)}
 
     ${orderedSections(phase).map((id) => sectionBlock(id, lang)).join('')}
     ${roomsBlock(lang)}

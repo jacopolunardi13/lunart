@@ -566,9 +566,6 @@ li:last-child > .place { border-bottom: 0; }
 
 /* --- Cart badge on the header ------------------------------------------- */
 .cart-button { position: relative; }
-/* `display` beats the hidden attribute, so say so explicitly: otherwise an empty
-   cart still shows a solid dot over the icon. */
-.cart-button__count[hidden] { display: none; }
 .cart-button__count {
   position: absolute; top: 4px; right: 2px;
   min-width: 18px; height: 18px; padding: 0 5px;
@@ -728,3 +725,15 @@ fieldset.field { border: 0; padding: 0; }
   margin-top: 12px; font-size: var(--micro); color: var(--ink-quiet);
   font-variant-numeric: tabular-nums;
 }
+
+
+/* ---------------------------------------------------------------------------
+   Last, on purpose.
+
+   A component that sets `display` beats the hidden attribute at equal
+   specificity, so anything carrying `hidden` would still be drawn — an empty
+   cart badge as a solid dot, the cart button itself on a copy of the guide with
+   no commerce server behind it. Saying it here, after the components, settles it
+   without reaching for !important.
+   --------------------------------------------------------------------------- */
+[hidden] { display: none; }

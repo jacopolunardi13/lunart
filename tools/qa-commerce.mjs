@@ -201,6 +201,34 @@ note((await venue.getAttribute('#verdict', 'data-tone')) === 'bad', 'an invented
 
 note(errors.length === 0, `no page errors (${errors.slice(0, 2).join(' | ') || 'none'})`);
 
+/* ── With no commerce server behind it ────────────────────────────────── */
+{
+  const offline = await browser.newContext({ ...devices['iPhone 13'] });
+  const shop = await offline.newPage();
+  const errs = [];
+  shop.on('pageerror', (e) => errs.push(String(e)));
+  // The guide is served as static files from GitHub Pages with no API behind it.
+  // It has to stay useful: a guest looking for the Wi-Fi password should not pay
+  // for a shop they did not open.
+  await shop.route('**/api/**', (route) => route.abort());
+
+  console.log('\n── no commerce server ──');
+  await shop.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await shop.waitForTimeout(1500);
+
+  note((await shop.locator('.card').count()) > 10, 'the guide still renders in full');
+  note((await shop.locator('.quick .quick__item').count()) === 4, 'quick actions are there');
+  note((await shop.locator('[data-shop]').count()) === 0, 'the extras teaser stays out of the way');
+  note(await shop.locator('#cart-button').isHidden(), 'the cart button is hidden');
+
+  await shop.goto(`${BASE}#/shop`, { waitUntil: 'domcontentloaded' });
+  await shop.waitForTimeout(900);
+  const explained = await shop.textContent('.section__blurb').catch(() => '');
+  note(/non sono raggiungibili|not reachable/i.test(explained), 'the shop explains itself and points at a person');
+  note(errs.length === 0, `no page errors (${errs.slice(0, 2).join(' | ') || 'none'})`);
+  await offline.close();
+}
+
 await browser.close();
 console.log(`\n${failures === 0 ? 'ALL COMMERCE CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);
