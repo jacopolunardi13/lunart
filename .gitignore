@@ -9,3 +9,4 @@ tools/.qa-screens/
 .env.*
 !.env.example
 data/orders/
+tools/.preview/

@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "LunArt — Guest Guide & Concierge",
+  "description": "LunArt \u2014 Guest Guide & Concierge",
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "serve": "node tools/serve.mjs",
@@ -13,7 +13,8 @@
     "dev": "LUNART_DEV_PRICES=1 ALLOW_PLACEHOLDER_PRICES=1 node server/index.js",
     "start": "node server/index.js",
     "qa:commerce": "node tools/qa-commerce.mjs",
-    "qa:reservations": "node tools/qa-reservations.mjs"
+    "qa:reservations": "node tools/qa-reservations.mjs",
+    "preview:shots": "node tools/preview-shots.mjs"
   },
   "engines": {
     "node": ">=20"
