@@ -73,6 +73,10 @@ export const config = {
   gmailClientSecret: env.GMAIL_CLIENT_SECRET ?? '',
   gmailRefreshToken: env.GMAIL_REFRESH_TOKEN ?? '',
   gmailQuery: env.GMAIL_QUERY ?? '',
+  /** Label applied to a notification once it has been ingested. Optional. */
+  gmailProcessedLabelId: env.GMAIL_PROCESSED_LABEL_ID ?? '',
+  /** A ceiling per poll, so a first run against a full inbox cannot take all morning. */
+  gmailMaxMessages: Number(env.GMAIL_MAX_MESSAGES ?? 50),
   /** How often to read it, in minutes. Zero turns polling off. */
   mailboxPollMinutes: Number(env.RESERVATION_POLL_MINUTES ?? 0),
 
@@ -88,6 +92,7 @@ export const config = {
   /** How the guest email actually leaves. Empty means nothing is sent. */
   mailProvider: env.MAIL_PROVIDER ?? '',
   mailFrom: env.MAIL_FROM ?? 'lunartfirenze@gmail.com',
+  mailReplyTo: env.MAIL_REPLY_TO ?? '',
   /** Zero turns the send loop off; the schedule is still written. */
   deliveryPollMinutes: Number(env.DELIVERY_POLL_MINUTES ?? 0),
 
@@ -104,6 +109,10 @@ export const config = {
   googleCalendarWriteId: env.GOOGLE_CALENDAR_WRITE_ID ?? '',
   googleServiceAccountEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? '',
   googleServiceAccountKey: env.GOOGLE_SERVICE_ACCOUNT_KEY ?? '',
+  /** Only for a Workspace domain with delegation; empty for a shared calendar. */
+  googleCalendarSubject: env.GOOGLE_CALENDAR_SUBJECT ?? '',
+  /** How often finished stays are retired, in minutes. */
+  housekeepingMinutes: Number(env.HOUSEKEEPING_MINUTES ?? 60),
 };
 
 /** Anything an operator needs to know before this is called live. */
@@ -128,9 +137,17 @@ export function configWarnings() {
   }
   if (!config.mailboxSource) {
     warnings.push('RESERVATION_MAILBOX is not set: QuoVai notifications are not being read, so reservations have to be entered by hand.');
+  } else if (config.mailboxSource === 'gmail' && !(config.gmailClientId && config.gmailClientSecret && config.gmailRefreshToken)) {
+    warnings.push('RESERVATION_MAILBOX=gmail but the Gmail credentials are missing: the adapter is implemented and cannot authenticate.');
+  } else if (config.mailboxPollMinutes <= 0) {
+    warnings.push('RESERVATION_POLL_MINUTES is 0: the mailbox is configured but nothing reads it on a timer.');
   }
   if (!config.mailProvider) {
     warnings.push('MAIL_PROVIDER is not set: guest guide emails are scheduled and rendered but never sent.');
+  } else if (config.mailProvider === 'gmail' && !(config.gmailClientId && config.gmailClientSecret && config.gmailRefreshToken)) {
+    warnings.push('MAIL_PROVIDER=gmail but the Gmail credentials are missing: nothing can be sent, and sends fall back to simulated.');
+  } else if (config.deliveryPollMinutes <= 0) {
+    warnings.push('DELIVERY_POLL_MINUTES is 0: emails are scheduled but nothing sends them on a timer.');
   }
   if (config.icalFeeds.length === 0) {
     warnings.push('QUOVAI_ICAL_FEEDS is not set: there is no calendar to reconcile against.');

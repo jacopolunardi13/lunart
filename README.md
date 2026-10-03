@@ -68,12 +68,15 @@ commerce/               what LunArt sells — shared by the browser and the serv
 server/
   app.js                  the API and the static site, one origin
   reservations.js         the canonical reservation ← the spine
-  ingest/                 quovai-email · quovai-api · ical · mailbox
+  google.js               OAuth and service-account tokens, cached
+  ingest/                 quovai-email · quovai-api · ical · mailbox · gmail
+  mail/gmail.js           sending the guide email as LunArt
   guide-link.js           /g/<token>, and giving a lost one back
   delivery.js             when the guest email goes out, and what it says
   staff.js                queues, actions, the sync view
-  push.js                 Web Push, and what it does without keys
-  calendar/google.js      the hair professional's calendar, as a seam
+  push.js                 Web Push, over the web-push library
+  calendar/               the hair professional's free/busy and bookings
+  scheduler.js            the interval jobs, never overlapping
   card.js · orders.js · stripe.js · store.js · config.js
   time.js                 cut-offs in Florence time
 server/
@@ -162,12 +165,12 @@ the same way and ten questions that must be declined.
 ## Checking a change
 
 ```sh
-npm test                            # 422 tests, no browser needed
+npm test                            # 463 tests, no browser needed
 npm run dev &                       # then, in another shell:
 npm install --no-save playwright
 npm run qa                          # 59 browser checks of the guide
 npm run qa:commerce                 # 65 checks: the whole purchase, at phone size
-npm run qa:reservations             # 44 checks: personal links, recovery, Staff
+npm run qa:reservations             # 46 checks: personal links, recovery, Staff
 npm run measure -- http://localhost:4173/ "v2"
 ```
 
@@ -331,6 +334,90 @@ app still works (it polls), subscriptions are still accepted and stored so devic
 are registered the moment keys exist, every notification is recorded and marked
 `simulated`, and both `/api/health` and the app's own sync screen say push is not
 configured. What it must never do is look like it is working.
+
+## The outside systems
+
+Four of them, all implemented, each waiting only on a credential. None of them is a
+stub: the code paths are real and tested against scripted responses, including the
+awkward ones — a token that expires mid-call, a 500, a dead push endpoint, a
+calendar that cannot be read.
+
+| | what it does | waiting on |
+|---|---|---|
+| **Gmail mailbox** | reads QuoVai's notifications and ingests them | a refresh token for the LunArt inbox |
+| **Gmail sending** | sends the guide email from `lunartfirenze@gmail.com` | the same credentials, plus `gmail.send` |
+| **Web Push** | notifies the Staff app's phones | a VAPID key pair |
+| **Google Calendar** | free/busy for the hair service, and writes bookings | a service account and two shared calendars |
+
+`/api/health` reports each one as `operational`, `credentials-missing`, `unavailable`
+or `disabled`, which are four different problems with four different fixes:
+somebody fills in a variable, somebody waits for Google, or somebody turns an
+interval on. `GET /api/staff/checks` probes them live, which costs a call each.
+
+### Reading the mailbox
+
+OAuth with the account's own refresh token, because a personal Gmail inbox cannot
+be reached by a service account. The poll lists with `GMAIL_QUERY`, follows the page
+tokens, fetches each body, and hands the normalised messages to the same parser the
+fixtures use.
+
+Two orderings matter. Messages are processed **oldest first**, so a NEW arrives
+before the MODIFIED that follows it. And a message is marked processed **only after**
+it has been ingested — a message that could not be fetched, parsed or stored is left
+exactly where it was, and the next poll sees it again. The labelling is an
+optimisation; the store's de-duplication on the message id is what makes it correct,
+which is why polling twice produces one reservation and one email.
+
+### Sending
+
+The guide email leaves as a `multipart/alternative` built here, from LunArt's own
+address, through the Gmail API. A send that fails throws, which records the delivery
+as `failed` with the reason — and a failed delivery is **due again** on the next run,
+up to five attempts, after which it stops and shows up as a problem on the Staff
+app's sync screen. Without credentials every send is simulated, the body is kept,
+and `MAIL_PROVIDER=gmail` with no token falls back to simulated rather than failing
+every send in a way nobody notices.
+
+### Push
+
+`web-push` does the encryption — ECDH, HKDF, AES-GCM, the signed JWT — because that
+is exactly the kind of thing not to write by hand. What is written here is the
+policy: a 404 or a 410 means the browser dropped the subscription and it is deleted;
+anything else means the push service is having a bad morning and the device is kept.
+A notification that fails never fails the order it was about.
+
+### The hair calendar
+
+Free/busy only: blocks of time with no titles and no guests, which is all that is
+needed and the least that can be asked for. Reading his actual events would mean
+reading his life.
+
+The important property is the direction. The calendar **only ever removes**: the
+hours a guest can book come from `commerce/schedule.js`, and free/busy takes away
+the ones he is already committed to. "Not busy at 04:00" is not an offer. If the
+calendar is configured but unreachable, the schedule stands and the answer says it
+was not confirmed — refusing every booking because Google had a wobble would be
+worse, and he confirms his own day either way.
+
+Appointments are written to a calendar of LunArt's own, in Europe/Rome, as long as
+the internal service duration says (beard 30, men's cuts 60, everything for women
+90). Checkout re-checks free/busy before taking money, so a slot that filled up
+between choosing and paying is refused rather than double-booked.
+
+### The loops
+
+`server/scheduler.js` runs four jobs: read the mailbox, send what is due, reconcile
+the calendars, retire finished stays. Each has its own interval, and each is off
+unless its interval is set.
+
+- **Never overlapping.** A job already running is not started again — two Gmail
+  polls at once is the one way past the de-duplication.
+- **Backoff.** Consecutive failures double the wait, up to eight ticks. A mailbox
+  that is down does not need asking every minute.
+- **Nothing is lost.** A failed run changes nothing; the next one does the work.
+- **It says what it did.** `/api/health` and the Staff app show last run, last
+  success, last error, consecutive failures, and whether it is running right now.
+  Each can also be run by hand from the Staff app.
 
 ## Experiences & Extras
 
@@ -555,10 +642,13 @@ is used by a real guest:
   anyone who can reach them, and a production server refuses them entirely.
 - `LUNART_DATA_DIR` — otherwise orders, cards and reservations live in memory and
   are lost on restart.
-- `RESERVATION_MAILBOX` — otherwise nobody reads the QuoVai notifications and every
-  reservation has to be typed into the Staff app by hand.
-- `MAIL_PROVIDER` — otherwise guest guide emails are scheduled and rendered, and
-  never sent.
+- `RESERVATION_MAILBOX=gmail` plus `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` /
+  `GMAIL_REFRESH_TOKEN`, and `RESERVATION_POLL_MINUTES` to turn the loop on —
+  otherwise nobody reads the QuoVai notifications and every reservation has to be
+  typed into the Staff app by hand.
+- `MAIL_PROVIDER=gmail` (same credentials, plus the `gmail.send` scope) and
+  `DELIVERY_POLL_MINUTES` — otherwise guest guide emails are scheduled and rendered,
+  and never sent.
 - `QUOVAI_ICAL_FEEDS` — otherwise there is no calendar to reconcile against.
 - `VAPID_*` — otherwise the Staff app works but nothing reaches a phone.
 - `GOOGLE_CALENDAR_*` — otherwise hair appointments are not written anywhere the

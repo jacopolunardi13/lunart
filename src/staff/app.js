@@ -327,18 +327,65 @@ async function renderReservations() {
 
 async function renderSync() {
   const data = await api('/sync');
-  const flag = (label, on, note = '') =>
-    `<div class="row"><div class="row__head"><span class="row__title">${esc(label)}</span>
-      <span class="pill" data-tone="${on ? 'good' : 'warn'}">${on ? 'configurato' : 'non configurato'}</span></div>
-      ${note ? `<p class="row__meta">${esc(note)}</p>` : ''}</div>`;
+
+  /**
+   * One row per integration, saying which of four things is true.
+   *
+   * The distinction is the whole point of this screen: "credenziali mancanti" is
+   * somebody filling in an environment variable, "non raggiungibile" is Google
+   * having a bad morning and nothing to do, and "disattivato" is a deliberate
+   * choice. Lumping them together as "not working" would send Jacopo looking for
+   * a bug that is not there.
+   */
+  const stateOf = (entry) => {
+    if (entry?.implemented === false) return 'non implementato';
+    if (!entry?.configured) return 'credenziali mancanti';
+    if (entry.lastError) return 'non raggiungibile';
+    if (entry.enabled === false) return 'configurato, non schedulato';
+    return 'operativo';
+  };
+  const toneOf = (entry) => {
+    const state = stateOf(entry);
+    if (state === 'operativo') return 'good';
+    if (state === 'non raggiungibile') return 'bad';
+    return 'warn';
+  };
+
+  const row = (label, entry, detail = '') => `
+    <div class="row">
+      <div class="row__head">
+        <span class="row__title">${esc(label)}</span>
+        <span class="pill" data-tone="${toneOf(entry)}">${esc(stateOf(entry))}</span>
+      </div>
+      ${detail ? `<p class="row__meta">${esc(detail)}</p>` : ''}
+      ${entry?.lastError ? `<p class="row__meta">Ultimo errore: ${esc(entry.lastError)}</p>` : ''}
+      ${!entry?.configured && entry?.requires?.length
+        ? `<div class="row__fields"><div><span>Serve</span><span class="mono">${esc(entry.requires.join(', '))}</span></div></div>`
+        : ''}
+      ${entry?.lastSuccessAt ? `<p class="row__meta">Ultimo successo: ${esc(stamp(entry.lastSuccessAt))}</p>` : ''}
+    </div>`;
+
+  const jobs = data.schedule ?? [];
+  const jobRow = (job) => `
+    <div class="row">
+      <div class="row__head">
+        <span class="row__title">${esc(JOB_NAMES[job.id] ?? job.id)}</span>
+        <span class="pill" data-tone="${job.status === 'operational' ? 'good' : job.status === 'failing' ? 'bad' : 'warn'}">${esc(JOB_STATES[job.status] ?? job.status)}</span>
+      </div>
+      <p class="row__meta">${job.enabled ? `ogni ${job.intervalMinutes} min` : 'non schedulato'}${job.lastSuccessAt ? ` · ultimo ok ${esc(stamp(job.lastSuccessAt))}` : ''}</p>
+      ${job.lastError ? `<p class="row__meta">${esc(job.lastError)}</p>` : ''}
+      <div class="actions"><button class="action" type="button" data-job="${esc(job.id)}">Esegui ora</button></div>
+    </div>`;
 
   paint(`
-    <h2>Stato</h2>
-    ${flag('Lettura notifiche QuoVai', Boolean(data.mailbox?.configured), data.mailbox?.id ? `Sorgente: ${data.mailbox.id}` : 'Nessuna casella collegata')}
-    ${flag('Invio email agli ospiti', Boolean(data.mail?.configured), `Provider: ${data.mail?.provider ?? '—'}${data.mail?.configured ? '' : ' — le email vengono preparate ma non spedite'}`)}
-    ${flag('Notifiche push', Boolean(data.push?.configured))}
-    ${flag('Calendario del professionista', Boolean(data.calendar?.configured), data.calendar?.id ?? '')}
+    <h2>Integrazioni</h2>
+    ${row('Lettura notifiche QuoVai', data.mailbox, data.mailbox?.id ? `Sorgente: ${data.mailbox.id}` : 'Nessuna casella collegata')}
+    ${row('Invio email agli ospiti', data.mail, `Provider: ${data.mail?.provider ?? '—'}${data.mail?.configured ? '' : ' — le email vengono preparate ma non spedite'}`)}
+    ${row('Notifiche push', data.push, data.push?.configured ? `Trasporto: ${data.push.transport}` : 'L’app funziona lo stesso: si aggiorna da sola quando la apri')}
+    ${row('Calendario del professionista', data.calendar, data.calendar?.id ?? '')}
 
+    <h2>Processi automatici</h2>
+    ${jobs.length ? jobs.map(jobRow).join('') : '<p class="note">Nessun processo schedulato.</p>'}
     <div class="actions">
       <button class="action" type="button" data-sync="poll">Leggi le notifiche</button>
       <button class="action" type="button" data-sync="reconcile">Confronta i calendari</button>
@@ -386,6 +433,21 @@ async function renderSync() {
       </div>`).join('')}
   `);
 }
+
+const JOB_NAMES = {
+  mailbox: 'Lettura casella QuoVai',
+  'guest-email': 'Invio email in scadenza',
+  ical: 'Confronto calendari iCal',
+  housekeeping: 'Chiusura soggiorni conclusi',
+};
+
+const JOB_STATES = {
+  operational: 'operativo',
+  running: 'in esecuzione',
+  failing: 'in errore',
+  disabled: 'non schedulato',
+  idle: 'mai eseguito',
+};
 
 const alertTitle = (kind) => ({
   'occupancy-not-synchronised': 'Prenotazione o occupazione non sincronizzata',
@@ -497,6 +559,22 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  const jobButton = event.target.closest('[data-job]');
+  if (jobButton) {
+    jobButton.disabled = true;
+    try {
+      const result = await api(`/sync/run/${jobButton.dataset.job}`, { method: 'POST', keepBody: true });
+      $('#sync-result').innerHTML = `<div class="banner" data-tone="${result.ok ? '' : 'warn'}">
+        <p class="mono">${esc(JSON.stringify(result, null, 1).slice(0, 700))}</p></div>`;
+      await render();
+    } catch (error) {
+      if (!error.handled) $('#sync-result').innerHTML = `<div class="banner" data-tone="bad">${esc(error.message)}</div>`;
+    } finally {
+      jobButton.disabled = false;
+    }
+    return;
+  }
+
   const syncButton = event.target.closest('[data-sync]');
   if (syncButton) {
     const what = syncButton.dataset.sync;
@@ -600,7 +678,7 @@ async function start() {
 /**
  * The token gate.
  *
- * A development server with no STAFF_TOKEN set lets everything through, so the gate
+ * A development server with no staff token configured lets everything through, so the gate
  * only appears when the server actually asks for one. Trying first and asking second
  * keeps the preview usable without pretending the production server is open.
  */

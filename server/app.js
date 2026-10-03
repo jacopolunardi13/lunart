@@ -46,6 +46,8 @@ import { createQuovaiApiAdapter, reservationSources } from './ingest/quovai-api.
 import { reconcileFeeds } from './ingest/ical.js';
 import { createPushAdapter, notifyStaff, registerSubscription } from './push.js';
 import { createProviderCalendar, providerCalendars } from './calendar/google.js';
+import { freeSlots, freeDays, slotIsFree } from './calendar/index.js';
+import { createScheduler } from './scheduler.js';
 import {
   STAFF_QUEUES, queueOf, staffOrderView, orderQueues, dashboard, syncOverview,
   setFulfilment, requestSubstitution, assignOrder, cancelOrder, refundOrder,
@@ -120,8 +122,10 @@ export async function createApp(overrides = {}) {
       deliverySlots: DELIVERY_SLOTS,
       /** The appointment days on offer, so the date picker cannot offer a blank one. */
       availability: Object.fromEntries(
-        PRODUCTS.filter((p) => p.availabilityMode === 'timeslots')
-          .map((p) => [p.id, { days: daysWithSlots(p.id), configured: daysWithSlots(p.id).length > 0 }]),
+        await Promise.all(PRODUCTS.filter((p) => p.availabilityMode === 'timeslots').map(async (p) => {
+          const days = await freeDays({ calendar: providerCalendar, productId: p.id });
+          return [p.id, { days, configured: days.length > 0, calendar: providerCalendar.configured }];
+        })),
       ),
       /**
        * The schedule in force, so the browser checks a line against exactly the
@@ -228,6 +232,31 @@ export async function createApp(overrides = {}) {
       // The client's opinion is a convenience; this is the decision.
       sendJson(res, 422, { error: 'cart-invalid', errors: built.priced.errors, total: built.priced.total });
       return;
+    }
+
+    /**
+     * One last look at the professional's calendar.
+     *
+     * The schedule was already checked by `priceCart`; this catches the case it
+     * cannot — something that appeared in his calendar between the guest choosing a
+     * time and paying for it. Skipped when no calendar is connected, because then
+     * the schedule is the whole truth.
+     */
+    if (providerCalendar.configured) {
+      for (const line of built.priced.lines) {
+        if (line.product?.availabilityMode !== 'timeslots') continue;
+        const check = await slotIsFree({
+          calendar: providerCalendar,
+          productId: line.product.id,
+          date: line.line.date,
+          time: line.line.time,
+          variantId: line.line.variantId,
+        });
+        if (!check.free && check.checkedCalendar) {
+          sendJson(res, 409, { error: 'slot-taken', product: line.product.id, date: line.line.date, time: line.line.time });
+          return;
+        }
+      }
     }
 
     const order = await store.orders.create({
@@ -401,13 +430,26 @@ export async function createApp(overrides = {}) {
     if (!product) { sendJson(res, 404, { error: 'not-found' }); return; }
 
     const date = url.searchParams.get('date');
+    const variantId = url.searchParams.get('variant') || null;
     const days = daysWithSlots(product.id);
+
+    // The schedule says when LunArt offers appointments; the calendar only takes
+    // away the ones already committed. It can never add one.
+    const onDay = date
+      ? await freeSlots({ calendar: providerCalendar, productId: product.id, date, variantId })
+      : { slots: [], source: 'schedule' };
+
     sendJson(res, 200, {
       product: product.id,
       mode: product.availabilityMode,
       configured: days.length > 0,
       days,
-      slots: date ? slotsFor(product.id, date) : [],
+      slots: onDay.slots,
+      source: onDay.source,
+      calendar: {
+        configured: providerCalendar.configured,
+        ...(onDay.calendarError ? { error: onDay.calendarError } : {}),
+      },
     });
   }
 
@@ -777,13 +819,52 @@ export async function createApp(overrides = {}) {
   }
 
   async function getStaffSync(req, res) {
+    const mailboxState = mailbox?.state?.() ?? {};
+    const mailerState = mailer.state?.() ?? {};
+    const pushState = push.state?.() ?? {};
+    const calendarState = providerCalendar.state?.() ?? {};
+
     sendJson(res, 200, {
       ...await syncOverview({ store }),
-      mailbox: mailbox ? { id: mailbox.id, configured: mailbox.configured } : { id: null, configured: false },
-      mail: { provider: mailer.id, configured: mailer.configured },
-      push: { configured: push.configured },
-      calendar: { id: providerCalendar.id, configured: providerCalendar.configured },
+      mailbox: mailbox
+        ? {
+          id: mailbox.id,
+          implemented: mailbox.implemented !== false,
+          configured: mailbox.configured,
+          enabled: settings.mailboxPollMinutes > 0,
+          lastError: mailboxState.lastError ?? null,
+          lastSuccessAt: mailboxState.lastSuccessAt ?? null,
+          requires: mailbox.requires ?? [],
+        }
+        : { id: null, implemented: true, configured: false, requires: ['RESERVATION_MAILBOX'] },
+      mail: {
+        provider: mailer.id,
+        implemented: true,
+        configured: mailer.configured,
+        enabled: settings.deliveryPollMinutes > 0,
+        lastError: mailerState.lastError ?? null,
+        lastSuccessAt: mailerState.lastSuccessAt ?? null,
+        requires: mailer.requires ?? ['MAIL_PROVIDER'],
+      },
+      push: {
+        implemented: true,
+        configured: push.configured,
+        transport: push.id,
+        lastError: pushState.lastError ?? null,
+        lastSuccessAt: pushState.lastSuccessAt ?? null,
+        requires: push.requires,
+      },
+      calendar: {
+        id: providerCalendar.id,
+        implemented: true,
+        configured: providerCalendar.configured,
+        lastError: calendarState.lastError ?? null,
+        lastSuccessAt: calendarState.lastSuccessAt ?? null,
+        requires: providerCalendar.requires,
+      },
       sources: reservationSources(settings),
+      /** What runs on a timer, and how it is getting on. */
+      schedule: scheduler.state(),
     });
   }
 
@@ -791,6 +872,13 @@ export async function createApp(overrides = {}) {
   async function postStaffPoll(req, res) {
     const result = await pollMailbox({ store, mailbox, ingest: ingestMessages });
     sendJson(res, result.ok ? 200 : 503, result);
+  }
+
+  /** Run one scheduled job on demand, from the Staff app. */
+  async function postStaffRunJob(req, res, { job }) {
+    if (!scheduler.has(job)) { sendJson(res, 404, { error: 'unknown-job' }); return; }
+    const result = await scheduler.runJob(job, { force: true });
+    sendJson(res, result.ok ? 200 : 409, { job, ...result, state: scheduler.state().find((entry) => entry.id === job) });
   }
 
   /** Compare the calendars now. */
@@ -909,7 +997,41 @@ export async function createApp(overrides = {}) {
 
   /* ── Diagnostics ─────────────────────────────────────────────────────── */
 
+  /**
+   * What is actually true about one integration.
+   *
+   * Four states, because "it isn't working" covers four different problems and they
+   * have four different fixes:
+   *
+   *   operational         implemented, configured, and the last thing it did worked
+   *   credentials-missing implemented and waiting on a key — somebody has to fill in
+   *                       an environment variable, and nothing else
+   *   unavailable         implemented and configured, but the provider refused or
+   *                       could not be reached. Nobody has to change anything; it
+   *                       either comes back or it is an outage
+   *   disabled            deliberately off: configured, but the interval is zero or
+   *                       the feature was not asked for
+   *
+   * `not-implemented` exists for completeness and nothing returns it any more.
+   */
+  function integrationState({
+    implemented = true, configured = false, enabled = true,
+    lastError = null, lastSuccessAt = null, requires = [], note = null, extra = {},
+  }) {
+    const state = !implemented ? 'not-implemented'
+      : !configured ? 'credentials-missing'
+        : !enabled ? 'disabled'
+          : lastError ? 'unavailable'
+            : 'operational';
+    return { implemented, configured, enabled, state, requires, lastError, lastSuccessAt, note, ...extra };
+  }
+
   async function getHealth(req, res) {
+    const mailboxState = mailbox?.state?.() ?? {};
+    const mailerState = mailer.state?.() ?? {};
+    const pushState = push.state?.() ?? {};
+    const calendarState = providerCalendar.state?.() ?? {};
+
     sendJson(res, 200, {
       ok: true,
       mode: settings.mode,
@@ -924,19 +1046,100 @@ export async function createApp(overrides = {}) {
       cardOnSale: isPurchasable(PRODUCTS.find((p) => p.id === 'privilege-card'), {
         allowPlaceholders: settings.allowPlaceholderPrices,
       }),
-      reservations: {
-        sources: reservationSources(settings),
-        mailbox: mailbox ? { id: mailbox.id, configured: mailbox.configured } : { id: null, configured: false },
-        mailboxes: mailboxSources(),
-        pollMinutes: settings.mailboxPollMinutes,
-        icalFeeds: settings.icalFeeds.length,
-        icalPollMinutes: settings.icalPollMinutes,
+
+      /** Every outside system, and exactly where it stands. */
+      integrations: {
+        payments: integrationState({
+          configured: stripe.mode !== 'mock',
+          requires: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'],
+          note: stripe.mode === 'mock' ? 'Built-in stand-in: the flow works, no money moves.' : null,
+          extra: { provider: stripe.mode, testMode: settings.stripe.testMode },
+        }),
+        reservationMailbox: integrationState({
+          implemented: true,
+          configured: Boolean(mailbox?.configured),
+          enabled: settings.mailboxPollMinutes > 0,
+          requires: mailbox?.requires ?? ['RESERVATION_MAILBOX'],
+          lastError: mailboxState.lastError ?? null,
+          lastSuccessAt: mailboxState.lastSuccessAt ?? null,
+          extra: {
+            source: mailbox?.id ?? null,
+            query: mailbox?.query ?? null,
+            pollMinutes: settings.mailboxPollMinutes,
+            lastCount: mailboxState.lastCount ?? 0,
+            skipped: (mailboxState.skipped ?? []).length,
+            options: mailboxSources(settings),
+          },
+        }),
+        guestEmail: integrationState({
+          implemented: true,
+          configured: Boolean(mailer.configured),
+          enabled: settings.deliveryPollMinutes > 0,
+          requires: mailer.requires ?? ['MAIL_PROVIDER'],
+          lastError: mailerState.lastError ?? null,
+          lastSuccessAt: mailerState.lastSuccessAt ?? null,
+          note: mailer.configured ? null : 'Every send is simulated: the body is rendered and kept, nothing leaves.',
+          extra: {
+            provider: mailer.id,
+            requested: mailer.requestedProvider ?? settings.mailProvider ?? null,
+            from: settings.mailFrom,
+            pollMinutes: settings.deliveryPollMinutes,
+            options: mailProviders(settings),
+          },
+        }),
+        reservationApi: integrationState({
+          implemented: true,
+          configured: quovaiApi.configured,
+          requires: quovaiApi.requires,
+          note: quovaiApi.configured ? null : 'Interface agreed and routed; waiting on QuoVai.',
+          extra: { openQuestions: quovaiApi.openQuestions.length },
+        }),
+        icalReconciliation: integrationState({
+          implemented: true,
+          configured: settings.icalFeeds.length > 0,
+          enabled: settings.icalPollMinutes > 0,
+          requires: ['QUOVAI_ICAL_FEEDS'],
+          extra: { feeds: settings.icalFeeds.length, pollMinutes: settings.icalPollMinutes },
+        }),
+        staffPush: integrationState({
+          implemented: true,
+          configured: push.configured,
+          requires: push.requires,
+          lastError: pushState.lastError ?? null,
+          lastSuccessAt: pushState.lastSuccessAt ?? null,
+          note: push.configured ? null : 'The Staff app polls; notifications are recorded and marked simulated.',
+          extra: { transport: push.id, sent: pushState.sent ?? 0, removed: pushState.removed ?? 0 },
+        }),
+        providerCalendar: integrationState({
+          implemented: true,
+          configured: providerCalendar.configured,
+          requires: providerCalendar.requires,
+          lastError: calendarState.lastError ?? null,
+          lastSuccessAt: calendarState.lastSuccessAt ?? null,
+          note: providerCalendar.configured ? null : 'Appointments are kept by LunArt and not written to a calendar.',
+          extra: {
+            id: providerCalendar.id,
+            writeCalendar: providerCalendar.writeCalendar,
+            timeZone: providerCalendar.timeZone ?? 'Europe/Rome',
+            options: providerCalendars(settings),
+          },
+        }),
       },
-      guestEmail: { provider: mailer.id, configured: mailer.configured, providers: mailProviders() },
-      push: { configured: push.configured, requires: push.requires },
-      providerCalendar: { id: providerCalendar.id, configured: providerCalendar.configured, options: providerCalendars(settings) },
+
+      schedule: scheduler.state(),
       warnings: configWarnings(),
     });
+  }
+
+  /** The same thing, checked live rather than remembered. Staff only: it costs calls. */
+  async function getIntegrationChecks(req, res) {
+    const checks = {};
+    for (const [name, adapter] of Object.entries({
+      reservationMailbox: mailbox, guestEmail: mailer, staffPush: push, providerCalendar,
+    })) {
+      checks[name] = adapter?.check ? await adapter.check() : { ok: false, reason: 'no-check' };
+    }
+    sendJson(res, 200, { checks, at: new Date().toISOString() });
   }
 
   const routes = [
@@ -952,6 +1155,8 @@ export async function createApp(overrides = {}) {
     ['GET',  '/mock-checkout', getMockCheckout],
     ['POST', '/mock-checkout/:action', postMockCheckoutAction],
     ['GET',  '/api/health', getHealth],
+    ['GET',  '/api/staff/checks', guard(getIntegrationChecks)],
+    ['POST', '/api/staff/sync/run/:job', guard(postStaffRunJob)],
     ['GET',  '/api/availability/:id', getAvailability],
     ['GET',  '/api/partners/:id', getPartnerInfo],
     ['GET',  '/partner/:id/manifest.webmanifest', getPartnerManifest],
@@ -1015,22 +1220,61 @@ export async function createApp(overrides = {}) {
   /**
    * The work nobody triggers.
    *
-   * Reading the mailbox, sending what is due, reconciling the calendars and
-   * retiring finished stays. Called on an interval by `index.js` when the relevant
-   * configuration exists, and callable directly, which is how it is tested.
+   * Four jobs on their own intervals, each off unless its configuration says
+   * otherwise. The scheduler guarantees they never overlap themselves and backs off
+   * when something upstream is down; `runScheduledWork` forces one of each, which is
+   * what the tests and the Staff app's buttons use.
    */
-  async function runScheduledWork({ now = new Date(), force = false } = {}) {
+  const scheduler = createScheduler({
+    jobs: [
+      {
+        id: 'mailbox',
+        intervalMinutes: settings.mailboxPollMinutes,
+        enabled: Boolean(mailbox) && settings.mailboxPollMinutes > 0,
+        requires: mailbox ? null : 'RESERVATION_MAILBOX',
+        run: async () => {
+          const result = await pollMailbox({ store, mailbox, ingest: ingestMessages });
+          // A refusal is a failure as far as the schedule is concerned, so it backs
+          // off instead of asking a mailbox that is not there every minute.
+          if (!result.ok) throw new Error(result.reason ?? 'poll failed');
+          return result;
+        },
+      },
+      {
+        id: 'guest-email',
+        intervalMinutes: settings.deliveryPollMinutes,
+        enabled: settings.deliveryPollMinutes > 0,
+        run: async () => {
+          const sent = await sendDueGuideEmails({ store, mailer, origin });
+          return { processed: sent.length, provider: mailer.id, simulated: !mailer.configured };
+        },
+      },
+      {
+        id: 'ical',
+        intervalMinutes: settings.icalPollMinutes,
+        enabled: settings.icalFeeds.length > 0 && settings.icalPollMinutes > 0,
+        requires: settings.icalFeeds.length > 0 ? null : 'QUOVAI_ICAL_FEEDS',
+        run: async () => {
+          const result = await reconcileFeeds({ store, feeds: settings.icalFeeds });
+          if (!result.ok) throw new Error(result.reason ?? 'reconciliation failed');
+          return result;
+        },
+      },
+      {
+        id: 'housekeeping',
+        intervalMinutes: settings.housekeepingMinutes,
+        enabled: settings.housekeepingMinutes > 0,
+        run: async () => ({ completed: (await completePastStays({ store })).length }),
+      },
+    ],
+  });
+
+  /** One of each, now, whatever the intervals say. */
+  async function runScheduledWork({ now = new Date(), force = true } = {}) {
     const did = {};
-    if (mailbox && (force || settings.mailboxPollMinutes > 0)) {
-      did.mailbox = await pollMailbox({ store, mailbox, ingest: ingestMessages, now });
+    for (const id of ['mailbox', 'guest-email', 'ical', 'housekeeping']) {
+      did[id] = await scheduler.runJob(id, { force });
     }
-    if (force || settings.deliveryPollMinutes > 0) {
-      did.emails = (await sendDueGuideEmails({ store, mailer, origin, now })).length;
-    }
-    if (settings.icalFeeds.length > 0 && (force || settings.icalPollMinutes > 0)) {
-      did.reconciliation = await reconcileFeeds({ store, feeds: settings.icalFeeds, now });
-    }
-    did.completed = (await completePastStays({ store, now })).length;
     return did;
   }
 
@@ -1045,6 +1289,7 @@ export async function createApp(overrides = {}) {
     quovaiApi,
     providerCalendar,
     runScheduledWork,
+    scheduler,
     previewSeed,
     listen: (port = settings.port) => createServer(handle).listen(port),
   };

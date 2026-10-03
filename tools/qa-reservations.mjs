@@ -219,8 +219,10 @@ await staffPage.click('[data-view="sync"]');
 await staffPage.waitForTimeout(800);
 const syncText = await staffPage.textContent('#main');
 note(/Lettura notifiche QuoVai/.test(syncText), 'the sync screen names each integration');
-note((await staffPage.locator('.pill').filter({ hasText: 'non configurato' }).count()) >= 3,
-  'and says plainly which are not configured');
+note((await staffPage.locator('.pill').filter({ hasText: 'credenziali mancanti' }).count()) >= 3,
+  'and says plainly which are waiting on credentials rather than broken');
+note(/Processi automatici/.test(syncText), 'the scheduled jobs are listed');
+note((await staffPage.locator('[data-job]').count()) >= 3, 'each can be run by hand');
 note(/Email in attesa|Email inviate/.test(syncText), 'with the guest emails accounted for');
 
 await staffPage.click('[data-sync="reconcile"]');

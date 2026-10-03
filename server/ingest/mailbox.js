@@ -6,11 +6,14 @@
  * webhook, a folder of `.eml` files. Keeping that boundary this thin is what lets
  * the parser and the reservation model be tested without a mailbox existing at all.
  *
- * Nothing is connected. LunArt has given no mail credentials, so the only mailbox
- * registered is the in-memory one the tests and the preview use, and the Gmail
- * adapter is a described seam that reports itself unconfigured rather than a stub
- * that pretends. `/api/health` prints which is which.
+ * Two are registered. `memory` is fed by hand, which is what the tests and the
+ * preview use. `gmail` is the real one — implemented, waiting only on the one-time
+ * consent that produces a refresh token. It reports `configured: false` until those
+ * exist and refuses every call rather than quietly returning an empty inbox, which
+ * would make a silent failure look like a quiet morning.
  */
+
+import { createGmailMailbox } from './gmail.js';
 
 const sources = new Map();
 
@@ -23,9 +26,14 @@ const sources = new Map();
  */
 
 export const registerMailbox = (id, factory) => sources.set(id, factory);
-export const mailboxSources = () => [...sources.entries()].map(([id, factory]) => {
-  const probe = factory({});
-  return { id, configured: Boolean(probe.configured) };
+export const mailboxSources = (settings = {}) => [...sources.entries()].map(([id, factory]) => {
+  const probe = factory(settings);
+  return {
+    id,
+    implemented: probe.implemented !== false,
+    configured: Boolean(probe.configured),
+    requires: probe.requires ?? [],
+  };
 });
 
 /** A mailbox fed by hand. The preview uses it; so do the tests. */
@@ -34,6 +42,7 @@ export function createMemoryMailbox(initial = []) {
   return {
     id: 'memory',
     configured: true,
+    implemented: true,
     async fetchMessages() {
       const batch = queue;
       queue = [];
@@ -45,34 +54,6 @@ export function createMemoryMailbox(initial = []) {
 }
 registerMailbox('memory', () => createMemoryMailbox());
 
-/**
- * Gmail, as a seam.
- *
- * What it needs is written down rather than guessed at: an OAuth client, a refresh
- * token for the mailbox that receives the QuoVai notifications, and a query to find
- * them with. Until those exist this reports `configured: false` and every call
- * refuses, which is the honest state — an adapter that invented an empty inbox
- * would make a silent failure look like a quiet morning.
- */
-export function createGmailMailbox(settings = {}) {
-  const { gmailClientId, gmailClientSecret, gmailRefreshToken, gmailQuery } = settings;
-  const configured = Boolean(gmailClientId && gmailClientSecret && gmailRefreshToken);
-  return {
-    id: 'gmail',
-    configured,
-    requires: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN', 'GMAIL_QUERY'],
-    query: gmailQuery ?? 'from:quovai newer_than:7d',
-    async fetchMessages() {
-      if (!configured) {
-        throw Object.assign(new Error('gmail mailbox is not configured'), { code: 'source-not-configured' });
-      }
-      // The call itself is deliberately absent: writing it against credentials that
-      // do not exist would be writing it twice. What the rest of the system needs
-      // from here is the shape above, and that is already agreed.
-      throw Object.assign(new Error('gmail mailbox adapter is not implemented yet'), { code: 'not-implemented' });
-    },
-  };
-}
 registerMailbox('gmail', (settings) => createGmailMailbox(settings));
 
 /** Pick the mailbox the configuration asks for. */
@@ -95,11 +76,23 @@ export async function pollMailbox({ store, mailbox, ingest, now = new Date() }) 
     return { ok: false, reason: error.code ?? 'fetch-failed', message: error.message, source: mailbox.id };
   }
 
+  /**
+   * Ingest first, mark second.
+   *
+   * The order is the whole point: a message marked before it was ingested is a
+   * reservation nobody will ever see again. Only the ones the pipeline actually
+   * accepted are marked, and a message it refused stays unmarked on purpose, so
+   * the next poll brings it back.
+   */
   const outcome = await ingest({ store, messages, now });
   if (mailbox.markProcessed) {
-    for (const message of messages) {
-      if (message.messageId) await mailbox.markProcessed(message.messageId);
+    for (let i = 0; i < messages.length; i++) {
+      const result = outcome.results?.[i];
+      if (!result?.ok) continue;
+      await mailbox.markProcessed(messages[i].messageId, { gmailId: messages[i].gmailId });
     }
   }
-  return { ok: true, source: mailbox.id, ...outcome };
+  return { ok: true, source: mailbox.id, skipped: mailbox.state?.().skipped ?? [], ...outcome };
 }
+
+export { createGmailMailbox };

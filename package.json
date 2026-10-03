@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "LunArt \u2014 Guest Guide & Concierge",
+  "description": "LunArt — Guest Guide & Concierge",
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "serve": "node tools/serve.mjs",
@@ -17,5 +17,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
   }
 }

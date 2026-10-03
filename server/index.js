@@ -22,21 +22,17 @@ console.log(`  payments: ${app.stripe.mode}${app.stripe.mode === 'mock' ? ' (no 
 console.log(`  prices:   ${config.allowPlaceholderPrices ? 'placeholders allowed' : 'confirmed only'}${config.useDevPrices ? ' + preview fixtures' : ''}`);
 
 /**
- * The clock-driven work: reading the mailbox, sending what is due, reconciling the
- * calendars, retiring finished stays. Each interval only runs when its own
- * configuration exists, so an unconfigured server does nothing on a timer and says
- * so in the lines above.
+ * Start the clock-driven work.
+ *
+ * Each job only runs when its own configuration says so; the scheduler reports what
+ * it started, and `/api/health` reports what has happened since.
  */
-const minutes = (value) => Math.max(1, Number(value)) * 60_000;
-
-if (config.mailboxPollMinutes > 0 || config.deliveryPollMinutes > 0 || config.icalPollMinutes > 0) {
-  const every = Math.min(
-    ...[config.mailboxPollMinutes, config.deliveryPollMinutes, config.icalPollMinutes].filter((n) => n > 0),
-  );
-  setInterval(() => {
-    app.runScheduledWork().catch((error) => console.error('[schedule]', error.message));
-  }, minutes(every)).unref?.();
-  console.log(`  schedule: every ${every} min (mailbox ${config.mailboxPollMinutes || 'off'}, email ${config.deliveryPollMinutes || 'off'}, ical ${config.icalPollMinutes || 'off'})`);
+const schedule = app.scheduler.start();
+const live = schedule.filter((job) => job.enabled);
+if (live.length > 0) {
+  console.log(`  schedule: ${live.map((job) => `${job.id} every ${job.intervalMinutes}m`).join(', ')}`);
+} else {
+  console.log('  schedule: nothing runs on a timer (every interval is 0)');
 }
 
 console.log(`  reservations: ${app.mailbox ? `${app.mailbox.id}${app.mailbox.configured ? '' : ' (not configured)'}` : 'no mailbox'}`);

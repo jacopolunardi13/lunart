@@ -24,6 +24,7 @@
 
 import { propertyTimeToInstant, propertyDate, addDays } from '../commerce/time.js';
 import { isLive } from './reservations.js';
+import { createGmailMailer } from './mail/gmail.js';
 
 export const DELIVERY_STATUS = {
   scheduled: 'scheduled',
@@ -101,8 +102,18 @@ export async function cancelGuideEmail({ store, reservation, reason = 'reservati
   return store.deliveries.update(existing.id, { status: DELIVERY_STATUS.cancelled, reason });
 }
 
-/** Everything due to go out by `now`. */
-export const dueDeliveries = ({ store, now = new Date() }) => store.deliveries.due(now.toISOString());
+/**
+ * How many times a delivery is retried before a person has to look at it.
+ *
+ * Five is a morning's worth of a provider being down, and few enough that a
+ * permanently bad address stops being retried and starts being a problem on the
+ * Staff app's sync screen instead.
+ */
+export const MAX_DELIVERY_ATTEMPTS = 5;
+
+/** Everything due to go out by `now`, including what failed and can be tried again. */
+export const dueDeliveries = ({ store, now = new Date() }) =>
+  store.deliveries.due(now.toISOString(), { maxAttempts: MAX_DELIVERY_ATTEMPTS });
 
 /**
  * Send what is due.
@@ -246,30 +257,46 @@ export function createSimulatedMailer() {
   return {
     id: 'simulated',
     configured: false,
+    implemented: true,
     async send(message) {
       sent.push({ ...message, at: new Date().toISOString() });
       return { simulated: true, id: `sim_${sent.length}` };
     },
     outbox: () => [...sent],
+    state: () => ({ sent: sent.length, lastError: null, lastSuccessAt: sent.at(-1)?.at ?? null }),
+    check: async () => ({ ok: false, reason: 'credentials-missing' }),
   };
 }
 
 /**
- * Registry for real mail providers, so adding one is a registration rather than an
- * edit to this file. Nothing is registered: LunArt has given no mail credentials,
- * and an adapter that pretends to be configured is worse than none.
+ * Registry for mail providers, so adding another is a registration rather than an
+ * edit to this file.
+ *
+ * Gmail is registered and implemented; it reports itself unconfigured until the
+ * credentials exist, and `createMailer` falls back to the simulated one rather than
+ * handing back a transport that will throw on every send. Choosing a provider that
+ * cannot send is a configuration mistake, and it should be visible on the health
+ * screen rather than as a pile of failed deliveries.
  */
-const mailers = new Map();
+const mailers = new Map([['gmail', createGmailMailer]]);
 export const registerMailer = (id, factory) => mailers.set(id, factory);
 
 export function createMailer(settings = {}) {
   const chosen = settings.mailProvider ?? '';
   const factory = mailers.get(chosen);
   if (!chosen || !factory) return createSimulatedMailer();
-  return factory(settings);
+  const mailer = factory(settings);
+  if (!mailer.configured) {
+    const simulated = createSimulatedMailer();
+    return { ...simulated, requestedProvider: mailer.id, requires: mailer.requires ?? [] };
+  }
+  return mailer;
 }
 
-export const mailProviders = () => [
-  { id: 'simulated', configured: false, note: 'Default: nothing is sent, the body is kept.' },
-  ...[...mailers.keys()].map((id) => ({ id, configured: true })),
+export const mailProviders = (settings = {}) => [
+  { id: 'simulated', implemented: true, configured: false, note: 'Default: nothing is sent, the body is kept.' },
+  ...[...mailers.entries()].map(([id, factory]) => {
+    const probe = factory(settings);
+    return { id, implemented: probe.implemented !== false, configured: Boolean(probe.configured), requires: probe.requires ?? [] };
+  }),
 ];

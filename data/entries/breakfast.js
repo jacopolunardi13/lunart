@@ -59,14 +59,14 @@ export const breakfast = [
     priority: -10,
     title: { it: 'Il vantaggio riservato agli ospiti', en: 'The guest benefit' },
     summary: {
-      it: 'Agli ospiti LunArt l’Opera Caffè riserva il 30% di sconto sul menù al tavolo. Mostra la conferma di prenotazione prima di ordinare.',
-      en: 'Opera Caffè gives LunArt guests 30% off table orders. Show your booking confirmation before you order.',
+      it: 'Agli ospiti LunArt l’Opera Caffè riserva il 30% di sconto sul menù al tavolo. È incluso nel soggiorno: non devi comprare nulla. Dillo prima di ordinare e mostra la conferma di prenotazione LunArt.',
+      en: 'Opera Caffè gives LunArt guests 30% off table orders. It comes with your stay: there is nothing to buy. Say so before you order and show your LunArt booking confirmation.',
     },
     detail: {
-      it: 'Vale anche se torni per un pranzo, una cena o un aperitivo, non solo per la colazione.',
-      en: 'It applies when you come back for lunch, dinner or an aperitivo too, not just at breakfast.',
+      it: 'Vale anche se torni per un pranzo, una cena o un aperitivo, non solo per la colazione. E vale per tutti gli ospiti della tua prenotazione, non solo per due.',
+      en: 'It applies when you come back for lunch, dinner or an aperitivo too, not just at breakfast. And it covers everyone on your reservation, not just two of you.',
     },
-    actions: [{ kind: 'product', label: { it: 'La Privilege Card', en: 'The Privilege Card' }, value: 'privilege-card' }],
+    actions: [{ kind: 'map', label: { it: 'Apri in Maps', en: 'Open in Maps' }, value: 'https://maps.app.goo.gl/uok3CmvHBLmwieoV9' }],
     intents: ['opera-benefit'],
   },
   {

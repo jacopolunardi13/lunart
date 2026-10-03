@@ -72,7 +72,7 @@ export const rooms = [
       en: 'Bright and roomy, looking over the river and the Uffizi. It can take an extra bed on request, though it is not a standard triple.',
     },
     photos: [
-      { src: 'rooms/304-camera', alt: { it: 'Camera Deluxe LunArt con scrivania e finestra', en: 'LunArt Deluxe room with desk and window' } },
+      { src: 'rooms/304-camera', alt: { it: 'Camera Queen LunArt con scrivania e finestra', en: 'LunArt Queen room with desk and window' } },
       { src: 'rooms/304-bagno', alt: { it: 'Bagno privato LunArt con doccia', en: 'LunArt private bathroom with shower' } },
     ],
     verify: { level: 'confirm', field: 'foto',

@@ -200,7 +200,17 @@ export function createStore({ dataDir = '' } = {}) {
     deliveries: {
       ...deliveries,
       findByReservation: (reservationId) => deliveries.findBy((d) => d.reservation_id === reservationId),
-      due: (atIso) => deliveries.filter((d) => d.status === 'scheduled' && String(d.send_at) <= String(atIso)),
+      /**
+       * Everything that should go out by `atIso`.
+       *
+       * A delivery that failed is due again: the transport was down, the guest still
+       * has no guide, and the attempt counter is what stops it retrying for ever.
+       * Without this one Gmail hiccup would quietly cost somebody their link.
+       */
+      due: (atIso, { maxAttempts = 5 } = {}) => deliveries.filter((d) => (
+        String(d.send_at) <= String(atIso)
+        && (d.status === 'scheduled' || (d.status === 'failed' && (d.attempts ?? 0) < maxAttempts))
+      )),
     },
 
     /**

@@ -64,8 +64,8 @@ export const PARTNERS = [
       value: 30,
       label: { it: '30% sul menù al tavolo', en: '30% off table orders' },
       conditions: {
-        it: 'Mostra la card prima di ordinare. Vale sul menù al tavolo.',
-        en: 'Show the card before ordering. Applies to table orders.',
+        it: 'Dillo prima di ordinare e mostra la conferma di prenotazione LunArt. Vale sul menù al tavolo, per tutti gli ospiti della prenotazione.',
+        en: 'Say so before ordering and show your LunArt booking confirmation. It applies to table orders, for everyone on the reservation.',
       },
     },
     maps: 'https://maps.app.goo.gl/uok3CmvHBLmwieoV9',

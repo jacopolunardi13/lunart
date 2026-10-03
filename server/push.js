@@ -1,22 +1,24 @@
 /**
  * Telling staff something happened.
  *
- * The Staff app is a web app on two phones, so the notification channel is Web
- * Push: a subscription per device, a VAPID key pair for the server, and a payload
- * per event. All of that needs keys LunArt has not generated yet, so this module is
- * built the way the rest of the integrations are — the shape is real, the transport
- * is an adapter, and the unconfigured state is loud rather than silent.
+ * The Staff app is a web app on two phones, so the channel is Web Push: a
+ * subscription per device, a VAPID key pair for the server, a payload per event.
+ * The encryption that makes that work — ECDH to the subscription's own key pair,
+ * HKDF, AES-GCM, a signed JWT for the push service — is implemented by `web-push`,
+ * which is the library everyone uses and the one thing in this codebase it would be
+ * irresponsible to write by hand.
  *
- * Degraded mode is the important part. With no keys:
+ * Degraded mode is the part worth reading. With no keys:
  *
  *   - the Staff app still works, because it polls;
  *   - subscriptions are still accepted and stored, so devices are registered the
  *     moment keys exist;
- *   - every notification is recorded in the outbox and marked `simulated`, so the
- *     wording can be read and checked;
- *   - `/api/health` and the Staff app's own sync screen say push is not configured.
+ *   - every notification is recorded and marked `simulated`, so the wording can be
+ *     read and checked;
+ *   - `/api/health` and the Staff app's sync screen say push is not configured.
  *
- * What it must never do is look like it is working.
+ * And in either mode, a notification that fails can never fail the thing it was
+ * about: an order is paid whether or not a phone buzzed.
  */
 
 const notifications = [];
@@ -71,34 +73,111 @@ export function buildNotification(event, data = {}) {
  * with. Everything else about the interface is the same either way, so no caller
  * has to branch on it.
  */
+/**
+ * Load `web-push` once, lazily.
+ *
+ * Lazily because the server must still boot where it is not installed — a static
+ * preview, a checkout with `--omit=optional` — and once because setting the VAPID
+ * details is global to the module.
+ */
+let transportPromise = null;
+async function loadTransport({ publicKey, privateKey, subject }) {
+  if (!transportPromise) {
+    transportPromise = import('web-push')
+      .then((module) => {
+        const webpush = module.default ?? module;
+        webpush.setVapidDetails(subject, publicKey, privateKey);
+        return webpush;
+      })
+      .catch((error) => {
+        transportPromise = null;
+        throw Object.assign(new Error(`web-push is not available: ${error.message}`), { code: 'transport-missing' });
+      });
+  }
+  return transportPromise;
+}
+
+/** For tests, and for a restart after the keys change. */
+export const resetPushTransport = () => { transportPromise = null; };
+
+/**
+ * The push adapter.
+ *
+ * `configured` is true only with a key pair and a subject. Everything else about
+ * the interface is identical either way, so no caller has to branch on it.
+ */
 export function createPushAdapter(settings = {}) {
-  const { vapidPublicKey, vapidPrivateKey, vapidSubject } = settings;
+  const { vapidPublicKey, vapidPrivateKey, vapidSubject, pushTransport = null } = settings;
   const configured = Boolean(vapidPublicKey && vapidPrivateKey && vapidSubject);
+  const state = { sent: 0, failed: 0, removed: 0, lastError: null, lastSuccessAt: null };
 
   return {
     id: configured ? 'web-push' : 'simulated',
+    implemented: true,
     configured,
     publicKey: vapidPublicKey ?? '',
     requires: ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'],
+    state: () => ({ ...state }),
 
     /**
      * Send one notification to one subscription.
      *
-     * The real path needs encryption to the subscription's own key pair, which is
-     * where a library belongs rather than a hand-rolled implementation of RFC 8291.
-     * Unconfigured, it records and reports `simulated: true`.
+     * The return value says what the caller has to do about the subscription:
+     * `gone` means the browser dropped it and it should be deleted, anything else
+     * means keep it and try again next time. A 404 or a 410 is the push service
+     * saying the endpoint is dead; a 500 is the push service having a bad morning,
+     * and deleting a device over that would be losing a phone for no reason.
      */
     async send(subscription, payload) {
-      notifications.push({ endpoint: subscription?.endpoint ?? null, payload, simulated: !configured });
-      if (!configured) return { simulated: true };
-      throw Object.assign(
-        new Error('web push transport is not wired yet: VAPID keys exist but no sender is configured'),
-        { code: 'not-implemented' },
-      );
+      if (!configured) {
+        notifications.push({ endpoint: subscription?.endpoint ?? null, payload, simulated: true });
+        return { simulated: true };
+      }
+
+      const transport = pushTransport ?? await loadTransport({
+        publicKey: vapidPublicKey, privateKey: vapidPrivateKey, subject: vapidSubject,
+      });
+
+      try {
+        const result = await transport.sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.keys?.p256dh, auth: subscription.keys?.auth },
+          },
+          JSON.stringify(payload),
+          { TTL: 60 * 60, urgency: 'high' },
+        );
+        state.sent += 1;
+        state.lastSuccessAt = new Date().toISOString();
+        notifications.push({ endpoint: subscription.endpoint, payload, simulated: false });
+        return { simulated: false, status: result?.statusCode ?? 201 };
+      } catch (error) {
+        const status = error.statusCode ?? error.status ?? 0;
+        state.failed += 1;
+        state.lastError = `${status || 'network'}: ${error.message}`;
+        if (status === 404 || status === 410) {
+          state.removed += 1;
+          return { simulated: false, gone: true, status };
+        }
+        return { simulated: false, error: error.message, status };
+      }
     },
 
     outbox: () => [...notifications],
     clear: () => { notifications.length = 0; },
+
+    async check() {
+      if (!configured) return { ok: false, reason: 'credentials-missing' };
+      try {
+        await (pushTransport ? Promise.resolve(pushTransport) : loadTransport({
+          publicKey: vapidPublicKey, privateKey: vapidPrivateKey, subject: vapidSubject,
+        }));
+        return { ok: true };
+      } catch (error) {
+        state.lastError = error.message;
+        return { ok: false, reason: error.code ?? 'unavailable', message: error.message };
+      }
+    },
   };
 }
 
@@ -119,18 +198,19 @@ export async function notifyStaff({ store, push, event, data = {} }) {
   for (const subscription of subscriptions) {
     try {
       const outcome = await push.send(subscription, payload);
-      results.push({ endpoint: subscription.endpoint, ...outcome });
+      if (outcome.gone) await store.subscriptions.remove(subscription.id);
+      results.push({ endpoint: subscription.endpoint, ...outcome, removed: Boolean(outcome.gone) });
     } catch (error) {
-      const gone = error.statusCode === 404 || error.statusCode === 410;
-      if (gone) await store.subscriptions.remove(subscription.id);
-      results.push({ endpoint: subscription.endpoint, error: String(error.message ?? error), removed: gone });
+      // A throw from the transport is treated as temporary: the device stays.
+      results.push({ endpoint: subscription.endpoint, error: String(error.message ?? error), removed: false });
     }
   }
 
   return {
     ok: true,
     configured: push.configured,
-    delivered: results.filter((r) => !r.error).length,
+    delivered: results.filter((r) => !r.error && !r.gone).length,
+    removed: results.filter((r) => r.removed).length,
     simulated: !push.configured,
     devices: subscriptions.length,
     payload,
