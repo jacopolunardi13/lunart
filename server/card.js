@@ -10,10 +10,14 @@
  *   - the displayed code is an HMAC over the current time window, so it changes
  *     by itself and an old screenshot stops working within a couple of minutes;
  *   - the code carries no readable information — not the name, not the dates;
- *   - a code is accepted once. After a venue scans it, that same code is spent,
- *     so even inside its window a copy is worthless;
  *   - validation is server-side, so an expired or revoked card fails no matter
  *     what the phone is displaying.
+ *
+ * Nothing is consumed: the card is a membership, so the same card scanned twice in
+ * an evening is valid twice. The rotation is the whole protection, and it is the
+ * guest's business as little as a chip's rolling counter is a cardholder's. They
+ * see the QR of their card; they are told nothing about windows, timers or codes,
+ * and the payload sent to the phone does not contain them to leak.
  *
  * The signing key never leaves the server, and per-card secrets are derived from
  * it rather than stored, so there is one secret to protect instead of one per card.

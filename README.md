@@ -196,9 +196,10 @@ Two things to do when publishing:
 ## Experiences & Extras
 
 The commerce half sells a few things a guest might want during their stay: wine
-and breakfast brought to the room, a private transfer, a Privilege Card. It is
-deliberately not a separate shop — the guide's own entries link into it, so
-"colazione in camera" offers to order one.
+and breakfast brought to the room, a hairdresser or barber who comes up to the
+room, a private transfer, a Privilege Card. It is deliberately not a separate
+shop — the guide's own entries link into it, so "colazione in camera" offers to
+order one, and nothing hands the guest off to WhatsApp or to an outside site.
 
 ### Setting prices
 
@@ -211,12 +212,13 @@ its provenance, and the distinction decides what can be sold:
 | `placeholder` | a real figure from a real document, not confirmed as ours | only with `ALLOW_PLACEHOLDER_PRICES` |
 | `to-configure` | nobody has set a price | never |
 
-Today only the transfer is `confirmed`. Wine is priced from the carta vini bottle
+`confirmed` today: the transfer (€90), the Privilege Card (€15 / €25 / €35 for 2,
+5 and 8 days) and the six hair services. Wine is priced from the carta vini bottle
 column and brunch from Opera Caffè's per-head rate — both real numbers, neither
-confirmed as what LunArt charges in the room. The Privilege Card and the light
-breakfast have no figure at all, so they render and say so rather than being
-hidden. Nothing was invented: where there was nothing to work from, the entry
-says so.
+confirmed as what LunArt charges in the room. The light breakfast, the celebration
+set-up, the Chianti day and the ceremony hairstyle have no figure at all, so they
+render and say so rather than being hidden. Nothing was invented: where there was
+nothing to work from, the entry says so.
 
 Wine does not need a line per bottle. A bottle is priced from the carta unless it
 appears in `WINE_PRICE_OVERRIDES`.
@@ -261,24 +263,79 @@ retries; discovering that by issuing a second Privilege Card is not acceptable.
 
 ### The Privilege Card
 
-A static QR is a bearer token with no expiry: screenshot it and the holder is
-whoever has the screenshot. So the card lives on the server and the phone shows a
-short-lived proof of it — an HMAC over the current minute, carrying nothing
-readable, accepted once. After a venue scans it that code is spent, and an
-expired or revoked card fails whatever the phone is displaying.
+€15 for two days, €25 for five, €35 for eight. One card covers the holder and one
+companion — `max_people` is 2 on the record, not a sentence in a description.
 
-A venue opens `/validate-card`. The QR carries the whole thing, so the usual path
-is to point a phone's own camera at the guest's screen; there is a typed fallback
-(`ABC123-XY4Z9`) and an in-page scanner where the browser has one. No login, and
-the guest is never asked for a document.
+**What the guest sees.** The LunArt mark, LUNART PRIVILEGE CARD, their name,
+*valid for 2 guests*, the dates, the QR, Active or Expired, and a *your
+privileges* list naming each partner and what that partner gives them. Nothing
+else. No countdown, no timer, no code to read out, no "updates in 30s", no word
+about tokens or expiry — to the guest this is simply the official QR of their
+card, and it is meant to feel like one.
 
-Benefits are per partner — a percentage, an amount off, an included item, a place
-on a list. Nothing assumes a house discount.
+**What is actually happening.** A static QR is a bearer token with no expiry:
+screenshot it and the holder is whoever has the screenshot. So the card lives on
+the server and the phone shows a short-lived proof derived from it — an HMAC over
+the current time window, carrying nothing readable. The screen refreshes itself
+quietly, the way a banking app refreshes a balance. The payload sent to the
+browser is the QR and a number of seconds after which to ask again: the window,
+the period, the expiry and the code itself never leave the server, so there is
+nothing for a curious guest, or a screenshot, to find. An expired or revoked card
+fails whatever the phone is displaying.
+
+**No usage limits.** The card is a membership, not a voucher book. There is no
+counter, no one-a-day, no "benefit used", no button for a waiter to press: a card
+scanned twice in an evening is valid twice, and each partner applies its own
+conditions. The server keeps no ledger of spent codes, by design — the rotation is
+the protection, and counting would only add a way to lock a paying guest out.
+
+**How a venue checks it.** Each partner has its own page, `/partner/<partner_id>`,
+which works in Safari and Chrome with nothing installed and is meant to be kept on
+the home screen — it serves its own web manifest, so it opens full-screen with the
+venue's name on it. The venue scans; it gets a green **CARD VALID** with the
+holder, *valid for 2 guests*, the dates and *its own* benefit, or a red **CARD NOT
+VALID** with one reason: expired, revoked, not yet valid, invalid code. No
+technical detail either way. Where the browser has no barcode reader the page says
+to use the phone's own camera — the QR is a URL — and there is a typed
+`REF-CODE` fallback for a dead camera. No login, and the guest is never asked for
+a document.
+
+`commerce/partners.js` is the register: `partner_id`, `name`, `category`
+(restaurants, bars, nightlife, spa, beauty, experiences, other), `active`, the
+benefit in IT and EN, its kind (percentage, amount, special price, included item,
+guest list, other) and internal `notes` that stay on the server. Benefits differ
+per partner; nothing assumes a house discount. Only Opera Caffè is live — 30% off
+the table — and the rest of the file is inactive shapes marked `example: true`, to
+be filled in as agreements are signed.
+
+### Private Hair Service
+
+A hairdresser or barber in the guest's own room, from the Clippylia side of the
+business. Six services are priced and sellable: men's cut €50, beard €35, both
+€70, blow-dry €70, cut and blow-dry €95, evening styling €90. Colour and
+highlights are deliberately not offered — the terms say so in both languages — and
+the ceremony hairstyle is in the catalogue as `pending`, rendering as a disabled
+choice until the provider confirms it.
+
+Booking is service → day → time → cart → Stripe → confirmation, like everything
+else. The order records the service, the date, the time, the guest's name, phone,
+email and room, the amount, the Stripe ids and an `assignee` field for the
+professional once one is named.
+
+The slots come from `commerce/schedule.js`, which **ships empty on purpose**.
+Nobody has given us the professional's hours, so the guide offers no days, and the
+service says it has no appointments rather than showing a plausible grid. Fill
+`MANUAL_SCHEDULE` and the days appear; remove a slot when it is sold, or it can be
+sold twice. The server publishes the schedule in force through `/api/catalog`, so
+the times the guide offers and the times the server will accept are one list
+instead of two that drift — and a slot that is not on it is refused at checkout
+with `slot-unavailable`, whatever the browser sends.
 
 ### Availability
 
-`commerce/availability.js` is a registry. `always`, `cutoff`, `manual` and
-`manual-confirm` are real and decide things today. Google Calendar, provider
+`commerce/availability.js` is a registry. `always`, `cutoff`, `timeslots`,
+`manual`, `manual-confirm` and `request` are real and decide things today;
+`timeslots` reads `commerce/schedule.js`. Google Calendar, provider
 calendars, partner APIs and booking engines are registered as unconfigured seams
 that report themselves as such — an adapter inventing plausible slots would be
 worse than one admitting it is not connected. `/api/health` lists which is which.
