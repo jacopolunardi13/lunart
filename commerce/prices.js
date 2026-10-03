@@ -35,10 +35,21 @@ export const CURRENCY = 'EUR';
 /** Keyed by SKU: either `productId` or `productId:variantId`. */
 export const PRICES = {
   // ── Privilege Card ───────────────────────────────────────────────────────
-  // No source figure exists for these. Set them here and the card goes on sale.
-  'privilege-card:2d': { amount: null, status: 'to-configure' },
-  'privilege-card:5d': { amount: null, status: 'to-configure' },
-  'privilege-card:8d': { amount: null, status: 'to-configure' },
+  'privilege-card:2d': { amount: 1500, status: 'confirmed' },
+  'privilege-card:5d': { amount: 2500, status: 'confirmed' },
+  'privilege-card:8d': { amount: 3500, status: 'confirmed' },
+
+  // ── Private Hair Service ─────────────────────────────────────────────────
+  // Carried out in the guest's own room by the professional LunArt works with.
+  'hair-service:men-cut':        { amount: 5000, status: 'confirmed' },
+  'hair-service:men-beard':      { amount: 3500, status: 'confirmed' },
+  'hair-service:men-cut-beard':  { amount: 7000, status: 'confirmed' },
+  'hair-service:women-blowdry':  { amount: 7000, status: 'confirmed' },
+  'hair-service:women-cut-blow': { amount: 9500, status: 'confirmed' },
+  'hair-service:women-evening':  { amount: 9000, status: 'confirmed' },
+  // Not on sale until the provider confirms it; colour and highlights are not
+  // offered at all for now.
+  'hair-service:ceremony':       { amount: null, status: 'to-configure' },
 
   // ── Breakfast ────────────────────────────────────────────────────────────
   'light-breakfast': { amount: null, status: 'to-configure' },

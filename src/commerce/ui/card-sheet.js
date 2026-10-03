@@ -1,13 +1,15 @@
 /**
  * "La mia Privilege Card".
  *
- * The screen a guest holds up at a restaurant. It shows the card, a QR the venue
- * scans, and a short code to read out when the camera will not cooperate.
+ * The screen a guest holds up at a restaurant. It shows the card, the QR the
+ * venue scans, and the privileges that come with it.
  *
- * The code is fetched, never computed here: the browser has no key and could not
- * make one if it wanted to. It comes with its own expiry, and this screen asks for
- * a fresh one just before the old one lapses, so what is on screen is always
- * current and a screenshot of it stops working within a couple of minutes.
+ * The QR behind it is temporary and validated server-side — but none of that is
+ * the guest's business, and showing it would make a membership card feel like a
+ * security product. So there is no countdown, no "refreshes in", no expiry, no
+ * mention of tokens. The code is replaced quietly in the background, swapping
+ * only the image so nothing on screen moves. To the guest it is simply the QR of
+ * their card.
  */
 
 import { esc } from '../../ui/dom.js';
@@ -37,97 +39,132 @@ export function rememberCard(token) {
 }
 
 const STATE_TEXT = {
-  it: { active: 'Attiva', 'not-started': 'Non ancora attiva', expired: 'Scaduta', revoked: 'Non più valida' },
-  en: { active: 'Active', 'not-started': 'Not active yet', expired: 'Expired', revoked: 'No longer valid' },
+  it: { active: 'Attiva', 'not-started': 'Non ancora attiva', expired: 'Scaduta', revoked: 'Non valida' },
+  en: { active: 'Active', 'not-started': 'Not yet active', expired: 'Expired', revoked: 'Not valid' },
 };
 
-/** The card itself, drawn rather than photographed — it is a digital object. */
+/**
+ * The LunArt mark, set in the house serif rather than placed as an image.
+ *
+ * The brand is typographic — the monogram and the wordmark in Cormorant, black on
+ * warm white — and the guide already loads that face, so rendering it here keeps
+ * it crisp at any size and in either theme. Drop the official artwork into
+ * `assets/` and swap this for an <img> when there is a file to use.
+ */
+const lunartMark = () => `
+  <span class="lunart-mark">
+    <span class="lunart-mark__monogram" aria-hidden="true">LA</span>
+    <span class="lunart-mark__word">LunArt<span class="lunart-mark__city">Firenze</span></span>
+  </span>`;
+
 function cardFace(card, lang) {
+  const dates = `${longDate(card.start_date, lang)} — ${longDate(card.end_date, lang)}`;
   return `<div class="privilege-card" data-state="${esc(card.state)}">
-    <div class="privilege-card__top">
-      <span class="privilege-card__mark">LunArt</span>
-      <span class="privilege-card__kind">Privilege Card</span>
+    <div class="privilege-card__head">
+      ${lunartMark()}
+      <span class="privilege-card__kind">LunArt Privilege Card</span>
     </div>
-    <p class="privilege-card__holder">${esc(card.holder)}</p>
+    <div class="privilege-card__middle">
+      <p class="privilege-card__holder">${esc(card.holder)}</p>
+      <p class="privilege-card__guests">${esc(UI[lang].validForTwo)}</p>
+    </div>
     <div class="privilege-card__foot">
-      <span>${esc(UI[lang].validUntil)} ${esc(longDate(card.end_date, lang))}</span>
-      <span>${esc(UI[lang].upToTwo)}</span>
+      <span class="privilege-card__dates">${esc(dates)}</span>
+      <span class="privilege-card__number">${esc(UI[lang].cardNumber)} ${esc(card.reference)}</span>
     </div>
   </div>`;
 }
 
-function body(card, lang) {
-  const stateLabel = STATE_TEXT[lang]?.[card.state] ?? card.state;
-
-  const live = card.state === 'active' && card.code
-    ? `<div class="card-code">
-        <div class="card-code__qr" data-qr>${qrSvg(card.qr, { label: UI[lang].qrLabel })}</div>
-        <p class="card-code__manual">
-          <span class="card-code__label">${esc(UI[lang].manualCode)}</span>
-          <strong data-manual>${esc(card.code.manualCode)}</strong>
-        </p>
-        <p class="card-code__timer">
-          ${icon('clock', 14)}
-          <span data-countdown>${card.code.secondsRemaining}</span> ${esc(UI[lang].codeRefreshes)}
-        </p>
-      </div>`
-    : `<div class="notice">
-        <p>${esc(card.state === 'not-started'
-          ? `${UI[lang].cardStartsOn} ${longDate(card.start_date, lang)}`
-          : UI[lang].cardNotUsable)}</p>
-      </div>`;
-
-  const benefits = (card.benefits ?? []).map((benefit) => `
-    <li class="place">
-      <span class="place__body">
-        <span class="place__name">${esc(benefit.partner)}</span>
-        <span class="place__note">${esc(benefit.label[lang] ?? benefit.label.it)}</span>
-        ${benefit.conditions ? `<span class="place__area" style="text-transform:none;letter-spacing:0">${esc(benefit.conditions[lang] ?? benefit.conditions.it)}</span>` : ''}
-      </span>
+function privileges(card, lang) {
+  const list = (card.benefits ?? []).map((benefit) => `
+    <li class="privilege">
+      <div class="privilege__body">
+        <p class="privilege__partner">${esc(benefit.partner)}</p>
+        <p class="privilege__benefit">${esc(benefit.label[lang] ?? benefit.label.it)}</p>
+        ${benefit.conditions ? `<p class="privilege__conditions">${esc(benefit.conditions[lang] ?? benefit.conditions.it)}</p>` : ''}
+      </div>
+      ${benefit.maps ? `<a class="privilege__map" href="${esc(benefit.maps)}" target="_blank" rel="noopener"
+         aria-label="${esc(benefit.partner)} — ${esc(UI[lang].openMaps)}">${icon('map', 18)}</a>` : ''}
     </li>`).join('');
+
+  if (!list) return '';
+
+  return `<details class="privileges" open>
+    <summary class="privileges__summary">
+      <span>${esc(UI[lang].viewPrivileges)}</span>
+      ${icon('chevron', 16)}
+    </summary>
+    <ul class="privileges__list">${list}</ul>
+  </details>`;
+}
+
+function body(card, lang) {
+  const usable = card.state === 'active' && card.qr;
 
   return `
     ${cardFace(card, lang)}
-    <p class="status-pill" data-tone="${card.state === 'active' ? 'good' : 'muted'}">${esc(stateLabel)}</p>
-    ${live}
+
+    <p class="status-pill" data-tone="${card.state === 'active' ? 'good' : 'muted'}">
+      ${esc(STATE_TEXT[lang]?.[card.state] ?? card.state)}
+    </p>
+
+    ${usable
+      ? `<div class="card-qr">
+           <div class="card-qr__frame" data-qr>${qrSvg(card.qr, { label: UI[lang].qrLabel })}</div>
+           <p class="card-qr__hint">${esc(UI[lang].showAtVenue)}</p>
+         </div>`
+      : `<div class="notice">
+           <p>${esc(card.state === 'not-started'
+             ? `${UI[lang].cardStartsOn} ${longDate(card.start_date, lang)}`
+             : UI[lang].cardNotUsable)}</p>
+         </div>`}
+
+    ${privileges(card, lang)}
+
     <p class="terms">${esc(UI[lang].cardTerms)}</p>
-    ${benefits ? `<h3 class="checkout-form__heading">${esc(UI[lang].whereItWorks)}</h3><ul>${benefits}</ul>` : ''}
   `;
 }
 
 let refreshTimer = null;
 
-function stopRefreshing() {
+export function stopRefreshing() {
   clearTimeout(refreshTimer);
   refreshTimer = null;
 }
 
 /**
- * Keep the displayed code current.
+ * Keep the code current, invisibly.
  *
- * Asks for the next one a second before this one lapses, and counts down in
- * between so it is obvious the card is live rather than a picture of one.
+ * Only the QR image is replaced, and only when the one on screen is about to stop
+ * working. Nothing else re-renders, nothing moves, and nothing counts down — a
+ * guest holding the card up at a bar sees the same screen throughout.
  */
-function keepFresh(accessToken, lang, container) {
-  const countdown = container.querySelector('[data-countdown]');
-  if (!countdown) return;
+function keepCurrent(accessToken, lang, container) {
+  stopRefreshing();
+  const frame = container.querySelector('[data-qr]');
+  if (!frame) return;
 
-  let remaining = Number(countdown.textContent) || 0;
-  const tick = () => {
-    remaining -= 1;
-    if (remaining > 0) {
-      countdown.textContent = String(remaining);
-      refreshTimer = setTimeout(tick, 1000);
-      return;
-    }
-    fetchCard(accessToken)
-      .then((card) => {
-        if (!document.body.contains(container)) { stopRefreshing(); return; }
-        replaceSheetBody({ body: body(card, lang), onMount: (next) => keepFresh(accessToken, lang, next) });
-      })
-      .catch(() => { refreshTimer = setTimeout(tick, 5000); remaining = 5; });
+  const schedule = (seconds) => {
+    refreshTimer = setTimeout(async () => {
+      if (!document.body.contains(frame)) { stopRefreshing(); return; }
+      try {
+        const card = await fetchCard(accessToken);
+        if (!document.body.contains(frame)) { stopRefreshing(); return; }
+        if (card.state !== 'active' || !card.qr) {
+          // It lapsed or was withdrawn while open: redraw properly rather than
+          // leaving a QR on screen that would be turned away at the door.
+          replaceSheetBody({ body: body(card, lang), onMount: (next) => keepCurrent(accessToken, lang, next) });
+          return;
+        }
+        frame.innerHTML = qrSvg(card.qr, { label: UI[lang].qrLabel });
+        schedule(card.refreshIn);
+      } catch {
+        schedule(10);   // offline for a moment; the code on screen is still good
+      }
+    }, Math.max(2, seconds) * 1000);
   };
-  refreshTimer = setTimeout(tick, 1000);
+
+  schedule(container.dataset.nextRefresh ? Number(container.dataset.nextRefresh) : 30);
 }
 
 export function openCardSheet(accessToken, { lang }) {
@@ -146,7 +183,10 @@ export function openCardSheet(accessToken, { lang }) {
     .then((card) => replaceSheetBody({
       title: UI[lang].myCard,
       body: body(card, lang),
-      onMount: (container) => keepFresh(accessToken, lang, container),
+      onMount: (container) => {
+        container.dataset.nextRefresh = String(card.refreshIn ?? 30);
+        keepCurrent(accessToken, lang, container);
+      },
     }))
     .catch(() => replaceSheetBody({
       title: UI[lang].myCard,
@@ -181,5 +221,3 @@ export async function cardBlock(lang) {
     </div>
   </section>`;
 }
-
-export { stopRefreshing };

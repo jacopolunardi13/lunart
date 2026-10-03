@@ -684,48 +684,96 @@ fieldset.field { border: 0; padding: 0; }
 .status-pill[data-tone="bad"]     { background: #f6e8e8; color: #8a2f2f; }
 
 /* --- The Privilege Card -------------------------------------------------- */
-/* Drawn rather than photographed: it is a digital object, not a piece of plastic. */
+/*
+ * Drawn rather than photographed: it is a digital object, not a piece of plastic.
+ * The mark is typographic, like the rest of the LunArt identity — the monogram
+ * and the wordmark in the house serif, which stays crisp at any size and needs no
+ * image. Swap in the official artwork when there is a file for it.
+ */
+.lunart-mark { display: flex; align-items: center; gap: 10px; }
+.lunart-mark__monogram {
+  font-family: var(--serif); font-size: 1.5rem; font-weight: 500;
+  letter-spacing: 0.02em; line-height: 1;
+}
+.lunart-mark__word {
+  display: flex; flex-direction: column; gap: 2px;
+  font-family: var(--serif); font-size: 0.9375rem; letter-spacing: 0.26em;
+  text-transform: uppercase; line-height: 1;
+}
+.lunart-mark__city {
+  font-family: var(--sans); font-size: 0.5rem; letter-spacing: 0.3em; opacity: 0.6;
+}
+
 .privilege-card {
   position: relative; overflow: hidden;
-  display: flex; flex-direction: column; justify-content: space-between;
-  aspect-ratio: 1.6 / 1; padding: 20px;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 18px;
+  min-height: 210px; padding: 20px;
   border-radius: 16px; background: var(--ink); color: var(--paper);
 }
 .privilege-card::after {
-  content: ""; position: absolute; inset: 0;
-  background: radial-gradient(120% 90% at 85% 10%, rgba(201, 168, 109, 0.3), transparent 60%);
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(130% 100% at 88% 6%, rgba(201, 168, 109, 0.34), transparent 58%);
 }
-.privilege-card[data-state="expired"], .privilege-card[data-state="revoked"] { opacity: 0.45; }
-.privilege-card__top { display: flex; justify-content: space-between; align-items: baseline; position: relative; z-index: 1; }
-.privilege-card__mark { font-family: var(--serif); font-size: 1.125rem; letter-spacing: 0.3em; text-transform: uppercase; }
-.privilege-card__kind { font-size: var(--micro); letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.6; }
-.privilege-card__holder { position: relative; z-index: 1; font-family: var(--serif); font-size: 1.5rem; }
-.privilege-card__foot {
-  position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 10px;
-  font-size: var(--micro); opacity: 0.75;
-}
+.privilege-card > * { position: relative; z-index: 1; }
+.privilege-card[data-state="expired"],
+.privilege-card[data-state="revoked"] { opacity: 0.5; }
 
-.card-code { margin: 20px 0; text-align: center; }
-.card-code__qr {
+/* Stacked rather than set opposite the mark: "LunArt Privilege Card" wrapped onto
+   three ragged lines when it had to share the top row. */
+.privilege-card__head { display: flex; flex-direction: column; gap: 10px; }
+.privilege-card__kind {
+  font-size: var(--micro); letter-spacing: 0.2em; text-transform: uppercase;
+  line-height: 1.4; opacity: 0.55;
+}
+.privilege-card__holder { font-family: var(--serif); font-size: 1.5rem; line-height: 1.15; }
+.privilege-card__guests { margin-top: 4px; font-size: var(--small); opacity: 0.7; }
+.privilege-card__foot {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-size: var(--micro); opacity: 0.65;
+}
+.privilege-card__number { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; }
+
+/*
+ * The QR is simply the card's code as far as a guest is concerned. It is replaced
+ * quietly in the background when it needs to be, and nothing here counts down,
+ * expires or explains itself — a membership card should not feel like a security
+ * product.
+ */
+.card-qr { margin: 20px 0; text-align: center; }
+.card-qr__frame {
   width: min(260px, 70vw); margin: 0 auto;
-  padding: 12px; background: #fff; border-radius: 12px; color: var(--ink);
+  padding: 14px; background: #fff; border-radius: 14px; color: var(--ink);
   border: 1px solid var(--ink-faint);
 }
-.card-code__manual { margin-top: 16px; }
-.card-code__label {
-  display: block; font-size: var(--micro); letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--ink-quiet); margin-bottom: 4px;
-}
-.card-code__manual strong {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 1.375rem; letter-spacing: 0.1em;
-}
-.card-code__timer {
-  display: inline-flex; align-items: center; gap: 6px;
-  margin-top: 12px; font-size: var(--micro); color: var(--ink-quiet);
-  font-variant-numeric: tabular-nums;
-}
+.card-qr__hint { margin-top: 12px; font-size: var(--small); color: var(--ink-soft); }
 
+/* --- Privileges ---------------------------------------------------------- */
+.privileges { margin-top: 22px; border-top: 1px solid var(--ink-line); }
+.privileges__summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: var(--tap); padding: 12px 2px; cursor: pointer; list-style: none;
+  font-family: var(--serif); font-size: var(--step-2);
+}
+.privileges__summary::-webkit-details-marker { display: none; }
+.privileges__summary svg { flex: none; color: var(--ink-quiet); transition: transform 0.2s var(--ease); }
+.privileges[open] .privileges__summary svg { transform: rotate(90deg); }
+
+.privilege {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 2px; border-top: 1px solid var(--ink-faint);
+}
+.privilege__body { min-width: 0; }
+.privilege__partner {
+  font-size: var(--micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-quiet);
+}
+.privilege__benefit { font-family: var(--serif); font-size: var(--step-1); line-height: 1.25; margin-top: 3px; }
+.privilege__conditions { font-size: var(--small); color: var(--ink-soft); line-height: 1.6; margin-top: 5px; }
+.privilege__map {
+  flex: none; display: grid; place-items: center;
+  width: var(--tap); height: var(--tap); margin-left: auto;
+  border-radius: 50%; color: var(--ink-quiet);
+}
+.privilege__map:hover { background: var(--ink-faint); color: var(--ink); }
 
 /* ---------------------------------------------------------------------------
    Last, on purpose.
@@ -737,3 +785,7 @@ fieldset.field { border: 0; padding: 0; }
    without reaching for !important.
    --------------------------------------------------------------------------- */
 [hidden] { display: none; }
+
+/* A variant that exists but is not on sale yet: visible, legible, not choosable. */
+.chip--unavailable { opacity: 0.5; cursor: default; }
+.chip--unavailable input { cursor: default; }

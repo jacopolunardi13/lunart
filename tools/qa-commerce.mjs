@@ -88,7 +88,7 @@ await page.click('.sheet [data-close]');
 await page.waitForTimeout(500);
 await page.goto(`${BASE}#/product/brunch`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(600);
-await page.click('.chip--choice:has-text("Opera")');
+await page.check('input[name="variantId"][value="opera"]', { force: true });
 await page.fill('input[name="date"]', inDays(2));
 await page.selectOption('select[name="slotId"]', 'b-0830');
 await page.selectOption('select[name="option:hotDrink"]', 'cappuccino');
@@ -150,10 +150,13 @@ console.log('\n── privilege card ──');
 await page.evaluate(() => localStorage.removeItem('lunart.cart.v1'));
 await page.goto(`${BASE}#/product/privilege-card`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(600);
-await page.click('.chip--choice:has-text("5")');
+await page.check('input[name="variantId"][value="5d"]', { force: true });
 await page.fill('input[name="date"]', today);
 await page.fill('input[name="field:holderName"]', 'Jacopo Lunardi');
 await page.waitForTimeout(400);
+const cardSummary = await page.textContent('[data-summary]');
+note(/25/.test(cardSummary), `the five-day card is EUR 25 (${cardSummary.replace(/\s+/g, ' ').trim().slice(0, 40)})`);
+
 await page.click('[data-add]');
 await page.waitForTimeout(700);
 await page.fill('input[name="name"]', 'Jacopo Lunardi');
@@ -166,40 +169,124 @@ await page.waitForTimeout(900);
 
 note(await page.isVisible('[data-card]'), 'the paid order carries the card');
 await page.click('[data-card]');
-await page.waitForTimeout(1200);
+await page.waitForTimeout(1300);
+
+const cardText = await page.textContent('.sheet__body');
 note(await page.isVisible('.privilege-card'), 'the card screen opens');
-note(await page.isVisible('.card-code__qr svg'), 'a QR is drawn');
-const manual = (await page.textContent('[data-manual]')).trim();
-note(/^[0-9A-Z]{6}-[0-9A-Z]{6}$/.test(manual), `a spoken code is offered (${manual})`);
+note(/LunArt/.test(await page.textContent('.lunart-mark')), 'it carries the LunArt mark');
+note(/Privilege Card/i.test(cardText), 'and names the product');
+note(/Jacopo Lunardi/.test(cardText), 'it shows the holder');
+note(/2 (persone|guests)/i.test(cardText), 'it says it is valid for two');
+note(await page.isVisible('.card-qr__frame svg'), 'a QR is drawn');
+note(/Attiva|Active/.test(await page.textContent('.status-pill')), 'it shows the status');
+note(await page.isVisible('.privileges'), 'privileges are listed');
+note(/Opera Caff/.test(await page.textContent('.privileges')), 'with the partner and the benefit');
 await page.screenshot({ path: `${OUT}/card-390.png` });
 
-const countdownBefore = Number(await page.textContent('[data-countdown]'));
-await page.waitForTimeout(2500);
-const countdownAfter = Number(await page.textContent('[data-countdown]'));
-note(countdownAfter < countdownBefore, `the code counts down (${countdownBefore} → ${countdownAfter})`);
+// The rotation is deliberately invisible: a membership card should not read like
+// a security product.
+note((await page.locator('[data-countdown]').count()) === 0, 'no countdown is shown');
+for (const phrase of ['si aggiorna', 'prossimo codice', 'scade', 'refresh', 'countdown']) {
+  note(!cardText.toLowerCase().includes(phrase), `the screen never says "${phrase}"`);
+}
 
-/* ── The venue's page ─────────────────────────────────────────────────── */
-console.log('\n── validation ──');
-const [reference, code] = manual.split('-');
+// ...but it is still rotating underneath.
+const qrUrl = await page.evaluate(async () => {
+  const token = JSON.parse(localStorage.getItem('lunart.cards.v1'))[0];
+  const card = await (await fetch(`/api/card/${token}`)).json();
+  return card.qr;
+});
+note(/\/validate-card\?c=.+&k=/.test(qrUrl), 'the QR points at a validation URL');
+
+/* ── The venue's own page ─────────────────────────────────────────────── */
+console.log('\n── partner page ──');
+const scanned = new URL(qrUrl);
+const reference = scanned.searchParams.get('c');
+const code = scanned.searchParams.get('k');
+
 const venue = await context.newPage();
-await venue.goto(`${BASE}validate-card?c=${reference}&k=${code}`, { waitUntil: 'networkidle' });
-await venue.waitForTimeout(900);
-note((await venue.getAttribute('#verdict', 'data-tone')) === 'good', 'the venue page says the card is valid');
-note(/Jacopo/.test(await venue.textContent('#result')), 'it shows who is holding it');
-note(/30%/.test(await venue.textContent('#result')), 'it shows the benefit');
-await venue.screenshot({ path: `${OUT}/validate-390.png` });
+await venue.goto(`${BASE}partner/opera-caffe`, { waitUntil: 'networkidle' });
+await venue.waitForTimeout(800);
+note((await venue.textContent('#partner-name')).includes('Opera'), 'the page knows which venue it belongs to');
+note((await venue.locator('link[rel="manifest"]').count()) === 1, 'it offers its own home-screen install');
 
-await venue.reload({ waitUntil: 'networkidle' });
-await venue.waitForTimeout(900);
-note((await venue.getAttribute('#verdict', 'data-tone')) === 'bad', 'the same code a second time is refused');
+await venue.goto(`${BASE}partner/opera-caffe?c=${reference}&k=${code}`, { waitUntil: 'networkidle' });
+await venue.waitForTimeout(1000);
+note((await venue.getAttribute('#verdict', 'data-tone')) === 'good', 'a scan shows the card as valid');
+const verdictText = await venue.textContent('#verdict');
+note(/CARD VALID/.test(verdictText), 'in the agreed words');
+note(/Jacopo Lunardi/.test(verdictText), 'with the holder');
+note(/2 persone/.test(verdictText), 'the two-guest limit');
+note(/Opera Caff/.test(verdictText) && /30%/.test(verdictText), 'and that venue’s own benefit');
+await venue.screenshot({ path: `${OUT}/partner-390.png` });
 
-await venue.goto(`${BASE}validate-card`, { waitUntil: 'networkidle' });
-await venue.fill('#code', 'ZZZZZZ-ZZZZZZ');
-await venue.click('#manual button[type="submit"]');
-await venue.waitForTimeout(700);
+// Scanned again and again: a card is a membership, not a voucher book.
+for (let scan = 0; scan < 3; scan++) {
+  await venue.reload({ waitUntil: 'networkidle' });
+  await venue.waitForTimeout(700);
+}
+note((await venue.getAttribute('#verdict', 'data-tone')) === 'good', 'repeated scans stay valid — nothing is consumed');
+
+await venue.goto(`${BASE}partner/opera-caffe?c=ZZZZZZ&k=ZZZZZZ`, { waitUntil: 'networkidle' });
+await venue.waitForTimeout(900);
 note((await venue.getAttribute('#verdict', 'data-tone')) === 'bad', 'an invented code is refused');
+note(/CARD NOT VALID/.test(await venue.textContent('#verdict')), 'in the agreed words');
+await venue.screenshot({ path: `${OUT}/partner-invalid-390.png` });
+await venue.close();
 
-note(errors.length === 0, `no page errors (${errors.slice(0, 2).join(' | ') || 'none'})`);
+/* ── Private Hair Service ─────────────────────────────────────────────── */
+console.log('\n── private hair service ──');
+await page.evaluate(() => localStorage.removeItem('lunart.cart.v1'));
+await page.goto(`${BASE}#/product/hair-service`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(800);
+
+note(await page.isVisible('.product-form'), 'the hair service opens');
+const services = await page.locator('.chip--choice').count();
+note(services === 7, `every service is listed (${services})`);
+note((await page.locator('.chip--unavailable').count()) === 1, 'ceremony styling shows but cannot be chosen');
+// Colour is absent from the choices; the terms do mention it, to say it is not
+// available, which is the point.
+const serviceLabels = await page.locator('.chip--choice').allTextContents();
+note(!serviceLabels.some((label) => /colore|colour|highlight|balayage/i.test(label)),
+  'no colour service is offered');
+note(/non sono al momento disponibili|are not available at the moment/i.test(await page.textContent('.terms')),
+  'and the terms say so plainly');
+
+const dayOptions = await page.locator('select[name="date"] option').count();
+note(dayOptions > 1, `only days the professional is free are offered (${dayOptions - 1})`);
+note(await page.locator('select[name="time"]').isDisabled(), 'the time cannot be picked before the day');
+
+// Chosen by value, not by label: this browser runs in English.
+await page.check('input[name="variantId"][value="women-cut-blow"]', { force: true });
+await page.selectOption('select[name="date"]', { index: 1 });
+await page.waitForTimeout(900);
+const timeOptions = await page.locator('select[name="time"] option').count();
+note(timeOptions > 1, `times appear once a day is chosen (${timeOptions - 1})`);
+
+await page.selectOption('select[name="time"]', { index: 1 });
+await page.fill('input[name="room"]', '303');
+await page.fill('input[name="field:guestName"]', 'Jacopo Lunardi');
+await page.fill('input[name="field:phone"]', '+39 392 472 5263');
+await page.waitForTimeout(500);
+const hairSummary = await page.textContent('[data-summary]');
+note(/95/.test(hairSummary), `the price follows the service (${hairSummary.replace(/\s+/g, ' ').trim().slice(0, 36)})`);
+await page.screenshot({ path: `${OUT}/hair-390.png` });
+
+await page.click('[data-add]');
+await page.waitForTimeout(700);
+note(await page.isVisible('.cart-line'), 'it goes in the basket');
+await page.fill('input[name="name"]', 'Jacopo Lunardi');
+await page.fill('input[name="email"]', 'jacopo@example.com');
+await page.click('.checkout-form button[type="submit"]');
+await page.waitForURL(/mock-checkout/, { timeout: 8000 });
+await page.click('[data-pay]');
+await page.waitForURL(/#\/order\//, { timeout: 8000 });
+await page.waitForTimeout(900);
+note(/pagato|paid/i.test(await page.textContent('.status-pill')), 'the booking is paid');
+note(/Hair Service/i.test(await page.textContent('.sheet__body')), 'the order names the service');
+await page.screenshot({ path: `${OUT}/hair-order-390.png` });
+
+note(errors.length === 0, `no page errors during interaction (${errors.slice(0, 2).join(' | ') || 'none'})`);
 
 /* ── With no commerce server behind it ────────────────────────────────── */
 {

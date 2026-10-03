@@ -35,7 +35,7 @@ function collection(state, name) {
 
 export function createStore({ dataDir = '' } = {}) {
   const file = dataDir ? join(dataDir, 'store.json') : '';
-  let state = { orders: {}, cards: {}, events: {}, usedCodes: {} };
+  let state = { orders: {}, cards: {}, events: {} };
   let writeChain = Promise.resolve();
   let loaded = !file;
 
@@ -44,7 +44,7 @@ export function createStore({ dataDir = '' } = {}) {
     loaded = true;
     if (!existsSync(file)) return;
     try {
-      state = { orders: {}, cards: {}, events: {}, usedCodes: {}, ...JSON.parse(await readFile(file, 'utf8')) };
+      state = { orders: {}, cards: {}, events: {}, ...JSON.parse(await readFile(file, 'utf8')) };
     } catch {
       // A corrupt store must not take the server down; it starts empty and says so.
       console.error(`[store] ${file} could not be read; starting empty`);
@@ -129,26 +129,6 @@ export function createStore({ dataDir = '' } = {}) {
         await load();
         collection(state, 'events')[eventId] = { at: now(), ...meta };
         await persist();
-      },
-    },
-
-    /**
-     * One-shot consumption of a card code. A code is valid for its window, but only
-     * once: a screenshot taken a minute ago cannot be scanned again after the
-     * genuine holder has used it.
-     */
-    codes: {
-      async consume(key, ttlMs = 300_000) {
-        await load();
-        const used = collection(state, 'usedCodes');
-        const nowMs = Date.now();
-        for (const [k, expiry] of Object.entries(used)) {
-          if (expiry < nowMs) delete used[k];
-        }
-        if (used[key]) return false;
-        used[key] = nowMs + ttlMs;
-        await persist();
-        return true;
       },
     },
 

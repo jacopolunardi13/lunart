@@ -22,7 +22,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomRef, opaqueToken } from './store.js';
 import { propertyDate, lastDayOf, endOfPropertyDay, propertyTimeToInstant, isValidDate } from '../commerce/time.js';
-import { activePartners, benefitFor } from '../commerce/partners.js';
+import { allGuestBenefits, guestBenefit } from '../commerce/partners.js';
 
 export const CARD_STATUS = {
   active: 'active',
@@ -123,9 +123,20 @@ export function currentCode(card, { signingKey, periodSeconds, now = new Date() 
 export const qrPayload = (publicUrl, card, code) =>
   `${publicUrl}/validate-card?c=${encodeURIComponent(card.public_ref)}&k=${encodeURIComponent(code)}`;
 
-/** Accept a scan from a venue. Pure apart from the single-use check it is handed. */
+/**
+ * Accept a scan from a venue.
+ *
+ * Nothing is consumed and nothing is counted. A card is usable as often as its
+ * validity allows, under whatever terms each partner sets, so scanning one twice
+ * — a double tap, a reloaded page, two venues in an evening — gives the same
+ * answer both times. The protection that remains is the code's short life: it is
+ * derived from the current minute, so a screenshot stops working on its own.
+ *
+ * `partnerId` scopes the answer to the venue that asked, so a bar is shown its
+ * own benefit rather than a list to pick from.
+ */
 export async function validateCode({
-  reference, code, store, signingKey, periodSeconds, grace = 1, now = new Date(), consume = true,
+  reference, code, store, signingKey, periodSeconds, grace = 1, now = new Date(), partnerId = null,
 }) {
   const cleanRef = String(reference ?? '').trim().toUpperCase();
   const cleanCode = String(code ?? '').trim().toUpperCase();
@@ -140,24 +151,18 @@ export async function validateCode({
   if (state !== 'active') return { valid: false, reason: state, card: publicView(card) };
 
   const window = windowFor(now.getTime(), periodSeconds);
-  let matchedWindow = null;
-  for (let back = 0; back <= grace; back++) {
-    if (sameCode(cleanCode, codeFor({ signingKey, cardId: card.id, window: window - back }))) {
-      matchedWindow = window - back;
-      break;
-    }
+  let matched = false;
+  for (let back = 0; back <= grace && !matched; back++) {
+    matched = sameCode(cleanCode, codeFor({ signingKey, cardId: card.id, window: window - back }));
   }
-  if (matchedWindow === null) return { valid: false, reason: 'code-expired', card: publicView(card) };
+  if (!matched) return { valid: false, reason: 'invalid-code', card: publicView(card) };
 
-  if (consume) {
-    const fresh = await store.codes.consume(`${card.id}:${matchedWindow}`, periodSeconds * (grace + 2) * 1000);
-    if (!fresh) return { valid: false, reason: 'code-already-used', card: publicView(card) };
-  }
-
+  const scoped = partnerId ? guestBenefit(partnerId) : null;
   return {
     valid: true,
     card: publicView(card),
-    benefits: activePartners().map((p) => benefitFor(p.id)).filter(Boolean),
+    partner: scoped,
+    benefits: scoped ? [scoped] : allGuestBenefits(),
     validatedAt: now.toISOString(),
   };
 }
@@ -171,6 +176,7 @@ export function publicView(card) {
     reference: card.public_ref,
     holder: card.holder_name,
     initials: initialsOf(card.holder_name),
+    valid_from: card.start_date,
     valid_until: card.end_date,
     expires_at: card.expires_at,
     max_people: card.max_people,
@@ -201,7 +207,7 @@ export function holderView(card, now = new Date()) {
     state: cardState(card, now),
     status: card.status,
     transferable: false,
-    benefits: activePartners().map((p) => benefitFor(p.id)).filter(Boolean),
+    benefits: allGuestBenefits(),
   };
 }
 

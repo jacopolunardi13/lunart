@@ -290,6 +290,72 @@ export const PRODUCTS = [
 
   // ─────────────────────────────────────────────────────────────────────────
   {
+    id: 'hair-service',
+    category: 'hair',
+    sku: null,
+    featured: true,
+    status: 'active',
+    active: true,
+    title: { it: 'Private Hair Service', en: 'Private Hair Service' },
+    summary: {
+      it: 'Taglio, barba o piega nella tua camera, da un professionista che viene da te.',
+      en: 'A cut, a beard or a blow-dry in your own room, from a professional who comes to you.',
+    },
+    description: {
+      it: 'Niente salone, niente appuntamento da incastrare fra un museo e l’altro: il professionista arriva in camera con tutto il necessario e lavora lì.\n\nScegli il servizio, il giorno e l’ora fra quelli disponibili. Sono gli orari reali del professionista: se un giorno non compare, quel giorno non c’è.',
+      en: 'No salon, no appointment to squeeze between two museums: the professional comes to your room with everything needed and works there.\n\nChoose the service, the day and the time from what is free. These are the professional’s real hours: if a day is not there, it is not available.',
+    },
+    variants: [
+      { id: 'men-cut',        sku: 'hair-service:men-cut',
+        title: { it: 'Uomo — taglio', en: 'Men’s haircut' }, meta: { who: 'men', minutes: 45 } },
+      { id: 'men-beard',      sku: 'hair-service:men-beard',
+        title: { it: 'Uomo — barba', en: 'Beard' }, meta: { who: 'men', minutes: 30 } },
+      { id: 'men-cut-beard',  sku: 'hair-service:men-cut-beard',
+        title: { it: 'Uomo — taglio e barba', en: 'Men’s haircut and beard' }, meta: { who: 'men', minutes: 75 } },
+      { id: 'women-blowdry',  sku: 'hair-service:women-blowdry',
+        title: { it: 'Donna — piega', en: 'Women’s blow-dry' }, meta: { who: 'women', minutes: 45 } },
+      { id: 'women-cut-blow', sku: 'hair-service:women-cut-blow',
+        title: { it: 'Donna — taglio e piega', en: 'Women’s haircut and blow-dry' }, meta: { who: 'women', minutes: 90 } },
+      { id: 'women-evening',  sku: 'hair-service:women-evening',
+        title: { it: 'Donna — acconciatura da sera', en: 'Women’s evening styling' }, meta: { who: 'women', minutes: 60 } },
+      /**
+       * Built, priced nowhere, and not sellable until the provider confirms both
+       * that they offer it and what it costs. Colour and highlights are not
+       * offered at all for now and are deliberately absent from this list.
+       */
+      { id: 'ceremony',       sku: 'hair-service:ceremony',
+        title: { it: 'Donna — acconciatura da cerimonia', en: 'Women’s ceremony styling' },
+        meta: { who: 'women', minutes: 90 }, pending: true },
+    ],
+    quantity: { min: 1, max: 1, step: 1 },
+    requiresDate: true,
+    dateLabel: { it: 'Giorno', en: 'Day' },
+    requiresTime: true,
+    timeLabel: { it: 'Ora', en: 'Time' },
+    requiresRoom: true,
+    requiresFields: [
+      { id: 'guestName', type: 'text', required: true,
+        label: { it: 'Per chi è il servizio', en: 'Who the service is for' } },
+      { id: 'phone', type: 'tel', required: true,
+        label: { it: 'Telefono', en: 'Phone' },
+        hint: { it: 'Il professionista ti avvisa quando sale', en: 'The professional messages you on the way up' } },
+      { id: 'notes', type: 'textarea', required: false,
+        label: { it: 'Note', en: 'Notes' },
+        hint: { it: 'Lunghezza, piega, allergie, qualsiasi cosa serva sapere', en: 'Length, styling, allergies, anything worth knowing' } },
+    ],
+    availabilityMode: 'timeslots',
+    purchaseMode: 'instant',
+    fulfillmentType: 'provider',
+    partner: 'hair-professional',
+    terms: {
+      it: 'Il servizio si svolge nella tua camera all’orario scelto. Gli orari mostrati sono quelli realmente liberi. Colore e colpi di sole non sono al momento disponibili.',
+      en: 'The service takes place in your room at the time you choose. The times shown are the ones actually free. Colour and highlights are not available at the moment.',
+    },
+    images: [],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  {
     id: 'celebration-setup',
     category: 'celebration',
     sku: 'celebration-setup',

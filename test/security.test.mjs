@@ -192,3 +192,44 @@ test('the server says out loud what is missing', () => {
   assert.equal(config.allowPlaceholderPrices, false);
   assert.equal(config.useDevPrices, false);
 });
+
+/* ── What the card screen does not say ───────────────────────────────────── */
+
+test('nothing on the guest card screen describes how the card is protected', async () => {
+  // The QR is temporary and checked server-side, and that is none of the guest's
+  // business: a membership card should not read like a security product. This
+  // guards the wording as much as the markup — a stray "scade fra" put back by a
+  // later change would fail here.
+  const files = ['src/commerce/ui/card-sheet.js', 'src/i18n.js', 'assets/css/app.css'];
+  const forbidden = [
+    'countdown', 'secondsRemaining', 'codeRefreshes', 'manualCode',
+    'si aggiorna', 'prossimo codice', 'refreshes in', 'expires in',
+    'scade il codice', 'codice scade', 'dinamico', 'rotating', 'temporaneo',
+  ];
+  for (const file of files) {
+    const contents = await readFile(new URL(file, new URL('..', import.meta.url)), 'utf8');
+    // Comments explain the mechanism on purpose; only what can reach a screen counts.
+    const visible = contents
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const phrase of forbidden) {
+      assert.ok(!visible.toLowerCase().includes(phrase.toLowerCase()),
+        `${file} would show the guest "${phrase}"`);
+    }
+  }
+});
+
+test('the interface strings never mention a code that changes', async () => {
+  const { UI } = await import('../src/i18n.js');
+  const everything = JSON.stringify(UI).toLowerCase();
+  for (const phrase of ['si aggiorna', 'prossimo codice', 'countdown', 'scade fra', 'refreshes', 'temporane', 'dinamic']) {
+    assert.ok(!everything.includes(phrase), `an interface string mentions "${phrase}"`);
+  }
+});
+
+test('the shipped hair schedule is empty, so no availability is invented', async () => {
+  const { MANUAL_SCHEDULE } = await import('../commerce/schedule.js');
+  for (const [product, days] of Object.entries(MANUAL_SCHEDULE)) {
+    assert.deepEqual(days, {}, `${product} ships with invented availability`);
+  }
+});

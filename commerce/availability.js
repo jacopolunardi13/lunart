@@ -16,6 +16,7 @@
 
 import { cutoffFor } from './ordering.js';
 import { isValidDate, propertyDate } from './time.js';
+import { slotsFor, daysWithSlots } from './schedule.js';
 
 const adapters = new Map();
 
@@ -59,15 +60,36 @@ registerAvailabilityAdapter({
 });
 
 /**
- * Slots someone keeps by hand, in a configuration file or the order store. Real,
- * but empty until LunArt puts something in it.
+ * Discrete appointments, read from the schedule in force.
+ *
+ * Today that schedule is kept by hand, which is a real source rather than a
+ * placeholder: somebody writes down when the professional is free and those are
+ * the times the guide offers. When there is a calendar to read instead, register
+ * an adapter with this id and nothing else has to change — the validator already
+ * refuses anything the source does not list.
  */
+registerAvailabilityAdapter({
+  id: 'timeslots',
+  configured: true,
+  async query({ product, date }) {
+    if (date && !isValidDate(date)) return { ok: false, reason: 'invalid-date' };
+    if (date && date < propertyDate()) return { ok: false, reason: 'past-date' };
+
+    const days = daysWithSlots(product.id);
+    if (days.length === 0) return { ok: false, reason: 'no-slots', days: [] };
+    if (!date) return { ok: true, days };
+
+    const slots = slotsFor(product.id, date);
+    return slots.length > 0 ? { ok: true, slots, days } : { ok: false, reason: 'no-slots', days };
+  },
+});
+
+/** Kept as an alias: some products describe their source as manual. */
 registerAvailabilityAdapter({
   id: 'manual',
   configured: true,
-  async query({ product, date, manualSlots = {} }) {
-    const slots = manualSlots?.[product.id]?.[date] ?? [];
-    return slots.length > 0 ? { ok: true, slots } : { ok: false, reason: 'no-slots' };
+  async query(context) {
+    return getAvailabilityAdapter('timeslots').query(context);
   },
 });
 

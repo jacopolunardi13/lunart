@@ -17,7 +17,7 @@ import {
 import { resolvePrice, isSellable, applyPriceOverrides, pricingGaps, PRICES } from '../commerce/prices.js';
 import { WINES, getWine, leadTimeMinutesFor, curatedWines } from '../commerce/wine.js';
 import { PRODUCTS } from '../commerce/catalog.js';
-import { PARTNERS, activePartners, benefitFor, BENEFIT_KINDS } from '../commerce/partners.js';
+import { PARTNERS, activePartners, benefitFor, guestBenefit, validationPath, BENEFIT_KINDS, PARTNER_CATEGORIES } from '../commerce/partners.js';
 import { propertyTimeToInstant, propertyDate, addDays, lastDayOf } from '../commerce/time.js';
 import { COMMERCE_CATEGORIES } from '../commerce/schema.js';
 
@@ -31,11 +31,36 @@ const line = (over = {}) => ({
 
 /* ── Prices ──────────────────────────────────────────────────────────────── */
 
-test('the transfer is the one confirmed price, and it is EUR 90', () => {
-  const price = resolvePrice('transfer-airport');
-  assert.equal(price.amount, 9000);
-  assert.equal(price.status, 'confirmed');
-  assert.ok(isSellable('transfer-airport'), 'a confirmed price sells anywhere');
+test('the confirmed prices are the ones LunArt has set', () => {
+  const confirmed = {
+    'transfer-airport': 9000,
+    'privilege-card:2d': 1500,
+    'privilege-card:5d': 2500,
+    'privilege-card:8d': 3500,
+    'hair-service:men-cut': 5000,
+    'hair-service:men-beard': 3500,
+    'hair-service:men-cut-beard': 7000,
+    'hair-service:women-blowdry': 7000,
+    'hair-service:women-cut-blow': 9500,
+    'hair-service:women-evening': 9000,
+  };
+  for (const [sku, amount] of Object.entries(confirmed)) {
+    const price = resolvePrice(sku);
+    assert.equal(price.amount, amount, sku);
+    assert.equal(price.status, 'confirmed', sku);
+    assert.ok(isSellable(sku), `${sku} should sell on a production server`);
+  }
+});
+
+test('the card ladder gets better value the longer it runs', () => {
+  const perDay = (sku, days) => resolvePrice(sku).amount / days;
+  assert.ok(perDay('privilege-card:5d', 5) < perDay('privilege-card:2d', 2));
+  assert.ok(perDay('privilege-card:8d', 8) < perDay('privilege-card:5d', 5));
+});
+
+test('a haircut and a beard together cost less than the two apart', () => {
+  const apart = resolvePrice('hair-service:men-cut').amount + resolvePrice('hair-service:men-beard').amount;
+  assert.ok(resolvePrice('hair-service:men-cut-beard').amount < apart, `${apart} should beat the combined price`);
 });
 
 test('an unconfirmed price never sells on a production server', () => {
@@ -44,7 +69,9 @@ test('an unconfirmed price never sells on a production server', () => {
 });
 
 test('a price nobody has set never sells, however the server is configured', () => {
-  for (const sku of ['privilege-card:2d', 'privilege-card:5d', 'privilege-card:8d', 'light-breakfast']) {
+  // Colour and highlights are not offered at all; ceremony styling waits on the
+  // provider, so it renders and says so rather than being quietly buyable.
+  for (const sku of ['light-breakfast', 'celebration-setup', 'chianti-experience', 'hair-service:ceremony']) {
     assert.equal(resolvePrice(sku).status, 'to-configure', sku);
     assert.equal(isSellable(sku), false, sku);
     assert.equal(isSellable(sku, { allowPlaceholders: true }), false, `${sku} with placeholders`);
@@ -69,7 +96,8 @@ test('everything still waiting on a decision is listed', () => {
   const gaps = pricingGaps();
   assert.ok(gaps.length > 0);
   assert.ok(gaps.every((gap) => gap.status !== 'confirmed'));
-  assert.ok(gaps.some((gap) => gap.sku === 'privilege-card:8d'));
+  assert.ok(gaps.some((gap) => gap.sku === 'hair-service:ceremony'));
+  assert.ok(!gaps.some((gap) => gap.sku.startsWith('privilege-card')), 'the card is fully priced now');
 });
 
 /* ── The client cannot name a price ──────────────────────────────────────── */
@@ -321,15 +349,34 @@ test('the wine selection is a subset of the carta, and on sale', () => {
 
 test('partner benefits are not assumed to be a house percentage', () => {
   const kinds = new Set(PARTNERS.map((p) => p.benefit.kind));
-  assert.ok(kinds.size >= 3, 'the model carries more than one shape of benefit');
+  assert.ok(kinds.size >= 4, 'the model carries several shapes of benefit');
+  const categories = new Set(Object.keys(PARTNER_CATEGORIES));
   for (const partner of PARTNERS) {
-    assert.ok(BENEFIT_KINDS.includes(partner.benefit.kind), partner.id);
-    assert.ok(partner.benefit.label?.it && partner.benefit.label?.en, `${partner.id} label`);
+    assert.ok(partner.partner_id, 'every partner has an id');
+    assert.ok(partner.name, `${partner.partner_id} has a name`);
+    assert.ok(categories.has(partner.category), `${partner.partner_id} has a known category`);
+    assert.ok(BENEFIT_KINDS.includes(partner.benefit.kind), partner.partner_id);
+    assert.ok(partner.benefit.label?.it && partner.benefit.label?.en, `${partner.partner_id} label`);
   }
   for (const partner of activePartners()) {
     assert.notEqual(partner.example, true, 'an example must never be active');
   }
   assert.equal(benefitFor('example-bar'), null, 'inactive partners give nothing');
+});
+
+test('every active partner has its own scanner page', () => {
+  for (const partner of activePartners()) {
+    assert.equal(validationPath(partner.partner_id), `/partner/${partner.partner_id}`);
+    const view = guestBenefit(partner.partner_id, 'https://guide.example');
+    assert.equal(view.validation_url, `https://guide.example/partner/${partner.partner_id}`);
+  }
+});
+
+test('internal partner notes never reach a guest or a venue', () => {
+  const view = guestBenefit('opera-caffe');
+  assert.equal('notes' in view, false);
+  assert.equal('verify' in view, false);
+  assert.equal('active' in view, false);
 });
 
 test('price overrides replace the table and can be taken away again', () => {

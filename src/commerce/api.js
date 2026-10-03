@@ -11,6 +11,7 @@
  */
 
 import { applyPriceOverrides } from '../../commerce/prices.js';
+import { applySchedule } from '../../commerce/schedule.js';
 
 const BASE = '/api';
 
@@ -46,6 +47,7 @@ export async function loadCatalogue({ force = false } = {}) {
   try {
     const payload = await request('/catalog');
     applyPriceOverrides(payload.prices ?? {});
+    applySchedule(payload.schedule ?? null);
     catalogue = payload;
     catalogueError = null;
   } catch (error) {
@@ -57,6 +59,13 @@ export async function loadCatalogue({ force = false } = {}) {
 
 export const catalogueAvailable = () => Boolean(catalogue);
 export const catalogueProblem = () => catalogueError;
+
+/** The appointment days a product has on offer, as the server published them. */
+export const availableDays = (productId) => catalogue?.availability?.[productId]?.days ?? [];
+
+/** The times free on one day. Asked for when a day is picked, never guessed. */
+export const fetchSlots = (productId, date) =>
+  request(`/availability/${encodeURIComponent(productId)}?date=${encodeURIComponent(date)}`);
 
 export const priceCartRemotely = (lines) => request('/cart/price', { method: 'POST', body: { lines } });
 

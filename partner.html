@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LunArt — Verifica card</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1a1a1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="stylesheet" href="/assets/css/fonts.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+<style>
+  /*
+   * A tool, not a page. Whoever is holding this has one hand free and a guest
+   * waiting, so there is one button, one answer, and type big enough to read at
+   * arm's length across a bar.
+   */
+  body { padding-bottom: 32px; background: var(--paper); }
+  .wrap { width: min(560px, calc(100vw - 32px)); margin: 0 auto; }
+
+  .masthead {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: calc(18px + env(safe-area-inset-top, 0px)) 0 16px;
+  }
+  .masthead__mark { display: flex; align-items: center; gap: 9px; }
+  .masthead__monogram { font-family: var(--serif); font-size: 1.25rem; font-weight: 500; }
+  .masthead__word {
+    display: flex; flex-direction: column; gap: 1px;
+    font-family: var(--serif); font-size: 0.8125rem; letter-spacing: 0.24em; text-transform: uppercase; line-height: 1;
+  }
+  .masthead__city { font-family: var(--sans); font-size: 0.4375rem; letter-spacing: 0.3em; color: var(--ink-quiet); }
+  .masthead__partner { font-size: var(--micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-quiet); text-align: right; }
+
+  .verdict { padding: 30px 22px; border-radius: 18px; margin-bottom: 16px; }
+  .verdict[data-tone="idle"] { background: var(--paper-2); color: var(--ink-soft); }
+  .verdict[data-tone="good"] { background: #1f4428; color: #f2f7f2; }
+  .verdict[data-tone="bad"]  { background: #7d2a2a; color: #fbeeee; }
+  .verdict[data-tone="busy"] { background: var(--paper-3); color: var(--ink-soft); }
+  .verdict__headline { font-family: var(--serif); font-size: 2.25rem; line-height: 1; margin-bottom: 8px; }
+  .verdict__detail { font-size: var(--step-0); line-height: 1.6; opacity: 0.9; }
+
+  .holder { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.22); }
+  .holder__name { font-family: var(--serif); font-size: 1.75rem; line-height: 1.1; }
+  .holder__meta { margin-top: 8px; font-size: var(--small); opacity: 0.85; line-height: 1.7; }
+
+  .benefit { margin-top: 18px; padding: 16px 18px; border-radius: 12px; background: rgba(255,255,255,0.12); }
+  .benefit__who { font-size: var(--micro); letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.75; }
+  .benefit__what { font-family: var(--serif); font-size: 1.5rem; line-height: 1.15; margin-top: 4px; }
+  .benefit__terms { font-size: var(--small); opacity: 0.85; margin-top: 8px; line-height: 1.55; }
+
+  .scan { display: flex; flex-direction: column; gap: 10px; }
+  .scan .action { justify-content: center; min-height: 56px; font-size: var(--step-0); }
+  .viewfinder { position: relative; border-radius: 16px; overflow: hidden; background: #000; }
+  .viewfinder video { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; }
+  .viewfinder__frame {
+    position: absolute; inset: 18% 12%; border: 2px solid rgba(255,255,255,0.85);
+    border-radius: 12px; pointer-events: none;
+  }
+
+  .manual { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--ink-line); }
+  .manual input {
+    width: 100%; min-height: 54px; padding: 0 16px; margin-top: 8px;
+    border: 1px solid var(--ink-line); border-radius: 12px; background: #fff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.25rem; letter-spacing: 0.12em; text-transform: uppercase; text-align: center;
+  }
+  .footnote { margin-top: 22px; font-size: var(--micro); color: var(--ink-quiet); line-height: 1.75; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="masthead">
+    <span class="masthead__mark">
+      <span class="masthead__monogram" aria-hidden="true">LA</span>
+      <span class="masthead__word">LunArt<span class="masthead__city">Firenze</span></span>
+    </span>
+    <span class="masthead__partner" id="partner-name">—</span>
+  </header>
+
+  <section class="verdict" id="verdict" data-tone="idle" role="status" aria-live="polite">
+    <p class="verdict__headline" id="headline">Verifica card</p>
+    <p class="verdict__detail" id="detail">Inquadra il QR della Privilege Card dell’ospite.</p>
+    <div id="result"></div>
+  </section>
+
+  <div class="scan">
+    <button class="action action--primary" type="button" id="start">Inquadra il QR</button>
+    <div class="viewfinder" id="viewfinder" hidden>
+      <video id="video" playsinline muted></video>
+      <div class="viewfinder__frame" aria-hidden="true"></div>
+    </div>
+    <button class="action" type="button" id="stop" hidden>Chiudi la fotocamera</button>
+    <p class="footnote" id="camera-note" hidden></p>
+  </div>
+
+  <form class="manual" id="manual" hidden>
+    <label class="field__label" for="code">Codice LunArt</label>
+    <input id="code" name="code" inputmode="latin" autocapitalize="characters" autocomplete="off"
+           spellcheck="false" placeholder="ABC123-XY4Z9" maxlength="16">
+    <div class="actions" style="margin-top:12px">
+      <button class="action" type="submit" style="flex:1;justify-content:center">Verifica</button>
+    </div>
+  </form>
+  <button class="action" type="button" id="show-manual" style="margin-top:16px;width:100%;justify-content:center">
+    Inserisci il codice a mano
+  </button>
+
+  <p class="footnote">
+    La card vale per il titolare e un accompagnatore, per tutto il periodo indicato.
+    Non serve documento, non c’è un numero massimo di utilizzi: il vantaggio si applica
+    secondo le condizioni del locale.
+    <span id="install-hint" hidden><br><br>Aggiungi questa pagina alla schermata Home
+    del telefono per averla a portata di mano.</span>
+  </p>
+</main>
+
+<script type="module">
+  const PARTNER_ID = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] ?? '');
+
+  const verdict  = document.getElementById('verdict');
+  const headline = document.getElementById('headline');
+  const detail   = document.getElementById('detail');
+  const result   = document.getElementById('result');
+  const nameEl   = document.getElementById('partner-name');
+
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const readableDate = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return value ?? '';
+    const [y, m, d] = value.split('-').map(Number);
+    return new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'long' })
+      .format(new Date(Date.UTC(y, m - 1, d)));
+  };
+
+  const REASONS = {
+    'not-found': 'Codice non riconosciuto.',
+    'invalid-code': 'Codice non valido. Chiedi all’ospite di riaprire la card.',
+    expired: 'La card è scaduta.',
+    revoked: 'La card non è più valida.',
+    'not-started': 'La card non è ancora attiva.',
+    malformed: 'Codice incompleto.',
+    'too-many-attempts': 'Troppi tentativi. Riprova fra un minuto.',
+  };
+
+  /* Remembered so that a scan taken with the phone's own camera — which lands on
+     the shared page — still shows this venue's benefit rather than a list. */
+  let partner = null;
+  if (PARTNER_ID) {
+    try { localStorage.setItem('lunart.partner', PARTNER_ID); } catch { /* ignore */ }
+    fetch(`/api/partners/${encodeURIComponent(PARTNER_ID)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        partner = p;
+        if (p) {
+          nameEl.textContent = p.partner;
+          document.title = `LunArt — ${p.partner}`;
+          const link = document.createElement('link');
+          link.rel = 'manifest';
+          link.href = `/partner/${encodeURIComponent(PARTNER_ID)}/manifest.webmanifest`;
+          document.head.append(link);
+          document.getElementById('install-hint').hidden = false;
+        } else {
+          nameEl.textContent = 'partner sconosciuto';
+        }
+      })
+      .catch(() => { nameEl.textContent = ''; });
+  }
+
+  function show(payload) {
+    if (payload?.valid) {
+      const card = payload.card;
+      const benefit = payload.partner ?? payload.benefits?.[0] ?? null;
+      verdict.dataset.tone = 'good';
+      headline.textContent = 'CARD VALID';
+      detail.textContent = 'LunArt Firenze';
+      result.innerHTML = `
+        <div class="holder">
+          <p class="holder__name">${esc(card.holder)}</p>
+          <p class="holder__meta">
+            Valida per ${esc(card.max_people)} persone<br>
+            Dal ${esc(readableDate(card.valid_from))} al ${esc(readableDate(card.valid_until))}
+          </p>
+        </div>
+        ${benefit ? `
+          <div class="benefit">
+            <p class="benefit__who">${esc(benefit.partner)}</p>
+            <p class="benefit__what">${esc(benefit.label?.it ?? '')}</p>
+            ${benefit.conditions ? `<p class="benefit__terms">${esc(benefit.conditions.it)}</p>` : ''}
+          </div>` : ''}`;
+      return;
+    }
+    verdict.dataset.tone = 'bad';
+    headline.textContent = 'CARD NOT VALID';
+    detail.textContent = REASONS[payload?.reason] ?? 'Non siamo riusciti a verificarla.';
+    result.innerHTML = '';
+  }
+
+  async function check(reference, code) {
+    verdict.dataset.tone = 'busy';
+    headline.textContent = 'Verifico…';
+    detail.textContent = '';
+    result.innerHTML = '';
+    try {
+      const response = await fetch('/api/card/validate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reference, code, partner: PARTNER_ID || undefined }),
+      });
+      show(await response.json());
+    } catch {
+      verdict.dataset.tone = 'bad';
+      headline.textContent = 'Nessuna connessione';
+      detail.textContent = 'Riprova fra un momento.';
+    }
+  }
+
+  /* ── Scanning ──────────────────────────────────────────────────────────── */
+  const startButton = document.getElementById('start');
+  const stopButton  = document.getElementById('stop');
+  const viewfinder  = document.getElementById('viewfinder');
+  const video       = document.getElementById('video');
+  const cameraNote  = document.getElementById('camera-note');
+
+  const hasDetector = 'BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia;
+
+  if (!hasDetector) {
+    // Safari has no barcode detector. The guest's QR is a link, so the phone's own
+    // camera opens it directly — and because this page remembered which partner
+    // this is, that shared page still shows the right benefit.
+    startButton.textContent = 'Usa la fotocamera del telefono';
+    startButton.addEventListener('click', () => {
+      cameraNote.hidden = false;
+      cameraNote.textContent =
+        'Apri l’app Fotocamera e inquadra il QR dell’ospite: si apre da sola la pagina di verifica.';
+    });
+  } else {
+    let stream = null;
+    let running = false;
+
+    const stop = () => {
+      running = false;
+      viewfinder.hidden = true;
+      stopButton.hidden = true;
+      startButton.hidden = false;
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
+    };
+    stopButton.addEventListener('click', stop);
+
+    startButton.addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        await video.play();
+        viewfinder.hidden = false;
+        stopButton.hidden = false;
+        startButton.hidden = true;
+        running = true;
+
+        const detector = new BarcodeDetector({ formats: ['qr_code'] });
+        const tick = async () => {
+          if (!running) return;
+          try {
+            const [found] = await detector.detect(video);
+            if (found?.rawValue) {
+              const url = new URL(found.rawValue, location.origin);
+              const c = url.searchParams.get('c');
+              const k = url.searchParams.get('k');
+              if (c && k) { stop(); check(c, k); return; }
+            }
+          } catch { /* a frame that did not decode is not an error */ }
+          requestAnimationFrame(tick);
+        };
+        tick();
+      } catch {
+        stop();
+        cameraNote.hidden = false;
+        cameraNote.textContent =
+          'Non riesco ad aprire la fotocamera. Apri l’app Fotocamera e inquadra il QR dell’ospite.';
+      }
+    });
+  }
+
+  /* ── Typed fallback ────────────────────────────────────────────────────── */
+  const manual = document.getElementById('manual');
+  const showManual = document.getElementById('show-manual');
+  showManual.addEventListener('click', () => {
+    manual.hidden = false;
+    showManual.hidden = true;
+    document.getElementById('code').focus();
+  });
+  manual.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const [reference, code] = document.getElementById('code').value.trim().toUpperCase().split(/[-\s]+/);
+    if (!reference || !code) { show({ valid: false, reason: 'malformed' }); return; }
+    check(reference, code);
+  });
+
+  /* The QR may also be opened straight into this page. */
+  const params = new URLSearchParams(location.search);
+  if (params.get('c') && params.get('k')) check(params.get('c'), params.get('k'));
+</script>
+</body>
+</html>

@@ -152,14 +152,31 @@ test('the reference is case- and space-insensitive, as read off a screen', async
   assert.equal(result.valid, true);
 });
 
-test('one code, one use — a screenshot is worthless after it is scanned', async () => {
+test('a card is usable as often as it is shown — nothing is consumed or counted', async () => {
+  // The card is a membership, not a voucher book. Two venues in an evening, a
+  // double tap, a reloaded page: the same answer every time.
   const { store, card } = await freshCard();
   const { code } = currentCode(card, { signingKey: KEY, periodSeconds: PERIOD, now: during });
-  const first = await validateCode({ reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD, now: during });
-  const second = await validateCode({ reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD, now: during });
-  assert.equal(first.valid, true);
-  assert.equal(second.valid, false);
-  assert.equal(second.reason, 'code-already-used');
+
+  for (let scan = 1; scan <= 5; scan++) {
+    const result = await validateCode({ reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD, now: during });
+    assert.equal(result.valid, true, `scan ${scan} should still be valid`);
+    assert.equal(result.reason, undefined);
+  }
+
+  // And nothing about usage is recorded anywhere on the card.
+  const stored = await store.cards.get(card.id);
+  for (const key of ['uses', 'used', 'usage_count', 'redemptions', 'last_used_at', 'benefit_used']) {
+    assert.equal(key in stored, false, `the card should not track "${key}"`);
+  }
+});
+
+test('the store keeps no record of a card being used', async () => {
+  const { store, card } = await freshCard();
+  const { code } = currentCode(card, { signingKey: KEY, periodSeconds: PERIOD, now: during });
+  await validateCode({ reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD, now: during });
+  const snapshot = await store.snapshot();
+  assert.equal(snapshot.usedCodes, undefined, 'there is no consumed-code ledger any more');
 });
 
 test('an old code stops working, with a little grace for typing', async () => {
@@ -173,7 +190,7 @@ test('an old code stops working, with a little grace for typing', async () => {
 
   const tooOld = await validateCode({ reference: card.public_ref, code: ancient, store, signingKey: KEY, periodSeconds: PERIOD, grace: 1, now: during });
   assert.equal(tooOld.valid, false);
-  assert.equal(tooOld.reason, 'code-expired');
+  assert.equal(tooOld.reason, 'invalid-code');
 });
 
 test('a code from the future does not work either', async () => {
@@ -182,7 +199,7 @@ test('a code from the future does not work either', async () => {
   const next = codeFor({ signingKey: KEY, cardId: card.id, window: window + 5 });
   const result = await validateCode({ reference: card.public_ref, code: next, store, signingKey: KEY, periodSeconds: PERIOD, now: during });
   assert.equal(result.valid, false);
-  assert.equal(result.reason, 'code-expired');
+  assert.equal(result.reason, 'invalid-code');
 });
 
 test('a guessed code does not work', async () => {
@@ -250,7 +267,7 @@ test('the holder sees their card, the venue sees only what it needs', async () =
 
   const venue = publicView(card);
   assert.deepEqual(Object.keys(venue).sort(),
-    ['expires_at', 'holder', 'initials', 'max_people', 'reference', 'status', 'transferable', 'valid_until'].sort());
+    ['expires_at', 'holder', 'initials', 'max_people', 'reference', 'status', 'transferable', 'valid_from', 'valid_until'].sort());
   assert.equal(venue.initials, 'JL');
   assert.equal(venue.order_id, undefined);
   assert.equal(venue.access_token, undefined);
@@ -260,4 +277,52 @@ test('the holder sees their card, the venue sees only what it needs', async () =
   assert.equal(holder.days, 5);
   assert.ok(Array.isArray(holder.benefits));
   assert.equal(holder.access_token, undefined, 'even the holder view carries no token');
+});
+
+/* ── What a venue is told ────────────────────────────────────────────────── */
+
+test('a venue asking from its own page is told its own benefit', async () => {
+  const { store, card } = await freshCard();
+  const { code } = currentCode(card, { signingKey: KEY, periodSeconds: PERIOD, now: during });
+
+  const scoped = await validateCode({
+    reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD,
+    now: during, partnerId: 'opera-caffe',
+  });
+  assert.equal(scoped.valid, true);
+  assert.equal(scoped.partner.partner, 'Opera Caffè');
+  assert.equal(scoped.partner.label.it, '30% sul menù al tavolo');
+  assert.equal(scoped.benefits.length, 1, 'one benefit, not a list to choose from');
+});
+
+test('a venue asking from the shared page is shown every benefit', async () => {
+  const { store, card } = await freshCard();
+  const { code } = currentCode(card, { signingKey: KEY, periodSeconds: PERIOD, now: during });
+  const result = await validateCode({ reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD, now: during });
+  assert.equal(result.partner, null);
+  assert.ok(result.benefits.length >= 1);
+});
+
+test('an unknown or inactive partner does not turn a valid card red', async () => {
+  const { store, card } = await freshCard();
+  const { code } = currentCode(card, { signingKey: KEY, periodSeconds: PERIOD, now: during });
+  for (const partnerId of ['example-bar', 'does-not-exist']) {
+    const result = await validateCode({
+      reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD, now: during, partnerId,
+    });
+    assert.equal(result.valid, true, `${partnerId} should still validate the card`);
+    assert.equal(result.partner, null, `${partnerId} should offer no benefit`);
+  }
+});
+
+test('a venue never learns anything it does not need', async () => {
+  const { store, card } = await freshCard();
+  const { code } = currentCode(card, { signingKey: KEY, periodSeconds: PERIOD, now: during });
+  const result = await validateCode({
+    reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD, now: during, partnerId: 'opera-caffe',
+  });
+  const serialised = JSON.stringify(result);
+  for (const forbidden of [card.id, card.access_token, card.order_id, KEY, 'notes']) {
+    assert.ok(!serialised.includes(forbidden), `the scan result leaks ${forbidden}`);
+  }
 });

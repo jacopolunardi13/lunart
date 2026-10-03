@@ -15,6 +15,7 @@ import { PRODUCTS } from './catalog.js';
 import { resolvePrice, isSellable, CURRENCY } from './prices.js';
 import { getWine, leadTimeMinutesFor } from './wine.js';
 import { propertyTimeToInstant, propertyDate, addDays, isValidDate, isValidTime } from './time.js';
+import { isSlotOffered, slotsFor } from './schedule.js';
 
 const productsById = new Map(PRODUCTS.map((p) => [p.id, p]));
 export const getProduct = (id) => productsById.get(id);
@@ -161,6 +162,18 @@ export function validateLine(rawLine, { now = new Date(), allowPlaceholders = fa
     }
   }
 
+  /**
+   * A product sold against someone's calendar can only be sold at a time that
+   * calendar actually offers. Checked here rather than only in the form, because
+   * the form is a convenience and this is the decision — a hand-written request
+   * naming three in the morning gets the same answer as a mis-click.
+   */
+  if (product.availabilityMode === 'timeslots' && line.date && line.time) {
+    if (!isSlotOffered(product.id, line.date, line.time)) {
+      errors.push({ code: 'slot-unavailable', field: 'time' });
+    }
+  }
+
   if (product.requiresRoom && !line.room) errors.push({ code: 'room-required', field: 'room' });
 
   // Options
@@ -238,3 +251,8 @@ export function paymentModeFor(pricedLines) {
 }
 
 export { CURRENCY };
+
+/** The times a product is actually free, for the form and for `/api/availability`. */
+export function offeredSlots(productId, date) {
+  return slotsFor(productId, date);
+}

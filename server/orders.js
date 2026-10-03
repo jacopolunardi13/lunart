@@ -73,7 +73,13 @@ export function buildOrder({ priced, customer, lang = 'it', paymentMode }) {
     lang,
     stripe_session_id: null,
     stripe_payment_intent_id: null,
-    provider: { status: needsProvider ? 'awaiting' : 'not-required', note: '', updated_at: null },
+    provider: {
+      status: needsProvider ? 'awaiting' : 'not-required',
+      note: '',
+      /** Filled in when a driver or a professional is actually assigned. */
+      assignee: null,
+      updated_at: null,
+    },
     entitlements: [],
     events: [{ at: new Date().toISOString(), type: 'created' }],
   };

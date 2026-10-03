@@ -23,7 +23,8 @@ import {
   priceCart, priceTable, allSkus, isSellable, applyPriceOverrides, pricingGaps,
   isPurchasable, availabilitySources, PAYMENT_STATUS, FULFILMENT_STATUS,
 } from '../commerce/index.js';
-import { PARTNERS, activePartners } from '../commerce/partners.js';
+import { applySchedule, scheduleInForce, slotsFor, daysWithSlots } from '../commerce/schedule.js';
+import { PARTNERS, activePartners, getPartner, guestBenefit } from '../commerce/partners.js';
 import { renderMockCheckout } from './mock-checkout.js';
 import { rateLimit, clientKey } from './rate-limit.js';
 
@@ -38,6 +39,10 @@ export async function createApp(overrides = {}) {
   if (settings.useDevPrices) {
     const { DEV_PRICES } = await import('../commerce/prices.dev.js');
     applyPriceOverrides(DEV_PRICES);
+    // The same flag loads a fortnight of invented availability, so the booking
+    // flow can be walked through. Production has neither.
+    const { devSchedule } = await import('../commerce/schedule.dev.js');
+    applySchedule(devSchedule());
   }
 
   const stripe = overrides.stripe
@@ -62,6 +67,17 @@ export async function createApp(overrides = {}) {
       wines: WINES,
       wineKinds: WINE_KINDS,
       deliverySlots: DELIVERY_SLOTS,
+      /** The appointment days on offer, so the date picker cannot offer a blank one. */
+      availability: Object.fromEntries(
+        PRODUCTS.filter((p) => p.availabilityMode === 'timeslots')
+          .map((p) => [p.id, { days: daysWithSlots(p.id), configured: daysWithSlots(p.id).length > 0 }]),
+      ),
+      /**
+       * The schedule in force, so the browser checks a line against exactly the
+       * times the server will accept. Same reasoning as the price table: one
+       * source, published, rather than two copies that drift.
+       */
+      schedule: scheduleInForce(),
       partners: activePartners(),
       /** The amounts in force. The browser renders these and sends none of them back. */
       prices: priceTable(allSkus()),
@@ -222,14 +238,22 @@ export async function createApp(overrides = {}) {
     const state = cardState(card);
     if (state !== 'active') {
       // No code is issued for a card that could not be honoured anyway.
-      sendJson(res, 200, { ...view, code: null, qr: null });
+      sendJson(res, 200, { ...view, qr: null, refreshIn: null });
       return;
     }
+
     const code = currentCode(card, {
       signingKey: settings.cardSigningKey,
       periodSeconds: settings.cardCodePeriodSeconds,
     });
-    sendJson(res, 200, { ...view, code, qr: qrPayload(settings.publicUrl, card, code.code) });
+    // Only the QR and when to ask again. The window number, the period and the
+    // expiry stay on this side: the card is a membership card as far as the guest
+    // is concerned, and the screen has nothing to say about how it is protected.
+    sendJson(res, 200, {
+      ...view,
+      qr: qrPayload(settings.publicUrl, card, code.code),
+      refreshIn: code.secondsRemaining,
+    });
   }
 
   /* ── Validation, for a venue ─────────────────────────────────────────── */
@@ -256,6 +280,8 @@ export async function createApp(overrides = {}) {
       return;
     }
 
+    // A venue that asked from its own page is told its own benefit, not a list.
+    const partnerId = String(body.partner ?? '').trim() || null;
     const result = await validateCode({
       reference,
       code: body.code ?? body.k,
@@ -263,8 +289,68 @@ export async function createApp(overrides = {}) {
       signingKey: settings.cardSigningKey,
       periodSeconds: settings.cardCodePeriodSeconds,
       grace: settings.cardCodeGrace,
+      partnerId,
     });
     sendJson(res, result.valid ? 200 : 422, result);
+  }
+
+  /**
+   * The times a product is free on one day.
+   *
+   * Read from the same schedule the validator uses, so the form can only offer
+   * what checkout will accept. With nothing configured it returns an empty list
+   * and says so rather than inventing a grid.
+   */
+  async function getAvailability(req, res, { id }, url) {
+    const product = PRODUCTS.find((p) => p.id === id);
+    if (!product) { sendJson(res, 404, { error: 'not-found' }); return; }
+
+    const date = url.searchParams.get('date');
+    const days = daysWithSlots(product.id);
+    sendJson(res, 200, {
+      product: product.id,
+      mode: product.availabilityMode,
+      configured: days.length > 0,
+      days,
+      slots: date ? slotsFor(product.id, date) : [],
+    });
+  }
+
+  /* ── Partners ────────────────────────────────────────────────────────── */
+
+  /** What a partner's own scanner page needs to render itself. */
+  async function getPartnerInfo(req, res, { id }) {
+    const partner = getPartner(id);
+    if (!partner?.active) { sendJson(res, 404, { error: 'not-found' }); return; }
+    sendJson(res, 200, guestBenefit(partner.partner_id, settings.publicUrl));
+  }
+
+  /**
+   * A manifest per partner, so each one can add their own scanner to the home
+   * screen and get an icon that opens straight into it. Without this they would
+   * all install as the same app and land on whichever page was bookmarked last.
+   */
+  async function getPartnerManifest(req, res, { id }) {
+    const partner = getPartner(id);
+    if (!partner?.active) { sendText(res, 404, 'Not found'); return; }
+    res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-cache' })
+      .end(JSON.stringify({
+        name: `LunArt · ${partner.name}`,
+        short_name: partner.name.slice(0, 12),
+        description: `Verifica le LunArt Privilege Card presso ${partner.name}.`,
+        start_url: `/partner/${partner.partner_id}`,
+        scope: `/partner/${partner.partner_id}`,
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#faf9f7',
+        theme_color: '#1a1a1a',
+        lang: 'it',
+        icons: [
+          { src: '/assets/icon.svg', sizes: 'any', type: 'image/svg+xml' },
+          { src: '/assets/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/assets/icon-512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      }, null, 2));
   }
 
   /* ── Provider decisions, for staff ───────────────────────────────────── */
@@ -363,6 +449,9 @@ export async function createApp(overrides = {}) {
       allowPlaceholderPrices: settings.allowPlaceholderPrices,
       pricingGaps: pricingGaps().length,
       availability: availabilitySources(),
+      appointmentDays: Object.fromEntries(
+        PRODUCTS.filter((p) => p.availabilityMode === 'timeslots').map((p) => [p.id, daysWithSlots(p.id).length]),
+      ),
       warnings: configWarnings(),
     });
   }
@@ -380,6 +469,10 @@ export async function createApp(overrides = {}) {
     ['GET',  '/mock-checkout', getMockCheckout],
     ['POST', '/mock-checkout/:action', postMockCheckoutAction],
     ['GET',  '/api/health', getHealth],
+    ['GET',  '/api/availability/:id', getAvailability],
+    ['GET',  '/api/partners/:id', getPartnerInfo],
+    ['GET',  '/partner/:id/manifest.webmanifest', getPartnerManifest],
+    ['GET',  '/partner/:id', (req, res) => serveStatic(req, res, ROOT, '/partner.html')],
     // The QR a guest shows points here, so it must resolve to the venue's page and
     // not fall through to the guide's catch-all.
     ['GET',  '/validate-card', (req, res) => serveStatic(req, res, ROOT, '/validate-card.html')],

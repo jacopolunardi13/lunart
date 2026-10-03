@@ -187,18 +187,42 @@ test('a card can be opened with its own token and gives a live code', async () =
   const { body: card } = await api(`/api/card/${token}`);
   assert.equal(card.holder, 'Ada Lovelace');
   assert.equal(card.state, 'active');
-  assert.match(card.code.code, /^[0-9A-HJKMNP-TV-Z]{6}$/);
   assert.match(card.qr, /\/validate-card\?c=.+&k=/);
   assert.equal(card.access_token, undefined, 'the card does not echo its own token');
 
-  const { body: valid } = await api('/api/card/validate', { body: { reference: card.reference, code: card.code.code } });
+  // A venue reads the code out of the QR, exactly as a scanner would.
+  const scanned = new URL(card.qr);
+  const reference = scanned.searchParams.get('c');
+  const code = scanned.searchParams.get('k');
+
+  const { body: valid } = await api('/api/card/validate', { body: { reference, code, partner: 'opera-caffe' } });
   assert.equal(valid.valid, true);
   assert.equal(valid.card.holder, 'Ada Lovelace');
+  assert.equal(valid.partner.partner, 'Opera Caffè');
 
-  const { status, body: reused } = await api('/api/card/validate', { body: { reference: card.reference, code: card.code.code } });
-  assert.equal(status, 422);
-  assert.equal(reused.valid, false);
-  assert.equal(reused.reason, 'code-already-used');
+  // Scanned again, and again: nothing is consumed.
+  for (let i = 0; i < 3; i++) {
+    const { status, body: again } = await api('/api/card/validate', { body: { reference, code, partner: 'opera-caffe' } });
+    assert.equal(status, 200);
+    assert.equal(again.valid, true);
+  }
+});
+
+test('the card payload tells the browser nothing about how it is protected', async () => {
+  const order = await buy([{
+    productId: 'privilege-card', variantId: '2d', quantity: 1,
+    date: propertyDate(), fields: { holderName: 'Grace Hopper' },
+  }]);
+  const { body: orderBody } = await api(`/api/orders/${order.accessToken}`);
+  const { body: card } = await api(`/api/card/${orderBody.entitlements[0].access_token}`);
+
+  // The guest sees a membership card. Nothing on the wire describes a rotation,
+  // a window, a period or a code expiry.
+  for (const forbidden of ['code', 'manualCode', 'window', 'periodSeconds', 'secondsRemaining', 'codeExpiresAt']) {
+    assert.equal(forbidden in card, false, `the card payload exposes "${forbidden}"`);
+  }
+  assert.ok(card.qr, 'it does carry the QR');
+  assert.equal(typeof card.refreshIn, 'number', 'and when to quietly ask again');
 });
 
 /* ── Authorise, then capture or release ──────────────────────────────────── */

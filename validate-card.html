@@ -104,25 +104,31 @@
 
   const REASONS = {
     'not-found': 'Codice non riconosciuto.',
-    'code-expired': 'Codice scaduto. Chiedi la schermata aggiornata.',
-    'code-already-used': 'Codice già usato. Chiedi la schermata aggiornata.',
+    'invalid-code': 'Codice non valido. Chiedi all’ospite di riaprire la card.',
     expired: 'La card è scaduta.',
     revoked: 'La card non è più valida.',
     'not-started': 'La card non è ancora attiva.',
     malformed: 'Codice incompleto.',
+    'too-many-attempts': 'Troppi tentativi. Riprova fra un minuto.',
   };
+
+  /* If this phone has a partner page saved, the answer is scoped to that venue
+     rather than listing every benefit. */
+  const rememberedPartner = (() => {
+    try { return localStorage.getItem('lunart.partner') || undefined; } catch { return undefined; }
+  })();
 
   function show(payload) {
     if (payload?.valid) {
       verdict.dataset.tone = 'good';
-      headline.textContent = 'Valida';
-      detail.textContent = `${payload.card.holder} · fino a ${payload.card.max_people} persone`;
+      headline.textContent = 'CARD VALID';
+      detail.textContent = `LunArt Firenze · ${payload.card.holder}`;
       result.innerHTML = `
         <div class="facts-list">
           <div class="fact"><span class="fact__label">Intestata a</span>
             <span class="fact__row"><span class="fact__value">${esc(payload.card.holder)}</span></span></div>
-          <div class="fact"><span class="fact__label">Valida fino al</span>
-            <span class="fact__row"><span class="fact__value">${esc(readableDate(payload.card.valid_until))}</span></span></div>
+          <div class="fact"><span class="fact__label">Validità</span>
+            <span class="fact__row"><span class="fact__value">${esc(readableDate(payload.card.valid_from))} — ${esc(readableDate(payload.card.valid_until))}</span></span></div>
           <div class="fact"><span class="fact__label">Persone</span>
             <span class="fact__row"><span class="fact__value">massimo ${esc(payload.card.max_people)}</span></span></div>
         </div>
@@ -135,7 +141,7 @@
       return;
     }
     verdict.dataset.tone = 'bad';
-    headline.textContent = 'Non valida';
+    headline.textContent = 'CARD NOT VALID';
     detail.textContent = REASONS[payload?.reason] ?? 'Non siamo riusciti a verificarla.';
     result.innerHTML = '';
   }
@@ -148,7 +154,7 @@
       const response = await fetch('/api/card/validate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ reference, code }),
+        body: JSON.stringify({ reference, code, partner: rememberedPartner }),
       });
       show(await response.json());
     } catch {
