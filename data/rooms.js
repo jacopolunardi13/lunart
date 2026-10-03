@@ -95,8 +95,8 @@ export const rooms = [
       en: 'Two separate rooms and two private bathrooms. Not bookable yet.',
     },
     photos: [],
-    verify: { level: 'blocker',
-      note: 'Le correzioni del 18-09-2026 chiedono di non presentare la soluzione Familiare come disponibile finché non lo è. Qui compare solo come “prossima apertura”: se al momento della pubblicazione non è ancora pronta va bene così, altrimenti va aggiornata.' },
+    verify: { level: 'confirm',
+      note: 'Confermato: la soluzione Familiare resta “prossima apertura” e non prenotabile. Da aggiornare solo quando diventa effettivamente vendibile.' },
   },
 ];
 

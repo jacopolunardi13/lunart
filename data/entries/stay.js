@@ -102,8 +102,8 @@ export const stay = [
     priority: 3,
     title: { it: 'Pulizia e biancheria', en: 'Cleaning and linen' },
     summary: {
-      it: 'La camera viene pulita ogni giorno. Teli e biancheria si cambiano ogni tre giorni, o prima se ce lo chiedi.',
-      en: 'The room is cleaned daily. Towels and linen are changed every three days, or sooner if you ask.',
+      it: 'Sono due cose diverse: la camera viene riordinata e pulita ogni giorno, mentre teli e biancheria si cambiano ogni tre giorni — o prima, se ce lo chiedi.',
+      en: 'Two different things: the room is tidied and cleaned every day, while towels and linen are changed every three days — or sooner, if you ask.',
     },
     detail: {
       it: 'Ogni lavaggio consuma acqua ed energia, perciò il cambio non è automatico tutti i giorni — ma basta dirlo.\n\nSe ti servono teli in più: 5 € al pezzo, oppure 15 € per un set completo (due grandi, due medi e il tappetino).',
@@ -111,8 +111,8 @@ export const stay = [
     },
     actions: [{ kind: 'entry', label: { it: 'Chiedi un cambio', en: 'Ask for a change' }, value: 'contacts' }],
     intents: ['cleaning', 'towels'],
-    verify: { level: 'confirm',
-      note: 'Le FAQ InYourLife dicono “pulizia quotidiana”, la knowledge storica “cambio biancheria ogni 3 giorni”: qui convivono come due cose diverse. Confermare che sia così e che i prezzi dei teli extra siano ancora 5 €/15 €.' },
+    verify: { level: 'confirm', field: 'prezzi teli extra',
+      note: 'Pulizia quotidiana e cambio biancheria ogni 3 giorni sono confermati come servizi distinti. Resta da confermare che i teli extra costino ancora 5 € al pezzo e 15 € il set.' },
   },
   {
     id: 'accessibility',

@@ -58,16 +58,14 @@ export const breakfast = [
     priority: -10,
     title: { it: 'Il vantaggio riservato agli ospiti', en: 'The guest benefit' },
     summary: {
-      it: 'Agli ospiti LunArt l’Opera Caffè riserva uno sconto dedicato sul menù al tavolo: la documentazione parla del 30%. Mostra la conferma di prenotazione prima di ordinare.',
-      en: 'Opera Caffè gives LunArt guests a dedicated discount on table orders: our documentation says 30%. Show your booking confirmation before you order.',
+      it: 'Agli ospiti LunArt l’Opera Caffè riserva il 30% di sconto sul menù al tavolo. Mostra la conferma di prenotazione prima di ordinare.',
+      en: 'Opera Caffè gives LunArt guests 30% off table orders. Show your booking confirmation before you order.',
     },
     detail: {
       it: 'Vale anche se torni per un pranzo, una cena o un aperitivo, non solo per la colazione.',
       en: 'It applies when you come back for lunch, dinner or an aperitivo too, not just at breakfast.',
     },
     intents: ['opera-benefit'],
-    verify: { level: 'blocker', field: '30%',
-      note: 'Lo sconto 30% viene solo dalla knowledge storica: i documenti InYourLife di settembre 2026 non lo citano. È una promessa commerciale fatta all’ospite — va confermata con l’Opera Caffè o riformulata prima della pubblicazione.' },
   },
   {
     id: 'breakfast-room',

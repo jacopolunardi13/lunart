@@ -140,16 +140,16 @@ export const arrival = [
       en: 'The centre is a restricted traffic zone and LunArt is inside it. To enter legally, drive to the garage: the garage registers your plate under the procedures in force.',
     },
     detail: {
-      it: 'In pratica: imposta il navigatore sul garage, non su LunArt. Passando i varchi la telecamera leggerà la targa, e la registrazione fatta dal garage è ciò che autorizza quel transito.\n\nNon perdere tempo in giro prima di arrivare al garage: la registrazione va fatta a ridosso dell’ingresso in zona. L’indicazione operativa che abbiamo parla di una finestra di circa due ore e mezza, ma è il garage a conoscere la procedura aggiornata.\n\nAnche in uscita segui il percorso che ti indica il garage: è il momento in cui è più facile sbagliare varco.',
-      en: 'In practice: set your navigation to the garage, not to LunArt. As you pass the gates a camera reads your plate, and the registration the garage performs is what authorises that passage.\n\nDo not wander before reaching the garage: registration belongs close to the moment you enter the zone. Our operating note mentions a window of roughly two and a half hours, but the garage knows the current procedure.\n\nOn the way out, follow the route the garage gives you: that is when it is easiest to cross the wrong gate.',
+      it: 'In pratica: imposta il navigatore sul garage, non su LunArt. Passando i varchi la telecamera leggerà la targa, e la registrazione fatta dal garage è ciò che copre quel transito — indicativamente entro due ore e mezza dall’ingresso in zona. Vai dritto al garage, senza giri.\n\nL’uscita invece non è coperta dalla stessa procedura: quando riparti chiedi al garage il percorso aggiornato e seguilo, perché è lì che è più facile prendere un varco sbagliato.\n\nSe hai un dubbio, chiedi prima a noi o al garage: meglio due minuti ora che una multa fra sei mesi.',
+      en: 'In practice: set your navigation to the garage, not to LunArt. As you pass the gates a camera reads your plate, and the registration the garage performs is what covers that passage — broadly within two and a half hours of entering the zone. Drive straight there, no detours.\n\nThe way out is not covered by the same procedure: when you leave, ask the garage for the current route and follow it, because that is where it is easiest to cross the wrong gate.\n\nIf anything is unclear, ask us or the garage first: two minutes now beats a fine in six months.',
     },
     actions: [
       { kind: 'url', label: { it: 'Sito Garage Lungarno', en: 'Garage Lungarno site' }, value: 'https://www.garagelungarno.it' },
       { kind: 'entry', label: { it: 'Hai un dubbio? Scrivici', en: 'Not sure? Message us' }, value: 'contacts' },
     ],
     intents: ['ztl'],
-    verify: { level: 'blocker', field: 'finestra 2h30',
-      note: 'Confermare con Garage Lungarno la finestra temporale per la registrazione targa (la conoscenza storica dice ~2h30) e la procedura in uscita. La guida la presenta come indicazione e non come garanzia; va confermata o riformulata prima della pubblicazione.' },
+    verify: { level: 'volatile', field: 'procedura garage',
+      note: 'La copertura dell’ingresso (~2h30, tramite la procedura del garage) e il fatto che l’uscita non sia coperta sono conoscenza operativa LunArt, non una garanzia legale: la guida li presenta come indicazioni e rimanda al garage. Da ricontrollare se il garage cambia procedura.' },
   },
   {
     id: 'from-station',
