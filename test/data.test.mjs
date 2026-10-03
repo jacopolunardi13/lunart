@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-  entries, getEntry, getPlace, places, rooms, contacts, emergency, property,
+  entries, getEntry, getPlace, places, rooms, contacts, escalation, OFFICIAL_WHATSAPP, emergency, property,
   SECTION_IDS, PHASE_IDS, QUICK_ACTIONS, verifyList, itineraries, dayTrips, CATEGORIES,
 } from '../data/index.js';
 import { ICON_IDS } from '../src/ui/icons.js';
@@ -155,15 +155,112 @@ test('rooms are complete and their photographs exist on disk', async (t) => {
   }
 });
 
+/**
+ * A room gallery only ever shows that room.
+ *
+ * Room 304 carried two photographs that were not room 304: one was room 302 — the
+ * owner confirmed it, and 302 already held the same shot — and the other was a
+ * generic LunArt bathroom with a caption carefully worded not to name a room,
+ * which inside a room's own gallery still reads as "this is yours". The filename
+ * is the invariant: a photograph in room N's gallery lives at `rooms/N-...`.
+ * Nothing else may be attributed to a room, however suggestive it looks.
+ */
+test('no room shows a photograph belonging to another room, or to no room', () => {
+  const wrong = [];
+  for (const room of rooms) {
+    for (const photo of room.photos) {
+      if (!photo.src.startsWith(`rooms/${room.number}-`)) wrong.push(`${room.number}: ${photo.src}`);
+    }
+  }
+  assert.deepEqual(wrong, []);
+});
+
+/**
+ * And a photograph belongs to one room only.
+ *
+ * Moving a misattributed shot to the room it really shows is right; adding it
+ * where a copy already sits is how a gallery grows the same picture twice.
+ */
+test('no photograph appears in two rooms', () => {
+  const seen = new Map();
+  const twice = [];
+  for (const room of rooms) {
+    for (const photo of room.photos) {
+      if (seen.has(photo.src)) twice.push(`${photo.src}: ${seen.get(photo.src)} and ${room.number}`);
+      else seen.set(photo.src, room.number);
+    }
+  }
+  assert.deepEqual(twice, []);
+});
+
+/** A room with nothing verified is flagged, not quietly empty. */
+test('a room with no photograph says so on the review screen', () => {
+  for (const room of rooms.filter((r) => r.photos.length === 0)) {
+    assert.ok(room.verify, `room ${room.number} has no photo and no verify note`);
+    assert.equal(room.verify.level, 'blocker', `room ${room.number} should block on its missing photos`);
+  }
+});
+
 test('contacts are reachable', () => {
   assert.ok(contacts.some((c) => c.primary), 'no primary contact is marked');
   for (const contact of contacts) {
-    assert.ok(contact.phone || contact.email, `contact "${contact.id}" has no way to reach it`);
-    if (contact.phone) assert.match(contact.phone, /^\+\d{8,}$/, `contact "${contact.id}" phone is not E.164`);
+    assert.ok(contact.phone || contact.whatsapp || contact.email, `contact "${contact.id}" has no way to reach it`);
+    for (const field of ['phone', 'whatsapp']) {
+      if (contact[field]) assert.match(contact[field], /^\+\d{8,}$/, `contact "${contact.id}" ${field} is not E.164`);
+    }
     if (contact.email) assert.match(contact.email, /^[^@\s]+@[^@\s]+\.[^@\s]+$/, `contact "${contact.id}" email looks wrong`);
     assertL10n(contact.role, `contact ${contact.id} role`);
   }
   assert.ok(emergency.some((e) => e.number === '112'), '112 must always be listed');
+});
+
+/* ── The two channels, and the line between them ───────────────────────────
+   LunArt has one WhatsApp Business line and one telephone, and they are not the
+   same number. The WhatsApp line does not ring: rendering it as a telephone
+   promises a call that cannot happen. Diego's number is a telephone: routing
+   WhatsApp to it sends a guest to a chat nobody staffs. The field a number sits
+   in is what decides, so these tests read the fields rather than the markup. */
+
+const OFFICIAL = '+393925661488';
+const DIEGO = '+393342115505';
+
+test('the official WhatsApp number is never held in a field that can be dialled', () => {
+  for (const contact of [...contacts, ...escalation]) {
+    assert.notEqual(contact.phone, OFFICIAL, `contact "${contact.id}" has the WhatsApp line as a phone number`);
+  }
+  assert.equal(OFFICIAL_WHATSAPP, OFFICIAL);
+});
+
+test('Diego’s number is never held in a field that would open WhatsApp', () => {
+  for (const contact of [...contacts, ...escalation]) {
+    assert.notEqual(contact.whatsapp, DIEGO, `contact "${contact.id}" routes WhatsApp to Diego's phone`);
+  }
+});
+
+test('no contact carries the same number as both a phone and a WhatsApp line', () => {
+  for (const contact of [...contacts, ...escalation]) {
+    if (contact.phone && contact.whatsapp) {
+      assert.notEqual(contact.phone, contact.whatsapp, `contact "${contact.id}" claims one number does both`);
+    }
+  }
+});
+
+test('exactly one contact is the official WhatsApp, and it is the first one offered', () => {
+  const whatsapp = contacts.filter((c) => c.whatsapp);
+  assert.equal(whatsapp.length, 1, 'there is one official WhatsApp line, not several');
+  assert.equal(whatsapp[0].whatsapp, OFFICIAL);
+  assert.equal(whatsapp[0], contacts.find((c) => c.primary), 'the official line is the primary contact');
+});
+
+test('every WhatsApp action anywhere in the knowledge layer is the official line', () => {
+  const wrong = [];
+  for (const entry of entries) {
+    for (const action of entry.actions ?? []) {
+      if (action.kind === 'whatsapp' && action.value !== OFFICIAL) wrong.push(`${entry.id}: ${action.value}`);
+      if (action.kind === 'tel' && action.value === OFFICIAL) wrong.push(`${entry.id}: dials the WhatsApp line`);
+    }
+  }
+  assert.deepEqual(wrong, []);
 });
 
 test('itineraries and day trips are bilingual', () => {

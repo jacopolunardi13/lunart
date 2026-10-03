@@ -64,8 +64,8 @@ export const arrival = [
       en: 'Vicolo del Canneto 2. About six steps up from the street door, then the lift: LunArt is on the third floor and the door is signed.',
     },
     detail: {
-      it: 'Il vicolo è stretto e si imbocca dal Lungarno: se il navigatore ti porta davanti a un portone senza insegna, sei nel posto giusto.\n\nI codici per il portone e per la porta arrivano via messaggio prima dell’arrivo. Se non li trovi, cercali nella chat con Diego prima di suonare da qualcun altro.',
-      en: 'The lane is narrow and opens off the Lungarno: if your map app leaves you in front of an unmarked door, you are in the right place.\n\nThe codes for the street door and the apartment door arrive by message before you travel. If you cannot find them, check your chat with Diego before ringing anyone else’s bell.',
+      it: 'Il vicolo è stretto e si imbocca dal Lungarno: se il navigatore ti porta davanti a un portone senza insegna, sei nel posto giusto.\n\nI codici per il portone e per la porta arrivano via messaggio prima dell’arrivo. Se non li trovi, cercali nella chat con noi prima di suonare da qualcun altro.',
+      en: 'The lane is narrow and opens off the Lungarno: if your map app leaves you in front of an unmarked door, you are in the right place.\n\nThe codes for the street door and the apartment door arrive by message before you travel. If you cannot find them, check your chat with us before ringing anyone else’s bell.',
     },
     facts: [
       { label: { it: 'Indirizzo', en: 'Address' }, value: 'Vicolo del Canneto 2, 50125 Firenze' },

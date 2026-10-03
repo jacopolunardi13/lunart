@@ -6,7 +6,7 @@
  */
 
 import { SECTIONS, PHASES, SECTION_IDS, PHASE_IDS } from './schema.js';
-import { property, contacts, unverifiedContacts, emergency } from './property.js';
+import { property, contacts, escalation, unverifiedContacts, emergency, OFFICIAL_WHATSAPP } from './property.js';
 import { rooms, roomsCommon, plannedRooms } from './rooms.js';
 import { places, CATEGORIES, itineraries, dayTrips } from './florence.js';
 import { arrival } from './entries/arrival.js';
@@ -17,7 +17,7 @@ import { departure } from './entries/departure.js';
 import { florence } from './entries/florence.js';
 
 export { SECTIONS, PHASES, SECTION_IDS, PHASE_IDS };
-export { property, contacts, unverifiedContacts, emergency };
+export { property, contacts, escalation, unverifiedContacts, emergency, OFFICIAL_WHATSAPP };
 export { rooms, roomsCommon, plannedRooms };
 export { places, CATEGORIES, itineraries, dayTrips };
 

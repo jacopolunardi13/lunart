@@ -839,6 +839,16 @@ fieldset.field { border: 0; padding: 0; }
 /* The guest's own room, shown instead of a catalogue of five. */
 .room--assigned { border-color: var(--ink-line); box-shadow: var(--shadow); }
 .cards--after-room { margin-top: 10px; }
+/* A room with no photograph of its own says so, rather than borrowing one. */
+.room__note {
+  margin: 0 16px 15px;
+  font-size: var(--small); line-height: 1.6; color: var(--ink-quiet);
+}
+/* What every room has, said once, next to the one room this guest is in. */
+.room__common {
+  margin-top: 12px;
+  font-size: var(--small); line-height: 1.7; color: var(--ink-soft);
+}
 
 /* ── During the stay: five things, one line each ──────────────────────────
    The answer is written once, in the entry. Repeating it here would make the

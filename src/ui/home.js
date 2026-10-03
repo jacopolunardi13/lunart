@@ -152,16 +152,23 @@ function primaryActions(lang, phase) {
 
 /* --- A. Your stay ---------------------------------------------------------- */
 
+/** The room this guest is actually sleeping in, or nothing. */
+const roomOfGuest = () => {
+  const number = guest()?.room;
+  return number ? rooms.find((r) => r.number === String(number)) ?? null : null;
+};
+
 /**
- * The guest's own room, and only theirs.
+ * The guest's own room, and nobody else's.
  *
- * A guest in 303 has no use for a catalogue of five rooms on their home — they
- * have already chosen, and they are standing in the answer. The other four are
- * still in the guide, at the end, behind a disclosure.
+ * A guest in 303 has no use for a catalogue of five rooms: they have already
+ * chosen, they are standing in the answer, and the other four are somebody else's
+ * room. So on a personal link this is the only room that appears anywhere — the
+ * records for all five stay in `data/rooms.js`, because the guest in 302 needs 302
+ * and the guest in 304 needs 304; what changes is which one this guide shows.
  */
 function assignedRoom(lang) {
-  const number = guest()?.room;
-  const room = number ? rooms.find((r) => r.number === String(number)) : null;
+  const room = roomOfGuest();
   if (!room) return '';
 
   return `<article class="room room--assigned">
@@ -172,6 +179,7 @@ function assignedRoom(lang) {
     </div>
     ${room.view ? `<p class="room__meta">${esc(t(room.view, lang))}</p>` : ''}
     <p class="room__summary">${esc(t(room.summary, lang))}</p>
+    ${room.photos.length === 0 ? `<p class="room__note">${esc(UI[lang].roomPhotosPending)}</p>` : ''}
   </article>`;
 }
 
@@ -193,6 +201,7 @@ function yourStay(lang, phase) {
       <h2 id="h-your-stay">${esc(UI[lang].sectionYourStay)}</h2>
     </div>
     ${room}
+    ${room ? `<p class="room__common">${esc(t(roomsCommon, lang))}</p>` : ''}
     <div class="cards${room ? ' cards--after-room' : ''}">${essentials.map((e) => entryCard(e, lang)).join('')}</div>
   </section>`;
 }
@@ -270,6 +279,21 @@ function everythingElse(lang) {
     body: sectionBlock(id, lang, { heading: false }),
   })).join('');
 
+  /**
+   * The catalogue of the other rooms, on the public guide only.
+   *
+   * Somebody deciding where to stay wants to see the five rooms. Somebody who has
+   * already booked 303 does not: 301, 302, 304 and 305 are other people's rooms,
+   * and a catalogue on their own guide is a shop window where a home should be.
+   * Their room is at the top of this page instead, with what every room has.
+   */
+  const catalogue = isPersonal() ? '' : disclosure({
+    id: 'fold-rooms',
+    iconId: 'door',
+    title: UI[lang].rooms,
+    body: `<p class="fold__lead">${esc(t(roomsCommon, lang))}</p>${rooms.map((room) => roomCard(room, lang)).join('')}`,
+  });
+
   return `<section class="section" aria-labelledby="h-more">
     <div class="section__head">
       <span style="color:var(--accent)">${icon('compass', 20)}</span>
@@ -277,12 +301,7 @@ function everythingElse(lang) {
     </div>
     <div class="folds">
       ${folds}
-      ${disclosure({
-    id: 'fold-rooms',
-    iconId: 'door',
-    title: UI[lang].rooms,
-    body: `<p class="fold__lead">${esc(t(roomsCommon, lang))}</p>${rooms.map((room) => roomCard(room, lang)).join('')}`,
-  })}
+      ${catalogue}
     </div>
   </section>`;
 }

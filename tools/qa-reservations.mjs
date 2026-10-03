@@ -110,8 +110,12 @@ const roomsOnScreen = await page.evaluate(() => [...document.querySelectorAll('#
   .map((el) => el.querySelector('.room__number')?.textContent.trim()));
 note(roomsOnScreen.length === 1, `one room on the home, not five (${roomsOnScreen.length})`);
 note(roomsOnScreen[0]?.includes(chosen.room), `and it is theirs (${roomsOnScreen[0]})`);
-note((await page.locator('#fold-rooms .room').count()) >= 5,
-  'the other rooms are still in the guide, one fold away');
+note((await page.locator('#fold-rooms').count()) === 0,
+  'and the other rooms are not offered as a catalogue anywhere on it');
+// The records are untouched — what changed is which one this guide renders.
+const roomRecords = await page.evaluate(async () => (await import('/data/rooms.js')).rooms.map((r) => r.number));
+note(roomRecords.length === 5,
+  `while all five rooms remain in the data layer (${roomRecords.join(', ')})`);
 
 /* Short on screen, whole underneath. */
 const shape = await page.evaluate(() => ({
@@ -251,18 +255,22 @@ await staffPage.screenshot({ path: `${OUT}/staff-dashboard-390.png` });
 await staffPage.click('[data-view="reservations"]');
 await staffPage.waitForTimeout(800);
 note((await staffPage.locator('[data-reservation]').count()) >= 1, 'the reservations are listed');
-await staffPage.click('[data-reservation] summary');
+// This run's own reservation, not whichever happens to sort first: the list keeps
+// everything, including what earlier runs left behind.
+const ourRow = staffPage.locator(`[data-reservation="${chosen.id}"]`);
+await ourRow.locator('summary').click();
 await staffPage.waitForTimeout(300);
-const reservationText = await staffPage.textContent('[data-reservation]');
+const reservationText = await ourRow.textContent();
 note(reservationText.includes(chosen.booking_reference), 'with the booking number staff need');
 note(/Email guida/.test(reservationText), 'and what happened to the guide email');
 note(await staffPage.isVisible('#manual'), 'a reservation can be typed in by hand');
 await staffPage.screenshot({ path: `${OUT}/staff-reservations-390.png` });
 
-// Copy the guide link
-await staffPage.click('[data-reservation] [data-link]');
+// Copy the guide link — from the row we opened, which is the one that is visible.
+await ourRow.locator('[data-link]').click();
 await staffPage.waitForTimeout(600);
-note(/\/g\//.test(await staffPage.textContent('[data-reservation-panel]')), 'the guide link can be copied from here');
+note(/\/g\//.test(await ourRow.locator('[data-reservation-panel]').textContent()),
+  'the guide link can be copied from here');
 
 // Sync
 await staffPage.click('[data-view="sync"]');
@@ -303,10 +311,169 @@ const stillWorks = await page.locator('.quick__item').count();
 note(stillWorks > 0, 'and the guide still works — the guest may still need the door code');
 await page.screenshot({ path: `${OUT}/cancelled-390.png` });
 
+/* ── 6. One room each, and only that room ─────────────────────────────────
+   The owner's rule: a personal guide shows the room the guest is in, and never a
+   catalogue of the others. Every room LunArt lets is checked, because a rule that
+   holds for 303 and quietly fails for 301 is not a rule. The records all stay in
+   data/rooms.js — the guest in 302 needs 302 — so this asserts what is rendered,
+   not what exists. */
+console.log('\n── one room each ──');
+
+const ALL_ROOMS = ['301', '302', '303', '304', '305'];
+const throwaway = [];
+
+for (const number of ALL_ROOMS) {
+  const stay = await post('/api/staff/reservations', {
+    first_name: 'Camera', last_name: `R${number}x${Date.now().toString(36).slice(-4)}`,
+    guest_email: `qa-${number}@example.invalid`,
+    check_in: today, check_out: inDays(2), room: number, adults: 2,
+    booking_reference: `QA-ROOM-${number}-${Date.now()}`,
+  });
+  throwaway.push(stay.reservation.id);
+  const { link } = await post(`/api/staff/reservations/${stay.reservation.id}/link`);
+
+  await page.goto(link, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(900);
+
+  const shown = await page.evaluate(() => ({
+    // Every room rendered anywhere in the page, open or folded.
+    numbers: [...document.querySelectorAll('#main .room')]
+      .map((el) => el.querySelector('.room__number')?.textContent.replace(/\D/g, '')).filter(Boolean),
+    catalogue: document.querySelectorAll('#fold-rooms').length,
+    phaseChips: document.querySelectorAll('[data-phase]').length,
+  }));
+
+  note(shown.numbers.length === 1 && shown.numbers[0] === number,
+    `${number} → only ${number} is shown (${shown.numbers.join(', ') || 'none'})`);
+  note(shown.catalogue === 0, `${number} → the other rooms are not offered as a catalogue`);
+  note(shown.phaseChips === 0, `${number} → no manual phase selector`);
+}
+
+// Room 304 has no verified photograph of its own, and must not borrow one.
+const r304 = await post('/api/staff/reservations', {
+  first_name: 'Foto', last_name: `F304x${Date.now().toString(36).slice(-4)}`, guest_email: 'qa-304@example.invalid',
+  check_in: today, check_out: inDays(2), room: '304', adults: 2, booking_reference: `QA-304-${Date.now()}`,
+});
+throwaway.push(r304.reservation.id);
+const link304 = (await post(`/api/staff/reservations/${r304.reservation.id}/link`)).link;
+await page.goto(link304, { waitUntil: 'networkidle' });
+await page.waitForTimeout(900);
+const photos304 = await page.evaluate(() => ({
+  images: [...document.querySelectorAll('.room--assigned img')].map((i) => i.getAttribute('src')),
+  note: document.querySelector('.room--assigned .room__note')?.textContent.trim() ?? '',
+}));
+note(photos304.images.length === 0, `304 shows no photograph at all (${photos304.images.join(', ') || 'none'})`);
+note(photos304.note.length > 0, `and says so rather than looking broken (${photos304.note})`);
+await page.screenshot({ path: `${OUT}/room-304-390.png` });
+
+/* ── 7. The phase, computed and not asked ─────────────────────────────────
+   A link carries check-in, check-out and today's date, so the guide already knows
+   which part of the stay the guest is in. Asking anyway is a form with the answer
+   already in it — and the phase it computes has to be right, not merely absent. */
+console.log('\n── the phase is computed ──');
+
+const PHASES = [
+  { label: 'before arrival', from: inDays(4), to: inDays(7), expect: 'before' },
+  { label: 'mid-stay', from: inDays(-1), to: inDays(2), expect: 'staying' },
+  { label: 'leaving today', from: inDays(-3), to: today, expect: 'leaving' },
+];
+
+for (const phase of PHASES) {
+  const stay = await post('/api/staff/reservations', {
+    first_name: 'Fase', last_name: `P${phase.expect}x${Date.now().toString(36).slice(-4)}`,
+    guest_email: `qa-${phase.expect}@example.invalid`,
+    check_in: phase.from, check_out: phase.to, room: '303', adults: 2,
+    booking_reference: `QA-PHASE-${phase.expect}-${Date.now()}`,
+  });
+  throwaway.push(stay.reservation.id);
+  const { link } = await post(`/api/staff/reservations/${stay.reservation.id}/link`);
+
+  await page.goto(link, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(900);
+
+  const seen = await page.evaluate(async () => {
+    const token = location.pathname.split('/').pop();
+    const context = await (await fetch(`/api/guide/${token}`)).json();
+    return {
+      phase: context.phase,
+      chips: document.querySelectorAll('[data-phase]').length,
+      asks: /A che punto sei|Where are you up to/i.test(document.querySelector('#main').innerText),
+      primary: [...document.querySelectorAll('[data-primary] .quick__title')].map((el) => el.textContent.trim()),
+    };
+  });
+  note(seen.phase === phase.expect, `${phase.label} → the server computes "${seen.phase}"`);
+  note(seen.chips === 0, `${phase.label} → no Arrivo/Soggiorno/Partenza selector`);
+  note(!seen.asks, `${phase.label} → the guide does not ask which part of the stay this is`);
+  note(seen.primary.length === 4, `${phase.label} → the four actions follow the computed phase (${seen.primary.join(' · ')})`);
+}
+
+// The public guide genuinely does not know, so it is still allowed to ask.
+await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(700);
+note((await page.locator('[data-phase]').count()) === 3,
+  'the public guide still asks, because nothing has told it');
+
+/* ── 8. WhatsApp is messaged, the telephone is called ──────────────────────
+   One WhatsApp Business line and one telephone, and they are different numbers.
+   A wa.me link to Diego sends a guest to a chat nobody staffs; a tel: link to the
+   WhatsApp line promises a call that cannot connect. This walks the rendered page
+   rather than the data, because the data was right before and the markup was not. */
+console.log('\n── WhatsApp and telephone ──');
+
+const OFFICIAL = '393925661488';
+const DIEGO = '393342115505';
+
+const links = async (where) => page.evaluate(() => [...document.querySelectorAll('a[href]')]
+  .map((a) => a.getAttribute('href'))
+  .filter((href) => /^tel:|wa\.me/.test(href)));
+
+await page.goto(`${BASE}/#/help`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(900);
+const helpLinks = await links();
+const waLinks = helpLinks.filter((h) => h.includes('wa.me'));
+const telLinks = helpLinks.filter((h) => h.startsWith('tel:'));
+
+note(waLinks.length > 0, `the help view offers WhatsApp (${waLinks.length})`);
+note(waLinks.every((h) => h.includes(OFFICIAL)),
+  `and every WhatsApp link is the official line (${[...new Set(waLinks)].join(', ')})`);
+note(!waLinks.some((h) => h.includes(DIEGO)), 'no WhatsApp link goes to Diego');
+note(!telLinks.some((h) => h.replace(/\D/g, '').includes(OFFICIAL)),
+  `the WhatsApp line is never dialled (${telLinks.join(', ') || 'no tel links'})`);
+note(telLinks.some((h) => h.replace(/\D/g, '').includes(DIEGO)),
+  `Diego is reachable by telephone (${telLinks.join(', ')})`);
+await page.screenshot({ path: `${OUT}/contacts-390.png` });
+
+// The contacts sheet, which is what the "Talk to someone" row opens.
+await page.goto(`${BASE}/#/e/contacts`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(800);
+const sheetLinks = await page.evaluate(() => [...document.querySelectorAll('.sheet a[href]')]
+  .map((a) => ({ href: a.getAttribute('href'), text: a.textContent.replace(/\s+/g, ' ').trim() })));
+const sheetWa = sheetLinks.filter((l) => l.href.includes('wa.me'));
+const sheetTel = sheetLinks.filter((l) => l.href.startsWith('tel:'));
+note(sheetWa.length > 0 && sheetWa.every((l) => l.href.includes(OFFICIAL)),
+  `the contacts sheet messages the official line (${sheetWa.map((l) => l.href).join(', ')})`);
+note(sheetTel.length > 0 && sheetTel.every((l) => l.href.replace(/\D/g, '').includes(DIEGO)),
+  `and calls Diego (${sheetTel.map((l) => l.href).join(', ')})`);
+
+// The Concierge hands over when it does not know; it must hand over to the line.
+await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(700);
+await page.click('#open-concierge');
+await page.waitForTimeout(400);
+await page.fill('#concierge-input', 'avete un campo da golf?');
+await page.press('#concierge-input', 'Enter');
+await page.waitForTimeout(500);
+const handoff = await page.evaluate(() => [...document.querySelectorAll('.concierge a[href]')]
+  .map((a) => a.getAttribute('href')).filter((h) => /wa\.me|^tel:/.test(h)));
+note(handoff.length > 0 && handoff.every((h) => h.includes(OFFICIAL)),
+  `the Concierge hands over to the official line (${handoff.join(', ') || 'nothing offered'})`);
+note(!handoff.some((h) => h.includes(DIEGO)), 'and not to somebody\u2019s mobile');
+
 note(errors.length === 0, `no page errors in the guide (${errors.slice(0, 2).join(' | ') || 'none'})`);
 
-// Leave the preview as it was found: both throwaway reservations cancelled.
+// Leave the preview as it was found: every throwaway reservation cancelled.
 await post(`/api/staff/reservations/${chosen.id}/cancel`, { reason: 'QA finita' });
+for (const id of throwaway) await post(`/api/staff/reservations/${id}/cancel`, { reason: 'QA finita' });
 
 await browser.close();
 console.log(failures === 0 ? '\nALL RESERVATION CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);

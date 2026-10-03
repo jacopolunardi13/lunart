@@ -71,12 +71,19 @@ export const rooms = [
       it: 'Spaziosa e luminosa, con vista sul fiume e sugli Uffizi. Su richiesta può accettare un letto aggiuntivo, ma non è una tripla standard.',
       en: 'Bright and roomy, looking over the river and the Uffizi. It can take an extra bed on request, though it is not a standard triple.',
     },
-    photos: [
-      { src: 'rooms/304-camera', alt: { it: 'Camera Queen LunArt con scrivania e finestra', en: 'LunArt Queen room with desk and window' } },
-      { src: 'rooms/304-bagno', alt: { it: 'Bagno privato LunArt con doccia', en: 'LunArt private bathroom with shower' } },
-    ],
-    verify: { level: 'confirm', field: 'foto',
-      note: 'Il vecchio sito mostrava per la 304 le stesse due foto della 303. Qui usa invece due scatti generici della struttura, con didascalie che non attribuiscono la stanza: servono foto dedicate della 304.' },
+    /**
+     * Nessuna foto, finché non ce n'è una della 304.
+     *
+     * Le due che c'erano non erano della 304. Quella con la scrivania e la finestra
+     * è la 302 — confermato dal proprietario, ed è lo stesso scatto che la 302 ha
+     * già come `302-scrivania`, quindi non va aggiunta una seconda volta. L'altra
+     * era un bagno generico della struttura, con una didascalia che evitava di
+     * nominare la stanza: dentro la galleria di una camera resta comunque una foto
+     * che dice "questa è la tua camera". Meglio nessuna foto che la foto sbagliata.
+     */
+    photos: [],
+    verify: { level: 'blocker', field: 'foto',
+      note: 'La 304 non ha foto. Le due precedenti sono state rimosse: quella con scrivania e finestra è della 302 (confermato dal proprietario, già presente lì come 302-scrivania), l\u2019altra era un bagno generico della struttura. Servono scatti dedicati della 304 prima di pubblicarne di nuovo.' },
   },
   {
     id: '305',

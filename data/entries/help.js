@@ -9,13 +9,23 @@ export const help = [
     priority: -20,
     title: { it: 'Parlare con qualcuno', en: 'Talk to someone' },
     summary: {
-      it: 'Per il soggiorno, il check-in e qualsiasi problema scrivi a Diego su WhatsApp. Per prenotazioni e organizzazione, a Jacopo.',
-      en: 'For your stay, check-in and anything that goes wrong, message Diego on WhatsApp. For bookings and arrangements, Jacopo.',
+      it: 'Scrivici su WhatsApp al +39 392 566 1488: è il modo più veloce. Se preferisci parlare, chiama Diego al +39 334 211 5505.',
+      en: 'Message us on WhatsApp at +39 392 566 1488 — that is the fastest. If you would rather talk, call Diego on +39 334 211 5505.',
     },
     detail: {
-      it: 'WhatsApp è il modo più veloce: lo leggiamo anche quando non possiamo rispondere al telefono.',
-      en: 'WhatsApp is fastest: we see it even when we cannot pick up the phone.',
+      it: 'Il WhatsApp è quello ufficiale di LunArt e lo leggiamo anche quando non possiamo rispondere al telefono. È una linea solo per messaggi: per una telefonata c’è il numero di Diego.',
+      en: 'The WhatsApp line is LunArt’s own, and we read it even when we cannot pick up the phone. It takes messages only: to actually speak to somebody, use Diego’s number.',
     },
+    facts: [
+      { label: { it: 'WhatsApp LunArt', en: 'LunArt on WhatsApp' }, value: '+39 392 566 1488', mono: true, copy: true },
+      { label: { it: 'Diego, al telefono', en: 'Diego, by phone' }, value: '+39 334 211 5505', mono: true, copy: true },
+      { label: { it: 'Email', en: 'Email' }, value: 'lunartfirenze@gmail.com', copy: true },
+    ],
+    actions: [
+      { kind: 'whatsapp', label: { it: 'Scrivici su WhatsApp', en: 'Message us on WhatsApp' }, value: '+393925661488' },
+      { kind: 'tel', label: { it: 'Chiama Diego', en: 'Call Diego' }, value: '+393342115505' },
+      { kind: 'mailto', label: { it: 'Manda una mail', en: 'Send an email' }, value: 'lunartfirenze@gmail.com' },
+    ],
     intents: ['contacts'],
   },
   {
@@ -29,11 +39,12 @@ export const help = [
       it: 'Scrivici su WhatsApp dicendo il numero della camera e cosa succede. Le cose piccole si risolvono quasi sempre in giornata.',
       en: 'Message us on WhatsApp with your room number and what is happening. Small things are almost always sorted the same day.',
     },
+
     detail: {
       it: 'Prima di scrivere, due controlli che risolvono la metà dei casi:\n\n— clima spento? Guarda se una finestra è aperta: i sensori lo spengono.\n— scaldasalviette freddo? Tieni il + per 3–5 secondi.\n\nSe non è questo, scrivici e basta: ci pensiamo noi.',
       en: 'Before you write, two checks that solve half the cases:\n\n— climate off? See whether a window is open: the sensors switch it off.\n— towel rail cold? Hold + for 3–5 seconds.\n\nIf it is neither, just message us: we will take it from there.',
     },
-    actions: [{ kind: 'entry', label: { it: 'Scrivi a Diego', en: 'Message Diego' }, value: 'contacts' }],
+    actions: [{ kind: 'whatsapp', label: { it: 'Scrivici su WhatsApp', en: 'Message us on WhatsApp' }, value: '+393925661488' }],
     intents: ['room-problem'],
   },
   {
@@ -48,8 +59,8 @@ export const help = [
       en: 'In an emergency call 112: the single European number, answered in English too.',
     },
     detail: {
-      it: 'Per una farmacia aperta adesso, apri la ricerca qui sotto: i turni cambiano ogni giorno.\n\nSe si tratta della struttura — una perdita, la porta che non apre, un allarme — scrivi o chiama Diego.',
-      en: 'For a pharmacy open right now, use the search below: the rota changes daily.\n\nIf it concerns the building — a leak, a door that will not open, an alarm — message or call Diego.',
+      it: 'Per una farmacia aperta adesso, apri la ricerca qui sotto: i turni cambiano ogni giorno.\n\nSe si tratta della struttura — una perdita, la porta che non apre, un allarme — scrivici su WhatsApp o chiama Diego.',
+      en: 'For a pharmacy open right now, use the search below: the rota changes daily.\n\nIf it concerns the building — a leak, a door that will not open, an alarm — message us on WhatsApp or call Diego.',
     },
     intents: ['emergency'],
   },

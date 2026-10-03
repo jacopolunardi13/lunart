@@ -260,7 +260,10 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
   });
   note(reach.missing.length === 0,
     `every entry the home owns is still on it (${reach.owned} entries, ${reach.missing.join(', ') || 'none missing'})`);
-  note(reach.rooms >= 5, `and all five rooms (${reach.rooms})`);
+  // The catalogue belongs to the public guide, where nobody has booked yet. On a
+  // personal link it is gone entirely — qa-reservations checks that end.
+  note(reach.rooms >= 5, `the public guide still shows all five rooms (${reach.rooms})`);
+  note((await page.locator('#fold-rooms').count()) === 1, 'in their own fold');
 
   // The Florence and Help sections have their own views; check they still fill.
   await page.goto(`${BASE}#/florence`, { waitUntil: 'networkidle' });
@@ -269,6 +272,54 @@ note(errors.length === 0, `no page errors during interaction (${errors.slice(0,2
   await page.goto(`${BASE}#/help`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
   note((await page.locator('.card').count()) > 4, `Help keeps its contacts (${await page.locator('.card').count()})`);
+  await ctx.close();
+}
+
+// ── One line to message, one to call ─────────────────────────────────────────
+// LunArt has a WhatsApp Business line and a telephone, and they are different
+// numbers. The Business line does not ring, so it must never be dialled; the
+// telephone is not staffed on WhatsApp, so it must never be messaged. This reads
+// the rendered links, because the data was right before and the markup was not.
+{
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  console.log('\n── WhatsApp and telephone ──');
+  const OFFICIAL = '393925661488';
+  const DIEGO = '393342115505';
+
+  const contactLinks = async (where) => page.evaluate(() => [...document.querySelectorAll('a[href]')]
+    .map((a) => a.getAttribute('href')).filter((h) => /^tel:|wa\.me/.test(h)));
+
+  for (const route of ['', '#/help', '#/e/contacts', '#/e/room-problem']) {
+    await page.goto(`${BASE}${route}`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(700);
+    const found = await contactLinks();
+    const wa = found.filter((h) => h.includes('wa.me'));
+    const tel = found.filter((h) => h.startsWith('tel:'));
+    const where = route || '/';
+    note(wa.every((h) => h.includes(OFFICIAL)),
+      `${where}: every WhatsApp link is the official line (${[...new Set(wa)].join(', ') || 'none here'})`);
+    note(!tel.some((h) => h.replace(/\D/g, '').includes(OFFICIAL)),
+      `${where}: the WhatsApp line is never dialled`);
+    note(!wa.some((h) => h.includes(DIEGO)), `${where}: WhatsApp never goes to Diego`);
+  }
+
+  // Both numbers reachable, each by its own channel, from the help view.
+  await page.goto(`${BASE}#/help`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(700);
+  const help = await contactLinks();
+  note(help.some((h) => h.includes(`wa.me/${OFFICIAL}`)), 'the official line can be messaged');
+  note(help.some((h) => h.replace(/\D/g, '') === DIEGO && h.startsWith('tel:')), 'and Diego can be called');
+
+  // The static shell carries the same split, for a guest with no JavaScript.
+  const shell = await page.evaluate(async () => {
+    const html = await (await fetch('/index.html')).text();
+    return [...html.matchAll(/(?:href="(tel:[^"]+|https:\/\/wa\.me\/[^"]+)")/g)].map((m) => m[1]);
+  });
+  note(shell.filter((h) => h.includes('wa.me')).every((h) => h.includes(OFFICIAL)),
+    `the no-JavaScript shell messages the official line (${[...new Set(shell.filter((h) => h.includes('wa.me')))].join(', ')})`);
+  note(!shell.some((h) => h.startsWith('tel:') && h.replace(/\D/g, '').includes(OFFICIAL)),
+    'and never dials it');
   await ctx.close();
 }
 

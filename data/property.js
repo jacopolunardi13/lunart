@@ -58,30 +58,60 @@ export const property = {
   },
 };
 
-/** Who to message, in the order a guest should try them. */
+/**
+ * The official WhatsApp of LunArt.
+ *
+ * A WhatsApp Business line, and only that: it is not a telephone, so nothing may
+ * ever render it as one. A guest who taps a number expecting it to ring and gets
+ * silence has been lied to by the interface, which is why the channel is named in
+ * the field rather than left to a flag — `whatsapp` holds a number that can be
+ * messaged, `phone` holds a number that can be called, and no record carries the
+ * same number in both.
+ */
+export const OFFICIAL_WHATSAPP = '+393925661488';
+
+/** Who to reach, in the order a guest should try. */
 export const contacts = [
   {
-    id: 'diego',
-    name: 'Diego',
-    role: { it: 'Check-in e assistenza', en: 'Check-in and guest support' },
-    phone: '+393342115505',
-    display: '+39 334 211 5505',
-    whatsapp: true,
+    id: 'whatsapp',
+    name: 'WhatsApp LunArt',
+    role: { it: 'Il modo più veloce per scriverci', en: 'The fastest way to reach us' },
+    whatsapp: OFFICIAL_WHATSAPP,
+    display: '+39 392 566 1488',
     primary: true,
   },
   {
-    id: 'jacopo',
-    name: 'Jacopo',
-    role: { it: 'Prenotazioni e organizzazione', en: 'Reservations and arrangements' },
-    phone: '+393924725263',
-    display: '+39 392 472 5263',
-    whatsapp: true,
+    id: 'diego',
+    name: 'Diego',
+    role: { it: 'Check-in e assistenza — al telefono', en: 'Check-in and guest support — by phone' },
+    phone: '+393342115505',
+    display: '+39 334 211 5505',
   },
   {
     id: 'email',
     name: 'Email',
     role: { it: 'Per cose non urgenti', en: 'For anything not urgent' },
     email: 'lunartfirenze@gmail.com',
+  },
+];
+
+/**
+ * Held, not published.
+ *
+ * Jacopo's number was in the guide as a second WhatsApp contact. Now that LunArt
+ * has one official WhatsApp line, a guest sent to a personal one would be writing
+ * where nobody is on duty — and nothing has ever confirmed that this number takes
+ * calls, so turning it into a telephone would be inventing the channel rather than
+ * moving it. It stays here for reservations and escalation; a decision to put it
+ * back in front of guests is one line, and it should be the owner's.
+ */
+export const escalation = [
+  {
+    id: 'jacopo',
+    name: 'Jacopo',
+    role: { it: 'Prenotazioni e organizzazione', en: 'Reservations and arrangements' },
+    phone: '+393924725263',
+    display: '+39 392 472 5263',
   },
 ];
 
@@ -94,6 +124,8 @@ export const unverifiedContacts = [
     note: 'Numero introdotto dalla bozza InYourLife. Non pubblicato finché non è confermato che sia attivo e presidiato.' },
   { label: 'Email', value: 'info@lunartfirenze.com',
     note: 'Indirizzo presente nella bozza InYourLife; le correzioni del 18-09-2026 ne chiedono la verifica. In guida resta lunartfirenze@gmail.com.' },
+  { label: 'WhatsApp di Jacopo', value: '+39 392 472 5263',
+    note: 'Era pubblicato come secondo contatto WhatsApp. Ora il WhatsApp ufficiale \u00e8 +39 392 566 1488 e questo numero non \u00e8 pi\u00f9 mostrato agli ospiti: resta per prenotazioni ed escalation. Se deve tornare visibile, va deciso se come WhatsApp o come telefono.' },
 ];
 
 /**
@@ -107,6 +139,6 @@ export const emergency = [
     number: '112' },
   { id: 'pharmacy', label: { it: 'Farmacia di turno più vicina', en: 'Nearest on-duty pharmacy' },
     maps: 'https://www.google.com/maps/search/?api=1&query=farmacia+di+turno+Firenze+centro' },
-  { id: 'staff', label: { it: 'Per tutto il resto, scrivi a Diego', en: 'For anything else, message Diego' },
+  { id: 'staff', label: { it: 'Per tutto il resto, scrivici', en: 'For anything else, get in touch' },
     entry: 'contacts' },
 ];

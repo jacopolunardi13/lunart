@@ -53,18 +53,27 @@ export function florenceView(lang) {
 }
 
 export function helpView(lang) {
+  /**
+   * One contact, one channel.
+   *
+   * Which field holds the number decides what the card does, so a WhatsApp line
+   * cannot be dialled and a telephone cannot be messaged: `whatsapp` opens
+   * WhatsApp, `phone` opens the dialler, `email` opens mail. The card also says
+   * which it is, because a number on a screen looks like a number you can call.
+   */
   const people = contacts.map((contact) => {
-    const link = contact.whatsapp
-      ? `https://wa.me/${contact.phone.replace(/\D/g, '')}`
-      : contact.email ? `mailto:${contact.email}` : `tel:${contact.phone}`;
-    const label = contact.whatsapp ? UI[lang].writeToStaff
-      : contact.email ? UI[lang].emailStaff : UI[lang].callStaff;
+    const channel = contact.whatsapp
+      ? { href: `https://wa.me/${contact.whatsapp.replace(/\D/g, '')}`, label: UI[lang].writeToStaff, icon: 'chat', external: true }
+      : contact.phone
+        ? { href: `tel:${contact.phone}`, label: UI[lang].callStaff, icon: 'phone', external: false }
+        : { href: `mailto:${contact.email}`, label: UI[lang].emailStaff, icon: 'mail', external: false };
 
-    return `<a class="card" href="${esc(link)}" ${contact.whatsapp ? 'target="_blank" rel="noopener"' : ''}>
-      <span class="card__icon">${icon(contact.email ? 'mail' : 'chat', 22)}</span>
+    return `<a class="card" href="${esc(channel.href)}" ${channel.external ? 'target="_blank" rel="noopener"' : ''}>
+      <span class="card__icon">${icon(channel.icon, 22)}</span>
       <span class="card__body">
         <span class="card__title">${esc(contact.name)}</span>
         <span class="card__summary">${esc(t(contact.role, lang))} · ${esc(contact.display ?? contact.email)}</span>
+        <span class="card__meta"><span class="badge">${esc(channel.label)}</span></span>
       </span>
       <span class="card__chevron">${icon('chevron', 16)}</span>
     </a>`;

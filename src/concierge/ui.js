@@ -13,7 +13,7 @@ import { UI } from '../i18n.js';
 import { facts, actions } from '../ui/components.js';
 import { ask } from './engine.js';
 import { INTENTS } from './intents.js';
-import { getEntry, contacts } from '../../data/index.js';
+import { getEntry, OFFICIAL_WHATSAPP } from '../../data/index.js';
 
 let panel = null;
 let log = null;
@@ -61,12 +61,17 @@ function offer(intentIds, lang) {
   requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
 }
 
+/**
+ * When the Concierge does not know, it hands over to a person.
+ *
+ * To the official WhatsApp line, which is read, rather than to whichever number
+ * happens to be first in the list — that used to be somebody's personal mobile.
+ */
 function handoff(lang) {
-  const primary = contacts.find((c) => c.primary) ?? contacts[0];
   return `<p>${esc(UI[lang].conciergeUnknown)}</p>
     <div class="actions">
-      <a class="action action--primary" href="https://wa.me/${primary.phone.replace(/\D/g, '')}"
-        target="_blank" rel="noopener">${icon('chat', 16)}${esc(primary.name)}</a>
+      <a class="action action--primary" href="https://wa.me/${OFFICIAL_WHATSAPP.replace(/\D/g, '')}"
+        target="_blank" rel="noopener">${icon('chat', 16)}${esc(UI[lang].writeToStaff)}</a>
     </div>`;
 }
 
