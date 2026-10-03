@@ -5,17 +5,27 @@ they arrive, while they are here, and on the morning they leave. It is not the
 commercial site — it exists to answer, in seconds and on a phone, the questions
 that otherwise arrive one at a time on WhatsApp.
 
-Open `index.html` through any static server. There is no build step.
+It comes in two halves. The guide is static files and works on its own. The
+commerce half — Experiences & Extras, payments, the Privilege Card — needs the
+small Node server in `server/`, and the guide degrades without it rather than
+breaking.
 
 ```sh
-npm run serve      # http://localhost:4173
-npm test           # 152 unit tests
+npm run dev        # guide + commerce API on http://localhost:4173
+npm run serve      # the static guide alone, no commerce
+npm test           # 267 tests
 ```
+
+`npm run dev` starts with no Stripe key, which runs the built-in checkout
+stand-in: the whole purchase works end to end and no money moves. It also enables
+the preview price fixtures, so the products LunArt has not priced yet can still be
+walked through. Neither is on by default.
 
 ## How it is put together
 
 ```
 index.html              the shell — 3 KB, no content of its own
+validate-card.html      the page a venue opens to check a Privilege Card
 data/                   every fact about LunArt, written once
   schema.js               what an entry is; the sections and guest phases
   property.js             identity, contacts, emergency numbers
@@ -39,6 +49,26 @@ assets/
   img/_src/               original photographs (never served)
   img/                    generated 400/700/1024 WebP + 800 JPEG
 test/                   concierge behaviour and data integrity
+commerce/               what LunArt sells — shared by the browser and the server
+  schema.js               availability modes, purchase modes, payment states
+  catalog.js              the products
+  wine.js                 the carta, and how much notice each bottle needs
+  prices.js               every amount, with its provenance  ← edit this one
+  prices.dev.js           obviously-fake figures, preview only
+  ordering.js             validation and pricing — the authority
+  availability.js         adapters, real and not-yet-connected
+  partners.js             who honours the card and what they give
+  time.js                 cut-offs in Florence time
+server/
+  index.js                boot
+  app.js                  routes, webhook handling, provider decisions
+  stripe.js               a small REST client, and the stand-in
+  card.js                 issuing, rotating codes, validation
+  orders.js               order shape, state transitions, fulfilment
+  store.js                where orders and cards live
+  rate-limit.js           ceilings on validation and checkout
+src/commerce/           the shop, the cart, the card screen
+  qr.js                   a QR encoder, verified against two outside implementations
 tools/                  preview server, image pipeline, QA, measurement
 ```
 
@@ -115,10 +145,10 @@ the same way and ten questions that must be declined.
 ## Checking a change
 
 ```sh
-npm test                            # 152 unit tests, no browser needed
+npm test                            # 267 tests, no browser needed
 npm run serve &                     # then, in another shell:
 npm install --no-save playwright
-npm run qa                          # 59 browser checks
+npm run qa                          # 59 browser checks of the guide
 npm run measure -- http://localhost:4173/ "v2"
 ```
 
@@ -162,3 +192,116 @@ Two things to do when publishing:
 1. Work through the `?review=1` list. Nothing marked `blocker` should go out
    unconfirmed.
 2. Bump `CACHE` in `sw.js` so returning guests get the new version.
+
+## Experiences & Extras
+
+The commerce half sells a few things a guest might want during their stay: wine
+and breakfast brought to the room, a private transfer, a Privilege Card. It is
+deliberately not a separate shop — the guide's own entries link into it, so
+"colazione in camera" offers to order one.
+
+### Setting prices
+
+`commerce/prices.js` is the only file with an amount in it. Each entry carries
+its provenance, and the distinction decides what can be sold:
+
+| status | what it means | sellable |
+|---|---|---|
+| `confirmed` | LunArt has set this | anywhere |
+| `placeholder` | a real figure from a real document, not confirmed as ours | only with `ALLOW_PLACEHOLDER_PRICES` |
+| `to-configure` | nobody has set a price | never |
+
+Today only the transfer is `confirmed`. Wine is priced from the carta vini bottle
+column and brunch from Opera Caffè's per-head rate — both real numbers, neither
+confirmed as what LunArt charges in the room. The Privilege Card and the light
+breakfast have no figure at all, so they render and say so rather than being
+hidden. Nothing was invented: where there was nothing to work from, the entry
+says so.
+
+Wine does not need a line per bottle. A bottle is priced from the carta unless it
+appears in `WINE_PRICE_OVERRIDES`.
+
+### Money is never the client's to name
+
+A cart line is ids, quantities and dates. `sanitiseLine` reduces an incoming
+payload to those fields before anything reads it, so a request carrying `amount`,
+`price`, `total` or a doctored `sku` loses them on the way in. The server derives
+the SKU from the catalogue and prices it there, and builds the Stripe Checkout
+Session from its own figures. Payment Links are not used, because a Payment Link
+is a price the client gets to choose.
+
+### Payments
+
+```
+guide → cart → server validation → Checkout Session → payment → webhook → order
+```
+
+Two statuses per order, because they diverge. `status` is about money —
+`pending`, `authorized`, `confirmed`, `paid`, `cancelled`, `refunded`, `failed`.
+`fulfilment_status` is about the thing. A transfer sits at `authorized` /
+`awaiting-confirmation` for hours.
+
+The transfer uses manual capture:
+
+1. The guest checks out; Stripe **authorises** €90 and takes nothing.
+2. The order waits at `authorized` / `awaiting-confirmation`, and the guest is
+   told so in those words.
+3. `POST /api/provider/orders/:id/confirm` **captures** it → `paid`.
+4. `POST /api/provider/orders/:id/decline` **cancels the authorisation** →
+   `cancelled`, and the guest is never charged.
+
+If an authorisation cannot be captured — some payment methods will not hold one,
+and an authorisation lapses after about a week — the fallback is charge and, if
+wrong, refund. It is the worse path, only taken when the better one is
+unavailable, and it is recorded on the order.
+
+Webhooks are verified with a timing-safe compare and a timestamp tolerance, every
+write carries an idempotency key, and each event id is processed once. Stripe
+retries; discovering that by issuing a second Privilege Card is not acceptable.
+
+### The Privilege Card
+
+A static QR is a bearer token with no expiry: screenshot it and the holder is
+whoever has the screenshot. So the card lives on the server and the phone shows a
+short-lived proof of it — an HMAC over the current minute, carrying nothing
+readable, accepted once. After a venue scans it that code is spent, and an
+expired or revoked card fails whatever the phone is displaying.
+
+A venue opens `/validate-card`. The QR carries the whole thing, so the usual path
+is to point a phone's own camera at the guest's screen; there is a typed fallback
+(`ABC123-XY4Z9`) and an in-page scanner where the browser has one. No login, and
+the guest is never asked for a document.
+
+Benefits are per partner — a percentage, an amount off, an included item, a place
+on a list. Nothing assumes a house discount.
+
+### Availability
+
+`commerce/availability.js` is a registry. `always`, `cutoff`, `manual` and
+`manual-confirm` are real and decide things today. Google Calendar, provider
+calendars, partner APIs and booking engines are registered as unconfigured seams
+that report themselves as such — an adapter inventing plausible slots would be
+worse than one admitting it is not connected. `/api/health` lists which is which.
+
+### Configuration
+
+Copy `.env.example` to `.env`. Nothing secret is in the repository. Before this
+is used by a real guest:
+
+- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` — start with the test keys.
+- `CARD_SIGNING_KEY` — without it a random one is generated at boot, which
+  invalidates every issued card on every restart.
+- `STAFF_TOKEN` — otherwise the provider confirm/decline endpoints are open to
+  anyone who can reach them, and a production server refuses them entirely.
+- `LUNART_DATA_DIR` — otherwise orders live in memory and are lost on restart.
+
+`/api/health` reports all of this, warnings included.
+
+### Checking the commerce half
+
+```sh
+npm run dev &
+npm install --no-save playwright
+node tools/qa-commerce.mjs     # the whole purchase, in a browser, at phone size
+python3 tools/qr-verify.py      # the QR encoder, against two outside implementations
+```

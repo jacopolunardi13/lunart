@@ -25,6 +25,7 @@ import {
 } from '../commerce/index.js';
 import { PARTNERS, activePartners } from '../commerce/partners.js';
 import { renderMockCheckout } from './mock-checkout.js';
+import { rateLimit, clientKey } from './rate-limit.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 
@@ -98,6 +99,12 @@ export async function createApp(overrides = {}) {
   /* ── Checkout ────────────────────────────────────────────────────────── */
 
   async function postCheckout(req, res) {
+    const limited = rateLimit(`checkout:${clientKey(req)}`, { limit: 20, windowMs: 60_000 });
+    if (!limited.allowed) {
+      sendJson(res, 429, { error: 'too-many-requests' }, { 'retry-after': String(limited.retryAfterSeconds) });
+      return;
+    }
+
     const body = await readJson(req);
     const customer = body.customer ?? {};
     const lang = body.lang === 'en' ? 'en' : 'it';
@@ -228,9 +235,29 @@ export async function createApp(overrides = {}) {
   /* ── Validation, for a venue ─────────────────────────────────────────── */
 
   async function postValidateCard(req, res) {
+    // A venue scans a handful of cards a minute; anything beyond that is somebody
+    // working through the keyspace, and they can wait.
+    const byAddress = rateLimit(`validate:${clientKey(req)}`, { limit: 30, windowMs: 60_000 });
+    if (!byAddress.allowed) {
+      sendJson(res, 429, { valid: false, reason: 'too-many-attempts' },
+        { 'retry-after': String(byAddress.retryAfterSeconds) });
+      return;
+    }
+
     const body = await readJson(req);
+
+    // And a ceiling per card reference, so one card cannot be hammered from many
+    // addresses at once.
+    const reference = String(body.reference ?? body.c ?? '').trim().toUpperCase();
+    const byReference = rateLimit(`validate-ref:${reference}`, { limit: 20, windowMs: 60_000 });
+    if (reference && !byReference.allowed) {
+      sendJson(res, 429, { valid: false, reason: 'too-many-attempts' },
+        { 'retry-after': String(byReference.retryAfterSeconds) });
+      return;
+    }
+
     const result = await validateCode({
-      reference: body.reference ?? body.c,
+      reference,
       code: body.code ?? body.k,
       store,
       signingKey: settings.cardSigningKey,
