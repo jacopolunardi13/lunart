@@ -24,7 +24,10 @@ import { createGmailMailer, buildMimeMessage, encodeHeader } from '../server/mai
 import { createMailer, createSimulatedMailer, mailProviders, sendDueGuideEmails, scheduleGuideEmail, DELIVERY_STATUS } from '../server/delivery.js';
 import { createPushAdapter, notifyStaff, registerSubscription } from '../server/push.js';
 import { createGoogleCalendarAdapter, appointmentWindow, overlapsBusy, providerCalendars } from '../server/calendar/google.js';
-import { freeSlots, freeDays, slotIsFree } from '../server/calendar/index.js';
+import { freeSlots, freeDays, slotIsFree, verifySlotForCheckout } from '../server/calendar/index.js';
+import { createApp } from '../server/app.js';
+import { createMockStripe } from '../server/stripe.js';
+import { propertyDate, addDays } from '../commerce/time.js';
 import { createScheduler } from '../server/scheduler.js';
 import { createStore } from '../server/store.js';
 import { applySchedule, MANUAL_SCHEDULE, serviceMinutes } from '../commerce/schedule.js';
@@ -823,4 +826,195 @@ test('an unknown job is a refusal, not a crash', async () => {
   const scheduler = createScheduler({ jobs: [] });
   assert.deepEqual(await scheduler.runJob('nope'), { ok: false, reason: 'unknown-job' });
   assert.equal(scheduler.has('nope'), false);
+});
+
+/* ── Checkout fails closed on the hair calendar ──────────────────────────── */
+
+/**
+ * Four cases, one rule: once a real calendar is configured, money only moves on a
+ * slot free/busy has just confirmed. The third is the one worth having — a calendar
+ * that cannot be read must stop the payment, not be shrugged off.
+ */
+
+const soon = () => addDays(propertyDate(), 3);
+
+/** A calendar adapter with a scripted free/busy, and nothing else pretending. */
+const fakeCalendar = ({ busy = [], fail = null, configured = true } = {}) => ({
+  id: 'google-calendar',
+  implemented: true,
+  configured,
+  requires: ['GOOGLE_CALENDAR_ID'],
+  writeCalendar: 'LunArt Hair Bookings',
+  timeZone: 'Europe/Rome',
+  calls: 0,
+  state: () => ({ lastError: fail ? String(fail.message ?? fail) : null }),
+  async freeBusy() {
+    this.calls += 1;
+    if (fail) throw Object.assign(new Error(String(fail.message ?? fail)), { code: fail.code ?? 'unavailable' });
+    return busy;
+  },
+  async createEvent() { return { ok: true, id: 'evt' }; },
+  async deleteEvent() { return { ok: true }; },
+  eventFor: () => ({}),
+  check: async () => ({ ok: !fail }),
+});
+
+/** A Stripe that records whether it was ever asked to take money. */
+function spyingStripe() {
+  const mock = createMockStripe();
+  const sessions = [];
+  return {
+    ...mock,
+    sessions,
+    createCheckoutSession: (...args) => { sessions.push(args[0]); return mock.createCheckoutSession(...args); },
+  };
+}
+
+async function hairServer({ calendar, date }) {
+  applySchedule({ 'hair-service': { [date]: ['10:00', '15:00'] } });
+  const db = store();
+  const stripe = spyingStripe();
+  const app = await createApp({
+    store: db,
+    stripe,
+    providerCalendar: calendar,
+    allowPlaceholderPrices: false,
+    useDevPrices: false,
+    seed: false,
+    cardSigningKey: 'fail-closed-test',
+    staffToken: '',
+    mode: 'development',
+    publicUrl: 'http://127.0.0.1',
+  });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const book = async (time = '10:00') => {
+    const response = await fetch(`${base}/api/checkout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lines: [{
+          productId: 'hair-service', variantId: 'men-cut', quantity: 1,
+          date, time, room: '303',
+          fields: { guestName: 'Marta Venturi', phone: '+39 348 112 4455' },
+        }],
+        customer: { name: 'Marta Venturi', email: 'marta@example.invalid' },
+        lang: 'it',
+      }),
+    });
+    return { status: response.status, body: await response.json().catch(() => ({})) };
+  };
+
+  return { app, db, stripe, base, book, close: () => { server.close(); applySchedule(MANUAL_SCHEDULE); } };
+}
+
+test('a configured calendar with the slot free lets the payment through', async () => {
+  const date = soon();
+  const calendar = fakeCalendar({ busy: [] });
+  const { stripe, db, book, close } = await hairServer({ calendar, date });
+
+  const result = await book('10:00');
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.ok(result.body.checkoutUrl, 'there is somewhere to pay');
+  assert.equal(stripe.sessions.length, 1, 'and the session was created');
+  assert.equal((await db.orders.list({})).length, 1);
+  assert.ok(calendar.calls >= 1, 'the calendar was actually asked');
+  close();
+});
+
+test('a configured calendar with the slot busy refuses with slot-taken', async () => {
+  const date = soon();
+  const calendar = fakeCalendar({
+    busy: [{
+      start: propertyTimeToInstant(date, '09:30').toISOString(),
+      end: propertyTimeToInstant(date, '11:00').toISOString(),
+    }],
+  });
+  const { stripe, db, book, close } = await hairServer({ calendar, date });
+
+  const taken = await book('10:00');
+  assert.equal(taken.status, 409);
+  assert.equal(taken.body.error, 'slot-taken');
+  assert.equal(stripe.sessions.length, 0, 'nothing was sent to Stripe');
+  assert.equal((await db.orders.list({})).length, 0, 'and no order exists');
+
+  // The afternoon is still free, and still sells.
+  const free = await book('15:00');
+  assert.equal(free.status, 200, JSON.stringify(free.body));
+  assert.equal(stripe.sessions.length, 1);
+  close();
+});
+
+test('a calendar that cannot be read stops the payment entirely', async () => {
+  const date = soon();
+  const calendar = fakeCalendar({ fail: Object.assign(new Error('free/busy refused: 503'), { code: 'unavailable' }) });
+  const { app, stripe, db, book, close } = await hairServer({ calendar, date });
+
+  const blocked = await book('10:00');
+  assert.equal(blocked.status, 503);
+  assert.equal(blocked.body.error, 'availability-temporarily-unavailable');
+  assert.equal(blocked.body.retryable, true);
+
+  assert.equal(stripe.sessions.length, 0, 'no Stripe Checkout Session was created');
+  assert.equal((await db.orders.list({})).length, 0, 'no order was written');
+
+  // Staff are told, because a refused booking is a lost sale somebody should see.
+  const alerts = await db.alerts.open();
+  const raised = alerts.find((alert) => alert.kind === 'provider-calendar-unavailable');
+  assert.ok(raised, 'an alert was raised');
+  assert.match(raised.detail.message, /non raggiungibile/);
+
+  // And a second attempt is one alert with a count, not a second row.
+  await book('10:00');
+  const again = await db.alerts.open();
+  assert.equal(again.filter((alert) => alert.kind === 'provider-calendar-unavailable').length, 1);
+  assert.ok(again.find((alert) => alert.kind === 'provider-calendar-unavailable').seen >= 2);
+  close();
+});
+
+test('with no calendar configured the manual schedule is still the whole truth', async () => {
+  const date = soon();
+  // Configured: false — and it would throw if anything asked it anything.
+  const calendar = fakeCalendar({ configured: false, fail: new Error('must not be called') });
+  const { stripe, db, book, close } = await hairServer({ calendar, date });
+
+  const sold = await book('10:00');
+  assert.equal(sold.status, 200, JSON.stringify(sold.body));
+  assert.equal(stripe.sessions.length, 1);
+  assert.equal((await db.orders.list({})).length, 1);
+  assert.equal(calendar.calls, 0, 'the calendar was never consulted');
+
+  // An hour the schedule does not offer is still refused, exactly as before.
+  const notOffered = await book('18:00');
+  assert.equal(notOffered.status, 422, JSON.stringify(notOffered.body));
+  assert.equal(notOffered.body.error, 'cart-invalid');
+  assert.ok(notOffered.body.errors.some((error) => error.code === 'slot-unavailable'));
+  assert.equal(stripe.sessions.length, 1, 'still only the one payment');
+  close();
+});
+
+test('the browsing check stays tolerant while the checkout check does not', async () => {
+  const date = soon();
+  applySchedule({ 'hair-service': { [date]: ['10:00'] } });
+  const calendar = fakeCalendar({ fail: new Error('Google is down') });
+
+  // Browsing: the schedule stands, and says the calendar did not confirm it.
+  const browsing = await slotIsFree({ calendar, productId: 'hair-service', date, time: '10:00', variantId: 'men-cut' });
+  assert.equal(browsing.free, true);
+  assert.equal(browsing.checkedCalendar, false);
+
+  // Checkout: the same situation is a refusal.
+  const paying = await verifySlotForCheckout({ calendar, productId: 'hair-service', date, time: '10:00', variantId: 'men-cut' });
+  assert.equal(paying.ok, false);
+  assert.equal(paying.reason, 'availability-temporarily-unavailable');
+  assert.equal(paying.verified, false);
+
+  // And an hour nobody offers is refused before the calendar is even asked.
+  const unoffered = await verifySlotForCheckout({ calendar, productId: 'hair-service', date, time: '23:00', variantId: 'men-cut' });
+  assert.equal(unoffered.reason, 'slot-taken');
+  assert.equal(unoffered.source, 'schedule');
+
+  applySchedule(MANUAL_SCHEDULE);
 });

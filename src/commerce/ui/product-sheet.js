@@ -44,6 +44,8 @@ const ERROR_TEXT = {
     'field-out-of-range': 'Valore fuori intervallo.',
     'past-cutoff': 'Troppo tardi per questa data: scegline una successiva.',
     'slot-unavailable': 'Quell’orario non è libero. Scegline un altro.',
+    'slot-taken': 'Quell’orario è appena stato preso. Scegline un altro.',
+    'availability-temporarily-unavailable': 'Non riusciamo a verificare la disponibilità in questo momento. Riprova tra poco.',
     'price-not-set': 'Non è ancora acquistabile.',
     'price-not-confirmed': 'Prezzo non ancora confermato.',
     'not-on-sale': 'Non è ancora acquistabile.',
@@ -70,6 +72,8 @@ const ERROR_TEXT = {
     'field-out-of-range': 'Out of range.',
     'past-cutoff': 'Too late for that date — pick a later one.',
     'slot-unavailable': 'That time is not free. Pick another.',
+    'slot-taken': 'That time has just been taken. Pick another.',
+    'availability-temporarily-unavailable': 'We can’t verify availability right now. Please try again shortly.',
     'price-not-set': 'Not on sale yet.',
     'price-not-confirmed': 'Price not confirmed yet.',
     'not-on-sale': 'Not on sale yet.',
@@ -80,6 +84,9 @@ const ERROR_TEXT = {
 };
 
 const errorText = (code, lang) => ERROR_TEXT[lang]?.[code] ?? ERROR_TEXT.it[code] ?? code;
+
+/** The same lookup, but null for a code we have no words for. */
+const knownError = (code, lang) => ERROR_TEXT[lang]?.[code] ?? ERROR_TEXT.it[code] ?? null;
 
 /** The variants a guest may actually choose, for this product and this stay. */
 function choosableVariants(product) {
@@ -253,6 +260,7 @@ function body(product, lang) {
               <select name="time" required disabled data-slots>
                 <option value="">${esc(UI[lang].pickDayFirst)}</option>
               </select>
+              <span class="field__hint" data-availability-note hidden></span>
             </label>`
           : `<label class="field">
               <span class="field__label">${esc(t(product.timeLabel ?? { it: 'Ora', en: 'Time' }, lang))}</span>
@@ -462,12 +470,23 @@ export function openProductSheet(productId, { lang, onAdded }) {
             return;
           }
           try {
-            const { slots } = await fetchSlots(product.id, chosen);
+            const { slots, calendar } = await fetchSlots(product.id, chosen);
             slotSelect.innerHTML = slots.length
               ? `<option value="">${esc(UI[lang].choose)}</option>${slots.map((slot) =>
                   `<option value="${esc(slot.time)}">${esc(slot.time)}</option>`).join('')}`
               : `<option value="">${esc(UI[lang].noTimesThatDay)}</option>`;
             slotSelect.disabled = slots.length === 0;
+
+            /**
+             * The times are on offer, but the professional's calendar did not answer,
+             * so they are what LunArt schedules rather than what he is free for. Said
+             * plainly here; checkout will refuse rather than sell one unverified.
+             */
+            const note = slotSelect.closest('.field')?.querySelector('[data-availability-note]');
+            if (note) {
+              note.hidden = !calendar?.error;
+              note.textContent = calendar?.error ? UI[lang].availabilityUnverified : '';
+            }
           } catch {
             slotSelect.innerHTML = `<option value="">${esc(UI[lang].noTimesThatDay)}</option>`;
           }
@@ -500,4 +519,4 @@ function deadlineLabel(deadline, lang) {
   return `${day}, ${time}`;
 }
 
-export { errorText, longDate };
+export { errorText, knownError, longDate };

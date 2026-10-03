@@ -56,6 +56,7 @@ export const UI = {
     onRequestBody: 'Si organizza parlando con noi: scrivici e torniamo da te con cosa è possibile.',
     noAppointments: 'Nessun orario disponibile al momento',
     pickDayFirst: 'Scegli prima il giorno',
+    availabilityUnverified: 'Disponibilità non verificata in questo momento: la confermiamo prima del pagamento.',
     // ── Soggiorno e link personale ────────────────────────────────────────
     surcharge: 'Supplementi',
     noDatesInStay: 'Nessuna data disponibile nel tuo soggiorno',
@@ -180,6 +181,7 @@ export const UI = {
     onRequestBody: 'Arranged by talking to us: message us and we will come back with what is possible.',
     noAppointments: 'No times available at the moment',
     pickDayFirst: 'Choose a day first',
+    availabilityUnverified: 'Availability is not confirmed right now: we check it again before payment.',
     // ── Stay and personal link ────────────────────────────────────────────
     surcharge: 'Extras',
     noDatesInStay: 'No dates available within your stay',

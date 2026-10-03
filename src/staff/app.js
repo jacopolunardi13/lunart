@@ -450,6 +450,7 @@ const JOB_STATES = {
 };
 
 const alertTitle = (kind) => ({
+  'provider-calendar-unavailable': 'Calendario del professionista non raggiungibile',
   'occupancy-not-synchronised': 'Prenotazione o occupazione non sincronizzata',
   'reservation-not-in-calendar': 'Prenotazione non presente nel calendario',
   'ical-feed-unreachable': 'Calendario non raggiungibile',

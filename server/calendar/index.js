@@ -14,7 +14,7 @@
  * professional confirms his own day either way.
  */
 
-import { slotsFor, daysWithSlots, serviceMinutes } from '../../commerce/schedule.js';
+import { slotsFor, daysWithSlots, serviceMinutes, isSlotOffered } from '../../commerce/schedule.js';
 import { appointmentWindow, overlapsBusy } from './google.js';
 
 /**
@@ -48,7 +48,13 @@ export async function freeSlots({ calendar, productId, date, variantId = null })
   return { slots, source: 'calendar', busy: busy.length };
 }
 
-/** True when this exact appointment can still be made. The check before money moves. */
+/**
+ * True when this exact appointment can still be made, for browsing.
+ *
+ * Tolerant in the same way `freeSlots` is: an unreachable calendar leaves the
+ * schedule standing and says the calendar did not confirm it. Good enough to decide
+ * what a form offers; not good enough to take money — see `verifySlotForCheckout`.
+ */
 export async function slotIsFree({ calendar, productId, date, time, variantId }) {
   const { slots, calendarError } = await freeSlots({ calendar, productId, date, variantId });
   return {
@@ -56,6 +62,62 @@ export async function slotIsFree({ calendar, productId, date, time, variantId })
     checkedCalendar: Boolean(calendar?.configured) && !calendarError,
     calendarError: calendarError ?? null,
   };
+}
+
+/**
+ * The check immediately before money moves. This one fails closed.
+ *
+ * Showing a tentative time and charging for it are different promises, so they get
+ * different rules. Browsing may fall back to the schedule when Google is
+ * unreachable; a payment may not. Once a real calendar is configured, the only way
+ * to take money for an appointment is to have just confirmed it against free/busy:
+ *
+ *   no calendar configured   the schedule is authoritative, exactly as before
+ *   free                     allowed
+ *   busy                     refused: slot-taken
+ *   cannot be read           refused: availability-temporarily-unavailable
+ *
+ * The last line is the point of this function. Selling an hour we could not verify
+ * means a professional arriving to a room where somebody else is already booked, a
+ * refund, and a guest who was told a time that never existed. Asking them to try
+ * again in a minute is a far smaller cost than that.
+ */
+export async function verifySlotForCheckout({ calendar, productId, date, time, variantId = null }) {
+  // Whatever the calendar says, LunArt has to be offering the hour in the first place.
+  if (!isSlotOffered(productId, date, time)) {
+    return { ok: false, reason: 'slot-taken', verified: false, source: 'schedule' };
+  }
+
+  if (!calendar?.configured) {
+    return { ok: true, verified: false, source: 'schedule' };
+  }
+
+  let busy;
+  try {
+    busy = await calendar.freeBusy({ from: date, to: date });
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'availability-temporarily-unavailable',
+      verified: false,
+      source: 'calendar',
+      code: error.code ?? 'unavailable',
+      message: error.message,
+    };
+  }
+
+  const window = appointmentWindow({ date, time, variantId });
+  if (!window) return { ok: false, reason: 'slot-taken', verified: true, source: 'calendar' };
+
+  // With no service chosen the longest is assumed, so nothing is sold a slot it
+  // would overrun.
+  const minutes = variantId ? serviceMinutes(variantId) : 90;
+  const end = new Date(window.start.getTime() + minutes * 60_000);
+
+  if (overlapsBusy(window.start, end, busy)) {
+    return { ok: false, reason: 'slot-taken', verified: true, source: 'calendar' };
+  }
+  return { ok: true, verified: true, source: 'calendar' };
 }
 
 /** The days with anything left on them, after the calendar has had its say. */

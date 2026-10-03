@@ -12,7 +12,7 @@ import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody, closeSheet } from '../../ui/sheet.js';
 import { money, shortDate } from './format.js';
-import { errorText } from './product-sheet.js';
+import { errorText, knownError } from './product-sheet.js';
 import * as cart from '../cart.js';
 import { startCheckout } from '../api.js';
 import { rememberOrder, markCheckoutPending } from './orders.js';
@@ -154,10 +154,18 @@ function mount(container, lang, { onShop }) {
       location.href = result.checkoutUrl;
     } catch (error) {
       button.disabled = false;
+      /**
+       * A refusal the guest can act on is shown in their own words.
+       *
+       * "availability-temporarily-unavailable" in particular has to read as "try
+       * again in a minute" rather than as a fault, because that is exactly what it
+       * is: the appointment could not be confirmed, so nothing was charged.
+       */
+      const topLevel = knownError(error.payload?.error, lang);
       const detail = error.payload?.errors?.[0];
-      status.textContent = detail
-        ? `${UI[lang].checkoutRefused} ${errorText(detail.code, lang)}`
-        : `${UI[lang].checkoutFailed} ${error.message}`;
+      if (topLevel) status.textContent = topLevel;
+      else if (detail) status.textContent = `${UI[lang].checkoutRefused} ${errorText(detail.code, lang)}`;
+      else status.textContent = `${UI[lang].checkoutFailed} ${error.message}`;
     }
   });
 }

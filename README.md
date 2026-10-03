@@ -394,10 +394,25 @@ reading his life.
 
 The important property is the direction. The calendar **only ever removes**: the
 hours a guest can book come from `commerce/schedule.js`, and free/busy takes away
-the ones he is already committed to. "Not busy at 04:00" is not an offer. If the
-calendar is configured but unreachable, the schedule stands and the answer says it
-was not confirmed — refusing every booking because Google had a wobble would be
-worse, and he confirms his own day either way.
+the ones he is already committed to. "Not busy at 04:00" is not an offer.
+
+Browsing and paying then part company, deliberately:
+
+| | calendar free | calendar busy | calendar unreadable |
+|---|---|---|---|
+| **browsing** | the time is offered | the time is hidden | the schedule stands, with a note that it is unconfirmed |
+| **checkout** | sold | `slot-taken` | **refused** — `availability-temporarily-unavailable`, nothing charged |
+
+Showing a tentative time and charging for it are different promises. Once a real
+calendar is configured, the only way money moves on an appointment is to have just
+confirmed it against free/busy — because selling an unverified hour means the
+professional arriving to a room already booked, a refund, and a guest given a time
+that never existed. Asking them to try again in a minute costs far less than that.
+Nothing is written and no Stripe session is created; the guest is told, in their own
+language, that availability could not be checked, and staff get an alert, because a
+booking refused this way is a lost sale somebody should see.
+
+With no calendar configured nothing changes: the schedule is the whole truth.
 
 Appointments are written to a calendar of LunArt's own, in Europe/Rome, as long as
 the internal service duration says (beard 30, men's cuts 60, everything for women

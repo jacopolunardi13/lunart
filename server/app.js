@@ -40,13 +40,13 @@ import {
   createMailer, scheduleGuideEmail, sendDueGuideEmails, renderGuideEmail,
   mailProviders, guideUrl, DELIVERY_STATUS,
 } from './delivery.js';
-import { ingestMessage, ingestMessages, ingestEvent, resolveAlert } from './ingest/index.js';
+import { ingestMessage, ingestMessages, ingestEvent, resolveAlert, raiseAlert } from './ingest/index.js';
 import { createMailbox, mailboxSources, pollMailbox, createMemoryMailbox } from './ingest/mailbox.js';
 import { createQuovaiApiAdapter, reservationSources } from './ingest/quovai-api.js';
 import { reconcileFeeds } from './ingest/ical.js';
 import { createPushAdapter, notifyStaff, registerSubscription } from './push.js';
 import { createProviderCalendar, providerCalendars } from './calendar/google.js';
-import { freeSlots, freeDays, slotIsFree } from './calendar/index.js';
+import { freeSlots, freeDays, slotIsFree, verifySlotForCheckout } from './calendar/index.js';
 import { createScheduler } from './scheduler.js';
 import {
   STAFF_QUEUES, queueOf, staffOrderView, orderQueues, dashboard, syncOverview,
@@ -235,28 +235,68 @@ export async function createApp(overrides = {}) {
     }
 
     /**
-     * One last look at the professional's calendar.
+     * The last look at the professional's calendar, and the one that can refuse.
      *
-     * The schedule was already checked by `priceCart`; this catches the case it
-     * cannot — something that appeared in his calendar between the guest choosing a
-     * time and paying for it. Skipped when no calendar is connected, because then
-     * the schedule is the whole truth.
+     * Browsing is allowed to fall back to the schedule when Google is unreachable;
+     * a payment is not. Once a real calendar is configured, an appointment is only
+     * sold if free/busy has just confirmed it — busy is refused, and so is a
+     * calendar we could not read. Selling an unverified hour means a professional
+     * arriving to a room already booked, a refund, and a guest given a time that
+     * never existed; asking them to try again in a minute is far cheaper than that.
+     *
+     * With no calendar connected nothing changes: the schedule is the whole truth,
+     * and `priceCart` has already checked it.
      */
-    if (providerCalendar.configured) {
-      for (const line of built.priced.lines) {
-        if (line.product?.availabilityMode !== 'timeslots') continue;
-        const check = await slotIsFree({
-          calendar: providerCalendar,
-          productId: line.product.id,
+    for (const line of built.priced.lines) {
+      if (line.product?.availabilityMode !== 'timeslots') continue;
+
+      const check = await verifySlotForCheckout({
+        calendar: providerCalendar,
+        productId: line.product.id,
+        date: line.line.date,
+        time: line.line.time,
+        variantId: line.line.variantId,
+      });
+      if (check.ok) continue;
+
+      if (check.reason === 'slot-taken') {
+        sendJson(res, 409, {
+          error: 'slot-taken',
+          product: line.product.id,
           date: line.line.date,
           time: line.line.time,
-          variantId: line.line.variantId,
         });
-        if (!check.free && check.checkedCalendar) {
-          sendJson(res, 409, { error: 'slot-taken', product: line.product.id, date: line.line.date, time: line.line.time });
-          return;
-        }
+        return;
       }
+
+      // The calendar could not be read. Nothing is created, nothing is charged, and
+      // staff are told — a booking refused for this reason is LunArt losing a sale,
+      // which is worth somebody noticing.
+      await raiseAlert({
+        store,
+        key: `provider-calendar-unavailable:${providerCalendar.id}`,
+        kind: 'provider-calendar-unavailable',
+        severity: 'action',
+        detail: {
+          message: 'Calendario del professionista non raggiungibile: le prenotazioni hair vengono rifiutate.',
+          calendar: providerCalendar.id,
+          code: check.code ?? 'unavailable',
+          error: check.message ?? null,
+          product: line.product.id,
+          date: line.line.date,
+          time: line.line.time,
+        },
+      }).catch(() => {});
+
+      console.warn('[checkout] refused: provider calendar unreadable —', check.message ?? check.code);
+      sendJson(res, 503, {
+        error: 'availability-temporarily-unavailable',
+        product: line.product.id,
+        date: line.line.date,
+        time: line.line.time,
+        retryable: true,
+      }, { 'retry-after': '60' });
+      return;
     }
 
     const order = await store.orders.create({
