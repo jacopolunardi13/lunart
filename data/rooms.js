@@ -40,8 +40,13 @@ export const rooms = [
       it: 'Ampia, con scrivania e un affaccio che prende il fiume e, di lato, gli Uffizi.',
       en: 'Spacious, with a desk and an outlook that takes in the river and, to one side, the Uffizi.',
     },
+    /**
+     * Qui c'era anche `302-camera`, la testiera grigia capitonné: il proprietario
+     * ha confermato che quella stanza è la 304, non la 302, e lì è pubblicata —
+     * una sola volta, come `304-testiera`. La scrivania con la finestra resta
+     * della 302, ed è lo scatto che per un po' era finito nella 304.
+     */
     photos: [
-      { src: 'rooms/302-camera', alt: { it: 'Camera 302 con letto matrimoniale', en: 'Room 302 with double bed' } },
       { src: 'rooms/302-scrivania', alt: { it: 'Scrivania e TV della camera 302', en: 'Desk and TV in room 302' } },
       { src: 'rooms/302-letti', alt: { it: 'Camera 302 allestita con due letti singoli', en: 'Room 302 set up with twin beds' } },
       { src: 'rooms/302-bagno', alt: { it: 'Bagno privato della 302', en: 'Private bathroom of room 302' } },
@@ -72,20 +77,23 @@ export const rooms = [
       en: 'Bright and roomy, looking over the river and the Uffizi. It can take an extra bed on request, though it is not a standard triple.',
     },
     /**
-     * Una foto sola, e confermata.
+     * La galleria confermata dal proprietario sulla scheda Booking della 304.
      *
-     * Qui c'era anche `304-camera`, con la scrivania e la finestra: non è la 304,
-     * è la 302 — confermato dal proprietario, ed è lo stesso scatto che la 302 ha
-     * già come `302-scrivania`, quindi è stato tolto da qui e non aggiunto lì.
-     * Il bagno invece è davvero quello della 304, confermato dal proprietario, e
-     * resta.
+     * Quattro scatti, e ognuno sta in `rooms/304-…` perché è il nome del file a
+     * portare l'attribuzione: `304-letto` e `304-finestra` erano archiviati come
+     * foto generiche della struttura, `304-testiera` era pubblicata per errore
+     * come 302. Rinominati, non copiati, così nessuno dei tre può ricomparire
+     * altrove sotto il vecchio nome.
+     *
+     * Non c'è più nulla qui della 302: `304-camera` era la scrivania della 302 —
+     * la 302 la ha già come `302-scrivania` — ed è stata tolta.
      */
     photos: [
-      { src: 'rooms/304-bagno', alt: { it: 'Bagno privato della 304 con doccia', en: 'Private bathroom of room 304 with shower' } },
+      { src: 'rooms/304-letto', alt: { it: 'Camera 304 con letto matrimoniale e finestra aperta', en: 'Room 304 with double bed and open window' } },
+      { src: 'rooms/304-testiera', alt: { it: 'Letto della 304 con testiera grigia capitonné', en: 'The bed in room 304 with its grey padded headboard' } },
+      { src: 'rooms/304-finestra', alt: { it: 'L’Arno visto dalla finestra della camera 304', en: 'The Arno seen from the window of room 304' } },
+      { src: 'rooms/304-bagno', alt: { it: 'Bagno privato della 304 con specchio illuminato e doccia', en: 'Private bathroom of room 304, illuminated mirror and shower' } },
     ],
-    verify: { level: 'confirm', field: 'foto',
-      note: 'Rimossa `304-camera` (scrivania e finestra): è della 302, confermato dal proprietario, e la 302 la ha già come `302-scrivania`. Il bagno resta, confermato come 304. '
-        + 'Il proprietario indica altre tre foto verificate per la 304 — vista Arno dalla finestra, camera con letto e finestra, testiera grigia capitonné. In archivio i candidati sono `property/camera-finestra`, `property/camera-dettaglio` e `views/finestra-arno`, ma nessuno dei tre porta un riferimento alla stanza e `camera-dettaglio` è indistinguibile a occhio da `302-camera`: serve che il proprietario confermi il nome del file, non la descrizione. Finché non lo fa non vengono pubblicate, per non ripetere esattamente l\u2019errore appena corretto.' },
   },
   {
     id: '305',

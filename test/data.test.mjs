@@ -158,11 +158,13 @@ test('rooms are complete and their photographs exist on disk', async (t) => {
 /**
  * A room gallery only ever shows that room.
  *
- * Room 304 carried a photograph that was not room 304: the desk-and-window shot is
- * room 302 — the owner confirmed it, and 302 already held the same frame. The
- * filename is the invariant: a photograph in room N's gallery lives at
- * `rooms/N-...`. Nothing else may be attributed to a room, however suggestive it
- * looks.
+ * Two photographs were in the wrong gallery, in opposite directions: the
+ * desk-and-window shot sat in room 304 and is room 302's, and the grey-headboard
+ * shot sat in room 302 and is room 304's. Both were visually plausible where they
+ * were, because every LunArt room is furnished the same way — which is exactly why
+ * the eye is not the check. The filename is: a photograph in room N's gallery
+ * lives at `rooms/N-...`, so re-attributing one means renaming it, and the name is
+ * what the owner confirms.
  */
 test('no room shows a photograph belonging to another room, or to no room', () => {
   const wrong = [];
@@ -209,12 +211,46 @@ test('every room shows at least one photograph of itself', () => {
   assert.deepEqual(bare, []);
 });
 
-/** The one photograph that was taken away, and must not come back. */
-test('the room 302 desk shot is in room 302 and nowhere else', () => {
-  const owners = rooms.filter((room) => room.photos.some((p) => /302-scrivania/.test(p.src))).map((r) => r.number);
-  assert.deepEqual(owners, ['302'], 'exactly one room holds it');
-  const stray = rooms.flatMap((room) => room.photos.filter((p) => /304-camera/.test(p.src)).map(() => room.number));
-  assert.deepEqual(stray, [], '304-camera is room 302 and is published by neither');
+/** The two photographs that moved, each now in one gallery and one only. */
+test('the owner-confirmed attributions hold, in both directions', () => {
+  const holders = (pattern) => rooms
+    .filter((room) => room.photos.some((photo) => pattern.test(photo.src)))
+    .map((room) => room.number);
+
+  // The desk and window: room 302's, and it was in 304.
+  assert.deepEqual(holders(/302-scrivania(?!-crop)/), ['302']);
+  // The grey padded headboard: room 304's, and it was published as 302-camera.
+  assert.deepEqual(holders(/304-testiera/), ['304']);
+  // Neither of the old names appears anywhere any more.
+  assert.deepEqual(holders(/304-camera|302-camera/), [], 'the misattributed names are retired');
+});
+
+/**
+ * Room 304's gallery is the four the owner confirmed on the Booking listing, in
+ * the order a guest would walk the room: the room, the bed, the view, the bathroom.
+ */
+test('room 304 carries its four confirmed photographs', () => {
+  const room304 = rooms.find((room) => room.number === '304');
+  assert.deepEqual(
+    room304.photos.map((photo) => photo.src),
+    ['rooms/304-letto', 'rooms/304-testiera', 'rooms/304-finestra', 'rooms/304-bagno'],
+  );
+  assert.equal(room304.verify, undefined, 'nothing left to verify about them');
+});
+
+/**
+ * Nothing enters a room gallery under a generic name.
+ *
+ * `property/…` and `views/…` are the house's own pictures and belong to no room.
+ * The three that turned out to be room 304's were renamed into `rooms/304-…`
+ * rather than referenced where they sat, because a path that does not name a room
+ * is how an attribution drifts in the first place.
+ */
+test('no room gallery reaches outside the rooms folder', () => {
+  const outside = rooms.flatMap((room) => room.photos
+    .filter((photo) => !photo.src.startsWith('rooms/'))
+    .map((photo) => `${room.number}: ${photo.src}`));
+  assert.deepEqual(outside, []);
 });
 
 test('contacts are reachable', () => {

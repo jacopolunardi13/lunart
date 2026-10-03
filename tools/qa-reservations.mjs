@@ -403,8 +403,11 @@ await page.goto(link304, { waitUntil: 'networkidle' });
 await page.waitForTimeout(900);
 const photos304 = await page.evaluate(() => [...document.querySelectorAll('.room--assigned img, .room--assigned source')]
   .map((el) => el.getAttribute('src') || el.getAttribute('srcset') || '').join(' '));
-note(/304-bagno/.test(photos304), '304 shows its own confirmed photograph');
-note(!/304-camera/.test(photos304), 'and never the shot that is actually room 302');
+for (const shot of ['304-letto', '304-testiera', '304-finestra', '304-bagno']) {
+  note(photos304.includes(shot), `304 shows its confirmed ${shot}`);
+}
+note(!/304-camera|302-camera|property\/|views\//.test(photos304),
+  'and nothing from another room or from the house\u2019s own pictures');
 await page.screenshot({ path: `${OUT}/room-304-390.png` });
 
 /* ── 7. The phase, computed and not asked ─────────────────────────────────

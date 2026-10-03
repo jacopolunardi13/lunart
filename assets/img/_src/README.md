@@ -11,31 +11,34 @@ Everything under `assets/img/<folder>/` is generated from here by:
 The script never upscales and never overwrites: delete a derived file to rebuild it.
 Add a new photo here, run the script, then reference it from `data/`.
 
-## One file whose name is wrong
+## Room 304, and the two photographs that were in the wrong gallery
 
-`rooms/304-camera.jpg` is **not** room 304. The owner confirmed in October 2026
-that it is room 302 — it is the same shot as `rooms/302-scrivania.jpg`, cropped
-tighter, and 302 already carries the full version, so it was removed from room
-304 and **not** added to 302: the photograph was already there.
+The owner confirmed room 304's Booking listing in October 2026, and two
+attributions were wrong in opposite directions:
 
-It is kept here because this is the only copy we hold, but **do not reference it
-from a room gallery**. The filename is the mistake, not a fact.
+- `rooms/304-camera.jpg` was the desk-and-window shot. That is **room 302** — the
+  same frame room 302 already held as `302-scrivania.jpg`, cropped tighter. It was
+  removed from room 304 and *not* added to 302, because 302 already had it. It is
+  archived here as `rooms/302-scrivania-crop.jpg`, which is what it actually is.
+- `rooms/302-camera.jpg` was the grey-headboard shot, published as room 302. That
+  room is **304**. It is archived under its old name and is no longer referenced;
+  room 304 publishes the Booking frame of the same room instead, as
+  `rooms/304-testiera.jpg`, once and in one gallery.
 
-`rooms/304-bagno.jpg` is fine. The owner confirmed it is room 304's own bathroom,
-and it is the one photograph that room currently has.
+Three files were renamed into the rooms folder so that their names carry the
+confirmed attribution:
 
-## Three files waiting on a name
+| was | is now | shows |
+|---|---|---|
+| `views/finestra-arno.jpg` | `rooms/304-finestra.jpg` | the Arno through the window |
+| `property/camera-finestra.jpg` | `rooms/304-letto.jpg` | the bed and the open window |
+| `property/camera-dettaglio.jpg` | `rooms/304-testiera.jpg` | the grey padded headboard |
 
-The owner has verified a fuller photo set for room 304 — the Arno through the
-window, the room with its bed and window, and the grey padded headboard. The
-closest candidates we hold are `property/camera-finestra.jpg`,
-`property/camera-dettaglio.jpg` and `views/finestra-arno.jpg`, all unreferenced
-and all named after what they show rather than where they were taken.
+`rooms/304-bagno.jpg` was always right and stays.
 
-None of them is published for room 304 yet, and the reason is worth keeping: every
-LunArt room is furnished the same way, so `property/camera-dettaglio.jpg` is not
-visually distinguishable from `rooms/302-camera.jpg`. Attributing it by eye is the
-exact move that put room 302's desk in room 304 in the first place. What is needed
-is the owner confirming the **file**, not the description — then rename it to
-`rooms/304-…`, run the optimiser, and reference it. The name is what carries the
-attribution, which is why nothing enters a room gallery under a generic one.
+**Nothing enters a room gallery under a `property/` or `views/` name.** Those are
+the house's own pictures and belong to no room; every LunArt room is furnished the
+same way, so a photograph is identified by what the owner says it is, not by what
+it looks like. Re-attributing one means renaming it — which is why there is a test
+that no room reaches outside `rooms/`, and another that no gallery holds a
+photograph belonging to a different room.
