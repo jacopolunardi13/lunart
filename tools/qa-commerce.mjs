@@ -74,7 +74,10 @@ await page.fill('input[name="room"]', '303');
 await page.waitForTimeout(400);
 
 const summary = await page.textContent('[data-summary]');
-note(/70/.test(summary), `the sheet shows the price (${summary.replace(/\s+/g, ' ').trim().slice(0, 60)})`);
+// The Brunello at LunArt's own confirmed price, with the notice an order under
+// ninety euros needs.
+note(/89/.test(summary), `the sheet shows the price (${summary.replace(/\s+/g, ' ').trim().slice(0, 60)})`);
+note(/12|ore|hours/.test(summary), 'and the notice the order needs');
 note(/preavviso|notice/i.test(summary), 'it states the notice the bottle needs');
 await page.screenshot({ path: `${OUT}/product-390.png` });
 
@@ -104,8 +107,8 @@ note(badge.trim() === '2', `the header badge counts them (${badge.trim()})`);
 await page.click('.cart-line .stepper__button[data-step="1"]');
 await page.waitForTimeout(400);
 const totalText = await page.textContent('.cart-total');
-// One more Brunello on top of the brunch: 2 x 70 + 50.
-note(/190/.test(totalText.replace(/\s/g, '')), `the total follows the stepper (${totalText.replace(/\s+/g, ' ').trim()})`);
+// Two Brunello on top of the brunch: 2 x 89 + 69.
+note(/247/.test(totalText.replace(/\s/g, '')), `the total follows the stepper (${totalText.replace(/\s+/g, ' ').trim()})`);
 await page.click('.cart-line .stepper__button[data-step="-1"]');
 await page.waitForTimeout(400);
 await page.screenshot({ path: `${OUT}/cart-390.png` });
@@ -180,7 +183,11 @@ note(/2 (persone|guests)/i.test(cardText), 'it says it is valid for two');
 note(await page.isVisible('.card-qr__frame svg'), 'a QR is drawn');
 note(/Attiva|Active/.test(await page.textContent('.status-pill')), 'it shows the status');
 note(await page.isVisible('.privileges'), 'privileges are listed');
-note(/Opera Caff/.test(await page.textContent('.privileges')), 'with the partner and the benefit');
+// Whatever card partner the preview has, with its benefit — and never the Opera
+// Caffè 30%, which comes with the stay and is listed in the guide instead.
+const privilegeText = await page.textContent('.privileges');
+note(privilegeText.trim().length > 20, 'with the partner and the benefit');
+note(!/Opera Caff/.test(privilegeText), 'the stay benefit is not sold as a card benefit');
 await page.screenshot({ path: `${OUT}/card-390.png` });
 
 // The rotation is deliberately invisible: a membership card should not read like
@@ -242,8 +249,9 @@ await page.waitForTimeout(800);
 
 note(await page.isVisible('.product-form'), 'the hair service opens');
 const services = await page.locator('.chip--choice').count();
-note(services === 7, `every service is listed (${services})`);
-note((await page.locator('.chip--unavailable').count()) === 1, 'ceremony styling shows but cannot be chosen');
+note(services === 6, `every bookable service is listed (${services})`);
+const serviceText = await page.textContent('.product-form');
+note(!/cerimonia|ceremony/i.test(serviceText), 'the ceremony styling is not shown at all');
 // Colour is absent from the choices; the terms do mention it, to say it is not
 // available, which is the point.
 const serviceLabels = await page.locator('.chip--choice').allTextContents();

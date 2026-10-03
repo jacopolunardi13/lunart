@@ -45,8 +45,8 @@ test('the service has a category of its own in the shop', () => {
 
 test('the prices are the ones LunArt set, and they live server-side', () => {
   const expected = {
-    'men-cut': 5000, 'men-beard': 3500, 'men-cut-beard': 7000,
-    'women-blowdry': 7000, 'women-cut-blow': 9500, 'women-evening': 9000,
+    'men-cut': 4900, 'men-beard': 3500, 'men-cut-beard': 6900,
+    'women-blowdry': 7900, 'women-cut-blow': 9500, 'women-evening': 8900,
   };
   const product = getProduct('hair-service');
   for (const [variantId, amount] of Object.entries(expected)) {
@@ -129,7 +129,7 @@ test('a day nobody offered cannot be bought either', () => {
 test('an offered time is accepted and priced', () => {
   const result = validateLine(line());
   assert.equal(result.ok, true, JSON.stringify(result.errors));
-  assert.equal(result.amount, 5000);
+  assert.equal(result.amount, 4900);
 });
 
 test('the schedule decides, not the shape of the time', () => {
@@ -225,7 +225,7 @@ test('a basket can hold a haircut alongside everything else', () => {
     { productId: 'wine-in-room', variantId: 'brunello', quantity: 1, date: DAY, slotId: 'w-1900', room: '303' },
   ], { allowPlaceholders: true });
   assert.equal(cart.ok, true, JSON.stringify(cart.errors));
-  assert.equal(cart.total, 5000 + 7000);
+  assert.equal(cart.total, 4900 + 8900);
 });
 
 test('the shipped schedule is empty, so nothing is invented', () => {

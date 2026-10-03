@@ -26,6 +26,16 @@ export const CONCEPTS = {
             'zaino', 'trolley', 'luggage', 'baggage', 'suitcase', 'suitcases', 'bags',
             'left luggage', 'storage'],
 
+  // ── In-room services ─────────────────────────────────────────────────────
+  // 'barba' and 'barbiere' both stem to `barb`, which is what the matcher sees.
+  hair: ['capelli', 'taglio di capelli', 'tagliarmi i capelli', 'parrucchiere', 'barbiere',
+         'barba', 'piega', 'acconciatura', 'haircut', 'hair cut', 'hairdresser', 'barber',
+         'beard', 'shave', 'blow dry', 'blowdry', 'styling', 'hair'],
+  celebration: ['compleanno', 'anniversario', 'proposta di matrimonio', 'sorpresa', 'romantico',
+                'romantica', 'allestimento', 'fiori in camera', 'bouquet', 'festeggiare',
+                'birthday', 'anniversary', 'proposal', 'surprise', 'romantic', 'celebration',
+                'flowers in the room'],
+
   // ── Car, transport ───────────────────────────────────────────────────────
   parking: ['parcheggio', 'parcheggiare', 'garage', 'posteggio', 'parking', 'park',
             'park the car', 'car park', 'where to park', 'leave the car', 'lascio la macchina',
@@ -64,7 +74,10 @@ export const CONCEPTS = {
              'cleaned', 'make up the room'],
   amenities: ['frigo', 'frigorifero', 'minibar', 'cassaforte', 'room safe', 'tv', 'televisione',
               'television', 'nespresso', 'bollitore', 'kettle', 'phon', 'asciugacapelli',
-              'hairdryer', 'hair dryer', 'ferro da stiro', 'streaming', 'netflix', 'fridge'],
+              'hairdryer', 'hair dryer', 'ferro da stiro', 'streaming', 'netflix', 'fridge',
+              // Asked about often enough to deserve an answer, and the answer is no.
+              'accappatoio', 'accappatoi', 'bathrobe', 'bathrobes', 'pantofole', 'slippers',
+              'tappi per le orecchie', 'earplugs', 'ear plugs'],
   wifi: ['wifi', 'wi fi', 'internet', 'rete', 'network', 'connessione', 'connection', 'password',
          'router', 'segnale', 'signal', 'online'],
   welcomeGift: ['benvenuto', 'welcome drink', 'welcome', 'prosecco', 'omaggio'],
@@ -75,7 +88,7 @@ export const CONCEPTS = {
   pets: ['cane', 'cani', 'gatto', 'gatti', 'animale', 'animali', 'pet', 'pets', 'dog', 'dogs', 'cat'],
   children: ['bambino', 'bambini', 'figli', 'culla', 'culle', 'lettino', 'neonato', 'child',
              'children', 'kid', 'kids', 'baby', 'cot', 'crib', 'infant', 'letto aggiuntivo',
-             'extra bed'],
+             'extra bed', 'terzo letto', 'third bed', 'tripla', 'triple room', 'in tre'],
   accessibility: ['ascensore', 'scale', 'gradini', 'scalini', 'disabile', 'carrozzina',
                   'sedia a rotelle', 'passeggino', 'lift', 'elevator', 'stairs', 'steps',
                   'wheelchair', 'accessible', 'accessibility', 'step free'],
@@ -113,7 +126,10 @@ export const CONCEPTS = {
           'prices', 'rate', 'rates', 'cost', 'how much is'],
   booking: ['prenotazione', 'prenotare', 'prenoto', 'cancellazione', 'cancellare', 'disdire',
             'rimborso', 'pagamento', 'pagare', 'bonifico', 'caparra', 'booking', 'book',
-            'reservation', 'cancel', 'cancellation', 'refund', 'payment', 'pay', 'deposit'],
+            'reservation', 'cancel', 'cancellation', 'refund', 'payment', 'pay', 'deposit',
+            'cambiare le date', 'cambiare data', 'cambio data', 'spostare le date',
+            'spostare la prenotazione', 'change the dates', 'change my dates', 'move my booking',
+            'reschedule'],
   cityTax: ['tassa di soggiorno', 'tassa', 'imposta di soggiorno', 'city tax', 'tourist tax',
             'tourism tax', 'soggiorno'],
   invoice: ['fattura', 'fatture', 'ricevuta', 'scontrino', 'invoice', 'receipt', 'billing'],

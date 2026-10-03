@@ -30,9 +30,14 @@ export const departure = [
       it: 'Lasciali gratis all’Opera Caffè in Piazza del Duomo e tieniti la giornata libera. Accanto a LunArt c’è anche un luggage store a pagamento.',
       en: 'Leave them free of charge at Opera Caffè in Piazza del Duomo and keep your day free. There is also a paid luggage store next to LunArt.',
     },
+    detail: {
+      it: 'Il deposito all’Opera Caffè è gratuito negli orari di apertura, ed è lo stesso posto della colazione.\n\nSe invece preferisci non portarli tu, possiamo trasferirli: alla stazione, a un indirizzo in centro, in aeroporto o a un altro indirizzo nel Comune di Firenze. Si prenota entro mezzogiorno del giorno prima.',
+      en: 'Storage at Opera Caffè is free during opening hours, and it is the same place as breakfast.\n\nIf you would rather not carry them yourself, we can move them: to the station, to an address in the centre, to the airport, or to another address within the Comune di Firenze. Booked by noon the day before.',
+    },
     actions: [
       { kind: 'map', label: { it: 'Opera Caffè', en: 'Opera Caffè' }, value: 'https://maps.app.goo.gl/uok3CmvHBLmwieoV9' },
       { kind: 'map', label: { it: 'Luggage store', en: 'Luggage store' }, value: 'https://maps.app.goo.gl/NGxTxK96jRVvErwU9' },
+      { kind: 'product', label: { it: 'Trasferimento bagagli', en: 'Luggage transfer' }, value: 'luggage-transfer' },
     ],
     intents: ['luggage'],
   },

@@ -59,10 +59,16 @@ const wineLine = (over = {}) => ({
   date: soon(3), slotId: 'w-1900', room: '303', ...over,
 });
 
+const BRUNELLO = 8900;
+const VERMENTINO = 4300;
+
 const transferLine = () => ({
   productId: 'transfer-airport', variantId: 'to-airport', quantity: 1,
   date: soon(6), time: '09:30',
-  fields: { passengerName: 'Jacopo Lunardi', passengers: '2', luggage: '2', phone: '+39392' },
+  fields: {
+    passengerName: 'Jacopo Lunardi', passengers: '2',
+    largeSuitcases: '2', trolleys: '1', personalBags: '1', phone: '+39392',
+  },
 });
 
 const CUSTOMER = { name: 'Jacopo Lunardi', email: 'jacopo@example.com', room: '303' };
@@ -94,15 +100,15 @@ test('the server prices the basket itself and ignores what the client claims', a
     body: { lines: [{ ...wineLine(), amount: 1, price: 1, total: 1 }] },
   });
   assert.equal(body.ok, true);
-  assert.equal(body.total, 7000);
-  assert.equal(body.lines[0].unit, 7000);
+  assert.equal(body.total, BRUNELLO);
+  assert.equal(body.lines[0].unit, BRUNELLO);
 });
 
 test('a doctored payload buys nothing cheaper', async () => {
   const order = await buy([{ ...wineLine(), amount: 1, price: 1, unit_amount: 1 }]);
-  assert.equal(order.amount, 7000);
+  assert.equal(order.amount, BRUNELLO);
   const { body } = await api(`/api/orders/${order.accessToken}`);
-  assert.equal(body.amount, 7000);
+  assert.equal(body.amount, BRUNELLO);
   assert.equal(body.status, 'paid');
 });
 
@@ -133,7 +139,7 @@ test('paying for an instant basket leaves a paid order', async () => {
   const { body } = await api(`/api/orders/${order.accessToken}`);
   assert.equal(body.status, 'paid');
   assert.equal(body.fulfilment_status, 'not-required');
-  assert.equal(body.amount, 7000 + 3400);
+  assert.equal(body.amount, BRUNELLO + VERMENTINO);
   assert.equal(body.lines.length, 2);
   assert.ok(body.reference.length >= 6);
 });

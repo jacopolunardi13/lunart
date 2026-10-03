@@ -36,11 +36,25 @@ export const property = {
     it: 'LunArt sta al terzo piano di un palazzo fiorentino, a pochi passi dal Lungarno '
       + 'e da Ponte Vecchio — nel punto in cui la Firenze dei monumenti incontra '
       + 'l’Oltrarno che sale verso Costa San Giorgio e il Piazzale Michelangelo. '
-      + 'Il nome unisce Lunardi, il cognome di famiglia, e Art.',
+      + 'Il nome unisce Lunardi, il cognome di famiglia, e Art: alle pareti ci sono '
+      + 'alcune opere della moglie di Jacopo.',
     en: 'LunArt occupies the third floor of a Florentine palazzo, a few steps from the '
       + 'Lungarno and Ponte Vecchio — where monumental Florence meets the Oltrarno '
       + 'climbing towards Costa San Giorgio and Piazzale Michelangelo. The name joins '
-      + 'Lunardi, the family surname, and Art.',
+      + 'Lunardi, the family surname, and Art: a few works by Jacopo’s wife hang on '
+      + 'the walls.',
+  },
+
+  /**
+   * Said once, in the guide, and no further.
+   *
+   * LunArt is not an art gallery and the guide must not grow into claiming it is:
+   * there are a few paintings by Jacopo's wife, which is a nice detail and not a
+   * collection. If that changes, this is where it changes.
+   */
+  art: {
+    it: 'Qualche opera della moglie di Jacopo, appesa dove serviva qualcosa di vero.',
+    en: 'A few works by Jacopo’s wife, hung where the walls needed something real.',
   },
 };
 

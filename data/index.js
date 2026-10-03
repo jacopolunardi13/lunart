@@ -7,7 +7,7 @@
 
 import { SECTIONS, PHASES, SECTION_IDS, PHASE_IDS } from './schema.js';
 import { property, contacts, unverifiedContacts, emergency } from './property.js';
-import { rooms, roomsCommon } from './rooms.js';
+import { rooms, roomsCommon, plannedRooms } from './rooms.js';
 import { places, CATEGORIES, itineraries, dayTrips } from './florence.js';
 import { arrival } from './entries/arrival.js';
 import { stay } from './entries/stay.js';
@@ -18,7 +18,7 @@ import { florence } from './entries/florence.js';
 
 export { SECTIONS, PHASES, SECTION_IDS, PHASE_IDS };
 export { property, contacts, unverifiedContacts, emergency };
-export { rooms, roomsCommon };
+export { rooms, roomsCommon, plannedRooms };
 export { places, CATEGORIES, itineraries, dayTrips };
 
 /** Every entry, in one flat list. Order within a section comes from `priority`. */
@@ -48,6 +48,9 @@ export function verifyList() {
   }
   for (const r of rooms) {
     if (r.verify) out.push({ kind: 'room', id: r.id, title: { it: `Camera ${r.number}`, en: `Room ${r.number}` }, ...r.verify });
+  }
+  for (const r of plannedRooms) {
+    if (r.verify) out.push({ kind: 'room', id: r.id, title: { it: `Camera ${r.number} (non pubblicata)`, en: `Room ${r.number} (unpublished)` }, ...r.verify });
   }
   const rank = { blocker: 0, confirm: 1, volatile: 2 };
   return out.sort((a, b) => rank[a.level] - rank[b.level]);

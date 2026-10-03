@@ -18,7 +18,7 @@ import { UI } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
 import { longDate } from './format.js';
 import { qrSvg } from '../qr.js';
-import { fetchCard } from '../api.js';
+import { fetchCard, stayBenefits, cardBenefits } from '../api.js';
 
 const STORAGE_KEY = 'lunart.cards.v1';
 
@@ -192,6 +192,38 @@ export function openCardSheet(accessToken, { lang }) {
       title: UI[lang].myCard,
       body: `<p class="sheet__lead">${esc(UI[lang].cardNotFound)}</p>`,
     }));
+}
+
+/**
+ * What comes with the stay, listed in the guide rather than on the card.
+ *
+ * This is the distinction that matters commercially: the Opera Caffè 30% is part of
+ * staying at LunArt, for everyone on the reservation, and nobody should be sold a
+ * card to get it. The card's own privileges are on the card.
+ */
+export function stayBenefitsBlock(lang) {
+  const included = stayBenefits();
+  if (included.length === 0) return '';
+
+  return `<section class="section" aria-labelledby="h-included">
+    <div class="section__head">
+      <span style="color:var(--accent)">${icon('gift', 20)}</span>
+      <h2 id="h-included">${esc(UI[lang].includedWithStay)}</h2>
+    </div>
+    <p class="section__blurb">${esc(UI[lang].includedWithStayBlurb)}</p>
+    <ul class="privileges__list">
+      ${included.map((benefit) => `
+        <li class="privilege">
+          <div class="privilege__body">
+            <p class="privilege__partner">${esc(benefit.partner)}</p>
+            <p class="privilege__benefit">${esc(benefit.label[lang] ?? benefit.label.it)}</p>
+            ${benefit.conditions ? `<p class="privilege__conditions">${esc(benefit.conditions[lang] ?? benefit.conditions.it)}</p>` : ''}
+          </div>
+          ${benefit.maps ? `<a class="privilege__map" href="${esc(benefit.maps)}" target="_blank" rel="noopener"
+             aria-label="${esc(benefit.partner)} — ${esc(UI[lang].openMaps)}">${icon('map', 18)}</a>` : ''}
+        </li>`).join('')}
+    </ul>
+  </section>`;
 }
 
 /** The shortcut in the guide, for a guest who already holds one. */

@@ -17,13 +17,14 @@ export const breakfast = [
       en: 'It is included in your stay and happens at Opera Caffè in Piazza del Duomo, at the foot of Giotto’s bell tower: a full breakfast served at the table, about a fifteen-minute walk away.',
     },
     detail: {
-      it: 'Sì, non è sotto casa — ed è voluto. Fai colazione guardando il Duomo invece che un muro, e la strada per arrivarci è una delle più belle della città.\n\nMostra la conferma di prenotazione LunArt prima di ordinare.\n\nNello stesso posto puoi lasciare i bagagli, gratis, prima del check-in o dopo il check-out.',
-      en: 'It is not downstairs — and that is the point. You have breakfast looking at the Duomo rather than a wall, and the walk there is one of the finest in the city.\n\nShow your LunArt booking confirmation before you order.\n\nThe same place stores your luggage, free, before check-in or after check-out.',
+      it: 'Sì, non è sotto casa — ed è voluto. Fai colazione guardando il Duomo invece che un muro, e la strada per arrivarci è una delle più belle della città.\n\nTi diamo un buono cartaceo: uno a persona per ogni giorno di soggiorno. Lo consegni al locale quando fai colazione.\n\nNello stesso posto puoi lasciare i bagagli, gratis, prima del check-in o dopo il check-out.',
+      en: 'It is not downstairs — and that is the point. You have breakfast looking at the Duomo rather than a wall, and the walk there is one of the finest in the city.\n\nWe give you a paper voucher: one per person for each day of your stay. You hand it over at the café when you have breakfast.\n\nThe same place stores your luggage, free, before check-in or after check-out.',
     },
     facts: [
       { label: { it: 'Dove', en: 'Where' }, value: 'Opera Caffè · Piazza del Duomo 62R' },
       { label: { it: 'A piedi', en: 'On foot' }, value: { it: '~15 minuti', en: '~15 minutes' } },
-      { label: { it: 'Orari', en: 'Hours' }, value: { it: 'te li confermiamo all’arrivo', en: 'we confirm them on arrival' } },
+      { label: { it: 'Orari', en: 'Hours' }, value: { it: '08:30 – 11:00', en: '8:30 – 11:00 AM' } },
+      { label: { it: 'Buono', en: 'Voucher' }, value: { it: 'uno a persona al giorno', en: 'one per person, per day' } },
     ],
     actions: [
       { kind: 'map', label: { it: 'Apri in Maps', en: 'Open in Maps' }, value: 'https://maps.app.goo.gl/uok3CmvHBLmwieoV9' },
@@ -31,7 +32,7 @@ export const breakfast = [
     ],
     intents: ['breakfast'],
     verify: { level: 'volatile', field: 'orari',
-      note: 'La knowledge storica indicava 8:30–11:00. Non è confermato dai documenti di settembre 2026, quindi la guida non pubblica un orario: va chiesto all’Opera Caffè e inserito qui se stabile.' },
+      note: 'Orario colazione all’Opera Caffè confermato 08:30–11:00. Resta un dato di terzi: ricontrollarlo se il locale cambia apertura.' },
   },
   {
     id: 'breakfast-light',
@@ -41,8 +42,8 @@ export const breakfast = [
     priority: -12,
     title: { it: 'Se hai poco tempo', en: 'If you are in a hurry' },
     summary: {
-      it: 'C’è una colazione veloce all’italiana nella caffetteria all’angolo dell’edificio: caffè, brioche e via.',
-      en: 'There is a quick Italian breakfast at the café on the corner of the building: coffee, pastry, done.',
+      it: 'C’è una colazione veloce all’italiana al Caffè Maioli, all’angolo dell’edificio: caffè, brioche e via. Resta un’alternativa valida alla Light Breakfast.',
+      en: 'There is a quick Italian breakfast at Caffè Maioli, on the corner of the building: coffee, pastry, done. It stays a valid alternative to the Light Breakfast.',
     },
     detail: {
       it: 'È l’alternativa pratica per chi parte presto o preferisce non allontanarsi. L’esperienza vera però è quella in Piazza del Duomo: se hai una mattina libera, vale la camminata.',
@@ -94,8 +95,8 @@ export const breakfast = [
     priority: -3,
     title: { it: 'Se parti prestissimo', en: 'If you leave very early' },
     summary: {
-      it: 'Per partenze prima dell’apertura dei bar si può organizzare qualcosa da portare via. Chiedilo la sera prima, non la mattina stessa.',
-      en: 'For departures before the cafés open we can arrange something to take with you. Ask the evening before, not on the morning itself.',
+      it: 'Per partenze prima dell’apertura dei bar prepariamo qualcosa da portare via. Chiedilo entro mezzogiorno del giorno prima, non la mattina stessa.',
+      en: 'For departures before the cafés open we put something together for you to take. Ask by noon the day before, not on the morning itself.',
     },
     actions: [{ kind: 'entry', label: { it: 'Organizziamola', en: 'Let’s arrange it' }, value: 'contacts' }],
     intents: ['breakfast-early'],
@@ -108,8 +109,8 @@ export const breakfast = [
     priority: 0,
     title: { it: 'Intolleranze e scelte alimentari', en: 'Allergies and dietary choices' },
     summary: {
-      it: 'Vegano, vegetariano, senza glutine, allergie: dillo almeno il giorno prima e ci organizziamo.',
-      en: 'Vegan, vegetarian, gluten-free, allergies: tell us at least a day ahead and we will sort it out.',
+      it: 'Vegano, vegetariano, senza glutine, intolleranze: dillo il giorno prima e ci organizziamo. Ricordalo anche al personale del locale prima di fare colazione: è il doppio controllo che serve davvero.',
+      en: 'Vegan, vegetarian, gluten-free, intolerances: tell us the day before and we will arrange it. Mention it to the café staff as well before you eat: that second check is the one that matters.',
     },
     actions: [{ kind: 'entry', label: { it: 'Segnala un’esigenza', en: 'Tell us about it' }, value: 'contacts' }],
     intents: ['dietary'],

@@ -12,6 +12,8 @@
 
 import { applyPriceOverrides } from '../../commerce/prices.js';
 import { applySchedule } from '../../commerce/schedule.js';
+import { applyPartners } from '../../commerce/partners.js';
+import { guideToken } from '../guest.js';
 
 const BASE = '/api';
 
@@ -48,6 +50,9 @@ export async function loadCatalogue({ force = false } = {}) {
     const payload = await request('/catalog');
     applyPriceOverrides(payload.prices ?? {});
     applySchedule(payload.schedule ?? null);
+    // The partner register in force, for the same reason as the prices: what the
+    // guide shows and what the server will honour have to be one list.
+    applyPartners(payload.partners?.length ? payload.partners : null);
     catalogue = payload;
     catalogueError = null;
   } catch (error) {
@@ -67,9 +72,15 @@ export const availableDays = (productId) => catalogue?.availability?.[productId]
 export const fetchSlots = (productId, date) =>
   request(`/availability/${encodeURIComponent(productId)}?date=${encodeURIComponent(date)}`);
 
-export const priceCartRemotely = (lines) => request('/cart/price', { method: 'POST', body: { lines } });
+/** What comes with the stay, and what the card adds. Two different promises. */
+export const stayBenefits = () => catalogue?.stayBenefits ?? [];
+export const cardBenefits = () => catalogue?.cardBenefits ?? [];
 
-export const startCheckout = (payload) => request('/checkout', { method: 'POST', body: payload });
+export const priceCartRemotely = (lines) =>
+  request('/cart/price', { method: 'POST', body: { lines, guideToken: guideToken() } });
+
+export const startCheckout = (payload) =>
+  request('/checkout', { method: 'POST', body: { ...payload, guideToken: guideToken() } });
 
 export const fetchOrder = (accessToken) => request(`/orders/${encodeURIComponent(accessToken)}`);
 

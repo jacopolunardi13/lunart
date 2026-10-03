@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LunArt — Ritrova la tua guida</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#faf9f7">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/fonts.css">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<main class="recover">
+  <p class="eyebrow">LunArt Firenze</p>
+  <h1 id="title">Ritrova la tua guida</h1>
+  <p id="lead">
+    Inserisci il cognome e il numero di prenotazione: ti riportiamo alla tua guida
+    personale. Il numero è quello della conferma ricevuta da Booking, Expedia o da noi.
+  </p>
+
+  <form id="form" novalidate>
+    <label class="field">
+      <span class="field__label" id="label-name">Cognome</span>
+      <input type="text" id="lastName" name="lastName" autocomplete="family-name" required>
+    </label>
+    <label class="field">
+      <span class="field__label" id="label-ref">Numero di prenotazione</span>
+      <input type="text" id="reference" name="reference" inputmode="latin" autocapitalize="characters"
+             autocomplete="off" required>
+    </label>
+    <div class="actions">
+      <button class="action action--primary" type="submit" id="submit">Trova la mia guida</button>
+    </div>
+  </form>
+
+  <div class="verdict" id="verdict" hidden></div>
+
+  <p class="footnote" style="margin-top:26px">
+    Se non funziona, scrivi a Diego su WhatsApp al
+    <a href="https://wa.me/393342115505">+39 334 211 5505</a>: ti manda il link a mano.
+  </p>
+</main>
+
+<script type="module">
+  /**
+   * Nothing clever here on purpose.
+   *
+   * Every failure gets the same answer, because the server gives the same answer:
+   * a wrong surname, a wrong number, a cancelled stay and a reservation that never
+   * existed are indistinguishable from out here. That is what stops this page being
+   * a way to find out which booking numbers are real.
+   */
+  const form = document.getElementById('form');
+  const verdict = document.getElementById('verdict');
+  const submit = document.getElementById('submit');
+
+  const show = (tone, html) => {
+    verdict.dataset.tone = tone;
+    verdict.innerHTML = html;
+    verdict.hidden = false;
+  };
+
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const lastName = document.getElementById('lastName').value.trim();
+    const reference = document.getElementById('reference').value.trim();
+    if (!lastName || !reference) return;
+
+    submit.disabled = true;
+    verdict.hidden = true;
+
+    try {
+      const response = await fetch('/api/guide/recover', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ lastName, reference }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (response.status === 429) {
+        show('bad', 'Troppi tentativi. Riprova fra qualche minuto, o scrivici su WhatsApp.');
+      } else if (response.ok && payload.ok) {
+        show('good', `<p><strong>Trovata.</strong></p>
+          <div class="actions" style="margin-top:10px">
+            <a class="action action--primary" href="${esc(payload.link)}">Apri la guida</a>
+          </div>`);
+      } else {
+        show('bad', 'Non abbiamo trovato una prenotazione con questi dati. Controlla il numero, oppure scrivici.');
+      }
+    } catch {
+      show('bad', 'Non riusciamo a controllare in questo momento. Riprova, o scrivici su WhatsApp.');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

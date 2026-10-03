@@ -85,15 +85,49 @@ export const PAYMENT_STATUS = {
   failed: 'failed',
 };
 
-/** What the provider says, tracked separately from the money. */
+/**
+ * Where the thing itself is, tracked separately from the money.
+ *
+ * `not-required` means nothing has to be confirmed before it is owed — not that
+ * nobody has to do anything. A paid breakfast sits there until staff pick it up,
+ * which is why the Staff app derives its queues from this field rather than from
+ * the payment status.
+ */
 export const FULFILMENT_STATUS = {
   'not-required': 'not-required',
   'awaiting-confirmation': 'awaiting-confirmation',
   confirmed: 'confirmed',
   declined: 'declined',
+  /** Staff have picked it up: the kitchen is on it, the driver is briefed. */
+  'in-preparation': 'in-preparation',
+  /** The bottle is not in the cellar: the guest has to be offered something else. */
+  'substitution-requested': 'substitution-requested',
   delivered: 'delivered',
+  completed: 'completed',
   cancelled: 'cancelled',
 };
+
+/**
+ * Which fulfilment states follow which. Staff act out of order constantly — an
+ * order is marked completed without ever being marked in preparation, because it
+ * went up with the breakfast trolley — so this is permissive by design. It exists
+ * to refuse the moves that are genuinely wrong: reviving a cancelled order, or
+ * walking a declined transfer back into preparation.
+ */
+const FULFILMENT_TRANSITIONS = {
+  'not-required': ['in-preparation', 'substitution-requested', 'delivered', 'completed', 'cancelled'],
+  'awaiting-confirmation': ['confirmed', 'declined', 'in-preparation', 'cancelled'],
+  confirmed: ['in-preparation', 'substitution-requested', 'delivered', 'completed', 'cancelled'],
+  'in-preparation': ['substitution-requested', 'delivered', 'completed', 'cancelled'],
+  'substitution-requested': ['in-preparation', 'delivered', 'completed', 'cancelled'],
+  delivered: ['completed'],
+  completed: [],
+  declined: [],
+  cancelled: [],
+};
+
+export const canFulfilmentMove = (from, to) =>
+  from === to || Boolean(FULFILMENT_TRANSITIONS[from]?.includes(to));
 
 /** Shop sections, in the order they are shown. */
 export const COMMERCE_CATEGORIES = [
@@ -129,6 +163,19 @@ export const COMMERCE_CATEGORIES = [
 
 export const CATEGORY_IDS = COMMERCE_CATEGORIES.map((c) => c.id);
 
+/** Build a run of windows between two wall-clock hours. */
+function windows(prefix, fromHour, toHour, minutes) {
+  const out = [];
+  const pad = (n) => String(n).padStart(2, '0');
+  for (let start = fromHour * 60; start + minutes <= toHour * 60; start += minutes) {
+    const from = `${pad(Math.floor(start / 60))}:${pad(start % 60)}`;
+    const end = start + minutes;
+    const to = `${pad(Math.floor(end / 60))}:${pad(end % 60)}`;
+    out.push({ id: `${prefix}-${from.replace(':', '')}`, from, to, label: { it: `${from} – ${to}`, en: `${from} – ${to}` } });
+  }
+  return out;
+}
+
 /** Delivery windows offered for anything brought to the room. */
 export const DELIVERY_SLOTS = {
   breakfast: [
@@ -138,17 +185,46 @@ export const DELIVERY_SLOTS = {
     { id: 'b-0900', label: { it: '09:00 – 09:30', en: '9:00 – 9:30 am' }, from: '09:00', to: '09:30' },
     { id: 'b-0930', label: { it: '09:30 – 10:00', en: '9:30 – 10:00 am' }, from: '09:30', to: '10:00' },
   ],
-  wine: [
-    { id: 'w-1800', label: { it: '18:00 – 19:00', en: '6 – 7 pm' }, from: '18:00', to: '19:00' },
-    { id: 'w-1900', label: { it: '19:00 – 20:00', en: '7 – 8 pm' }, from: '19:00', to: '20:00' },
-    { id: 'w-2000', label: { it: '20:00 – 21:00', en: '8 – 9 pm' }, from: '20:00', to: '21:00' },
-    { id: 'w-2100', label: { it: '21:00 – 22:00', en: '9 – 10 pm' }, from: '21:00', to: '22:00' },
-  ],
+  /** Wine goes up between 11:00 and 22:00; the last window ends at the latter. */
+  wine: windows('w', 11, 22, 60),
+  /** A set-up can be asked for at any half hour between noon and ten. */
+  celebration: windows('c', 12, 22, 30),
 };
+
+/** The last moment wine can still be delivered on the day it is ordered. */
+export const WINE_DELIVERY_WINDOW = { from: '11:00', to: '22:00' };
 
 /**
  * Cut-off shapes.
- *   eveningBefore — order by `hour` on the day before delivery
- *   leadMinutes   — order at least N minutes before the delivery slot starts
+ *   dayBefore   — order by `hour` on the day before delivery
+ *   leadMinutes — order at least N minutes before the end of the chosen window
+ *
+ * `leadMinutes` counts back from the end of the window rather than its start,
+ * which is what makes the stated express rule true: ninety minutes before the end
+ * of the 21:00–22:00 window is 20:30, the last moment wine can be ordered for the
+ * same evening.
+ *
+ * `eveningBefore` is the old name for `dayBefore` and is still accepted, because
+ * the shape is identical and a stored order should not break on a rename.
  */
-export const CUTOFF_KINDS = { eveningBefore: 'eveningBefore', leadMinutes: 'leadMinutes' };
+export const CUTOFF_KINDS = {
+  dayBefore: 'dayBefore',
+  eveningBefore: 'dayBefore',
+  leadMinutes: 'leadMinutes',
+};
+
+/**
+ * When a guest can still call something off.
+ *
+ *   hoursBefore — up to N hours before the slot or appointment
+ *   dayBefore   — up to `hour` on the day before
+ *   none        — not cancellable once bought (the Privilege Card)
+ *
+ * These are service rules and have nothing to do with the accommodation booking,
+ * whose terms come from LunArt's own policy or the OTA's contract.
+ */
+export const CANCELLATION_KINDS = {
+  hoursBefore: 'hoursBefore',
+  dayBefore: 'dayBefore',
+  none: 'none',
+};

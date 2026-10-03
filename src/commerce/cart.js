@@ -11,6 +11,7 @@
  * devtools buys nothing it has not paid for.
  */
 
+import { guestStay } from '../guest.js';
 import { priceCart, getProduct, getVariant } from '../../commerce/ordering.js';
 
 const STORAGE_KEY = 'lunart.cart.v1';
@@ -111,8 +112,8 @@ export function clear() {
  * It is not the decision — the server prices it again at checkout and uses its own
  * answer.
  */
-export function review({ now = new Date(), allowPlaceholders = true } = {}) {
-  const priced = priceCart(lines, { now, allowPlaceholders });
+export function review({ now = new Date(), allowPlaceholders = true, stay = guestStay() } = {}) {
+  const priced = priceCart(lines, { now, allowPlaceholders, stay });
   return {
     ...priced,
     lines: priced.lines.map((entry, index) => ({

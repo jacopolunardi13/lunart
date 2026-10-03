@@ -10,6 +10,7 @@ import { esc, t, paragraphs } from './dom.js';
 import { icon } from './icons.js';
 import { UI } from '../i18n.js';
 import { entryCard, quickTile, placeRow, slider, facts, actions, picture } from './components.js';
+import { guest, isPersonal } from '../guest.js';
 
 /**
  * Filled in by `src/commerce/boot.js` once the shop has loaded. Until then — and
@@ -37,10 +38,46 @@ function orderedSections(phase) {
 
 function greeting(lang) {
   const hour = new Date().getHours();
-  if (hour < 12) return lang === 'it' ? 'Buongiorno' : 'Good morning';
-  if (hour < 18) return lang === 'it' ? 'Buon pomeriggio' : 'Good afternoon';
-  return lang === 'it' ? 'Buonasera' : 'Good evening';
+  const time = hour < 12 ? (lang === 'it' ? 'Buongiorno' : 'Good morning')
+    : hour < 18 ? (lang === 'it' ? 'Buon pomeriggio' : 'Good afternoon')
+      : (lang === 'it' ? 'Buonasera' : 'Good evening');
+  const name = guest()?.first_name;
+  return name ? `${time}, ${name}` : time;
 }
+
+/**
+ * The stay, when the guest arrived by their own link.
+ *
+ * Small and factual: dates, nights, room. It is the one place the guide says
+ * something only this guest could see, and it is what makes the rest of the page
+ * — the phase it opens on, the room already filled in — make sense.
+ */
+function stayBlock(lang) {
+  const context = guest();
+  if (!context?.check_in) return '';
+
+  const dates = `${shortDate(context.check_in, lang)} → ${shortDate(context.check_out, lang)}`;
+  const parts = [
+    dates,
+    context.nights ? `${context.nights} ${esc(UI[lang].nights)}` : '',
+    context.room ? `${esc(UI[lang].roomLabel)} ${esc(context.room)}` : '',
+  ].filter(Boolean);
+
+  return `<section class="stay" aria-labelledby="h-stay">
+    <p class="eyebrow" id="h-stay">${esc(UI[lang].yourStay)}</p>
+    <p class="stay__line">${parts.join(' · ')}</p>
+    ${context.cancelled ? `<div class="notice notice--attention">
+      <span>${icon('alert', 18)}</span>
+      <div>
+        <p><strong>${esc(UI[lang].stayCancelled)}</strong></p>
+        <p>${esc(UI[lang].stayCancelledBody)}</p>
+      </div>
+    </div>` : ''}
+  </section>`;
+}
+
+const shortDate = (date, lang) => new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB',
+  { day: 'numeric', month: 'short', timeZone: 'Europe/Rome' }).format(new Date(`${date}T12:00:00Z`));
 
 function sectionBlock(sectionId, lang, { only } = {}) {
   const meta = SECTIONS.find((s) => s.id === sectionId);
@@ -107,6 +144,8 @@ export function guideView(lang, phase) {
         </div>
       </div>
     </section>
+
+    ${stayBlock(lang)}
 
     <section class="phases" aria-labelledby="h-phase">
       <p class="eyebrow phases__label" id="h-phase">${esc(UI[lang].phaseLabel)}</p>

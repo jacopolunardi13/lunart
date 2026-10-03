@@ -784,8 +784,56 @@ fieldset.field { border: 0; padding: 0; }
    no commerce server behind it. Saying it here, after the components, settles it
    without reaching for !important.
    --------------------------------------------------------------------------- */
-[hidden] { display: none; }
+/* ── The stay, on a personal link ──────────────────────────────────────── */
+
+.stay {
+  margin: 0 var(--gutter) 18px;
+  padding: 14px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+}
+.stay__line {
+  margin: 4px 0 0;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+.stay .notice { margin-top: 12px; }
+
+/* A service with nothing decided about it yet: visibly not a button. */
+.is-coming-soon {
+  opacity: .55;
+  cursor: default;
+  pointer-events: none;
+  box-shadow: none;
+}
+.is-coming-soon .card__title,
+.is-coming-soon .quick__title { color: var(--ink-quiet); }
+
+.summary-row--quiet { color: var(--ink-quiet); font-size: var(--micro); }
+
+/* ── Lost link recovery ────────────────────────────────────────────────── */
+
+.recover { max-width: 30rem; margin: 0 auto; padding: 32px var(--gutter) 48px; }
+.recover h1 { font-family: var(--serif); font-size: 1.6rem; margin: 0 0 8px; }
+.recover p { color: var(--ink-quiet); line-height: 1.7; }
+.recover form { margin-top: 20px; display: grid; gap: 14px; }
+.recover .verdict { margin-top: 18px; padding: 14px 16px; border-radius: var(--radius-md); }
+.recover .verdict[data-tone="good"] { background: #eef5ee; border: 1px solid #c9ddc9; }
+.recover .verdict[data-tone="bad"] { background: #fdf0ee; border: 1px solid #e8c9c3; }
+
+
 
 /* A variant that exists but is not on sale yet: visible, legible, not choosable. */
 .chip--unavailable { opacity: 0.5; cursor: default; }
 .chip--unavailable input { cursor: default; }
+
+/**
+ * Last on purpose.
+ *
+ * The `hidden` attribute loses to any component rule that sets `display` at equal
+ * specificity, which is how an empty cart badge once rendered as a solid dot. One
+ * rule, placed last, so nothing has to remember.
+ */
+[hidden] { display: none !important; }

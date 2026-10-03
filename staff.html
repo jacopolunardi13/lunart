@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LunArt Staff</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#16140f">
+<link rel="manifest" href="/staff/manifest.webmanifest">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="stylesheet" href="/assets/css/fonts.css">
+<link rel="stylesheet" href="/assets/css/staff.css">
+</head>
+<body>
+
+<header class="bar">
+  <span class="bar__mark">LunArt <span>Staff</span></span>
+  <div class="bar__tools">
+    <span class="dot" id="push-state" title="Notifiche"></span>
+    <button class="bar__button" type="button" id="refresh" aria-label="Aggiorna">↻</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs" aria-label="Sezioni"></nav>
+
+<main id="main" tabindex="-1">
+  <p class="loading">Carico…</p>
+</main>
+
+<div class="gate" id="gate" hidden>
+  <div class="gate__panel">
+    <h1>LunArt Staff</h1>
+    <p>Serve il token dello staff. Te lo passa Jacopo.</p>
+    <label class="field">
+      <span class="field__label">Token</span>
+      <input type="password" id="token" autocomplete="current-password">
+    </label>
+    <button class="action action--primary" type="button" id="enter">Entra</button>
+    <p class="gate__note" id="gate-note" hidden></p>
+  </div>
+</div>
+
+<script type="module" src="/src/staff/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    addEventListener('load', () => navigator.serviceWorker.register('/staff-sw.js', { scope: '/staff' }).catch(() => {}));
+  }
+</script>
+</body>
+</html>

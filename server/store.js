@@ -33,9 +33,23 @@ function collection(state, name) {
   return state[name];
 }
 
+const EMPTY = () => ({
+  orders: {}, cards: {}, events: {},
+  /** Reservations are the spine the rest hangs from. See `server/reservations.js`. */
+  reservations: {},
+  /** Things staff have to look at: an iCal occupancy with no reservation behind it. */
+  alerts: {},
+  /** Every ingested message id, so the same QuoVai email cannot land twice. */
+  messages: {},
+  /** Push endpoints staff devices registered. */
+  subscriptions: {},
+  /** Guest emails: when they are due, and what happened to them. */
+  deliveries: {},
+});
+
 export function createStore({ dataDir = '' } = {}) {
   const file = dataDir ? join(dataDir, 'store.json') : '';
-  let state = { orders: {}, cards: {}, events: {} };
+  let state = EMPTY();
   let writeChain = Promise.resolve();
   let loaded = !file;
 
@@ -44,7 +58,7 @@ export function createStore({ dataDir = '' } = {}) {
     loaded = true;
     if (!existsSync(file)) return;
     try {
-      state = { orders: {}, cards: {}, events: {}, ...JSON.parse(await readFile(file, 'utf8')) };
+      state = { ...EMPTY(), ...JSON.parse(await readFile(file, 'utf8')) };
     } catch {
       // A corrupt store must not take the server down; it starts empty and says so.
       console.error(`[store] ${file} could not be read; starting empty`);
@@ -97,10 +111,30 @@ export function createStore({ dataDir = '' } = {}) {
       await load();
       return Object.values(collection(state, name)).find(predicate) ?? null;
     },
+    async filter(predicate) {
+      await load();
+      return Object.values(collection(state, name)).filter(predicate);
+    },
+    async remove(id) {
+      await load();
+      const current = collection(state, name)[id];
+      if (!current) return false;
+      delete collection(state, name)[id];
+      await persist();
+      return true;
+    },
   });
 
   const orders = records('orders');
   const cards = records('cards');
+  const reservations = records('reservations');
+  const alerts = records('alerts');
+  const subscriptions = records('subscriptions');
+  const deliveries = records('deliveries');
+
+  /** One reservation per source and booking reference. The key the upsert turns on. */
+  const bookingKey = (source, reference) =>
+    `${String(source ?? '').toLowerCase()}:${String(reference ?? '').trim().toUpperCase()}`;
 
   return {
     orders: {
@@ -114,6 +148,76 @@ export function createStore({ dataDir = '' } = {}) {
       findByPublicRef: (ref) => cards.findBy((c) => c.public_ref === String(ref ?? '').toUpperCase()),
       findByAccessToken: (token) => cards.findBy((c) => c.access_token === token),
       findByOrder: (orderId) => cards.findBy((c) => c.order_id === orderId),
+    },
+
+    reservations: {
+      ...reservations,
+      findByBooking: (source, reference) =>
+        reservations.findBy((r) => bookingKey(r.source, r.booking_reference) === bookingKey(source, reference)),
+      findByGuideToken: (token) => reservations.findBy((r) => r.guide_token && r.guide_token === token),
+      /**
+       * Recovery: surname plus the booking number. Both are compared loosely on
+       * case and spacing, because a guest reading them off an email will not match
+       * our storage exactly, and strictly on content.
+       */
+      findForRecovery: (lastName, reference) => {
+        const name = String(lastName ?? '').trim().toLowerCase();
+        const ref = String(reference ?? '').replace(/\s+/g, '').toLowerCase();
+        if (!name || !ref) return null;
+        const nameMatches = (r) => {
+          const stored = String(r.last_name ?? '').trim().toLowerCase();
+          if (!stored) return false;
+          if (stored === name) return true;
+          // A guest with two surnames may type both, or the system may have split
+          // them the other way round. Either reading is accepted; the booking
+          // number is what actually guards this.
+          const full = `${String(r.first_name ?? '')} ${stored}`.trim().toLowerCase();
+          return full.endsWith(name) || name.split(/\s+/).pop() === stored;
+        };
+        return reservations.findBy((r) => (
+          nameMatches(r)
+          && [r.booking_reference, r.source_reference].some(
+            (candidate) => String(candidate ?? '').replace(/\s+/g, '').toLowerCase() === ref,
+          )
+        ));
+      },
+      overlapping: (from, to) => reservations.filter(
+        (r) => String(r.check_in) <= String(to) && String(r.check_out) >= String(from),
+      ),
+    },
+
+    alerts: {
+      ...alerts,
+      open: () => alerts.filter((a) => a.status === 'open'),
+      findByKey: (key) => alerts.findBy((a) => a.key === key),
+    },
+
+    subscriptions: {
+      ...subscriptions,
+      findByEndpoint: (endpoint) => subscriptions.findBy((s) => s.endpoint === endpoint),
+    },
+
+    deliveries: {
+      ...deliveries,
+      findByReservation: (reservationId) => deliveries.findBy((d) => d.reservation_id === reservationId),
+      due: (atIso) => deliveries.filter((d) => d.status === 'scheduled' && String(d.send_at) <= String(atIso)),
+    },
+
+    /**
+     * Ingestion de-duplication, the same idea as the Stripe one below and for the
+     * same reason: QuoVai can send the same notification twice, and a guest must
+     * not receive two guide emails because a mailbox was polled twice.
+     */
+    messages: {
+      async seen(messageId) {
+        await load();
+        return Boolean(collection(state, 'messages')[messageId]);
+      },
+      async remember(messageId, meta = {}) {
+        await load();
+        collection(state, 'messages')[messageId] = { at: now(), ...meta };
+        await persist();
+      },
     },
 
     /**

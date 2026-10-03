@@ -12,7 +12,8 @@
     "measure": "node tools/measure.mjs",
     "dev": "LUNART_DEV_PRICES=1 ALLOW_PLACEHOLDER_PRICES=1 node server/index.js",
     "start": "node server/index.js",
-    "qa:commerce": "node tools/qa-commerce.mjs"
+    "qa:commerce": "node tools/qa-commerce.mjs",
+    "qa:reservations": "node tools/qa-reservations.mjs"
   },
   "engines": {
     "node": ">=20"

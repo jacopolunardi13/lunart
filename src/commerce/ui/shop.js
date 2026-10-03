@@ -39,6 +39,7 @@ export function shopTeaser(lang) {
 
 function productTile(product, lang) {
   const range = priceRange(product);
+  if (product.comingSoon) return comingSoonTile(product, lang, 'quick__item');
   return `<button class="quick__item" type="button" data-product="${esc(product.id)}">
     ${icon(tileIcon(product), 24)}
     <span class="quick__title">${esc(t(product.title, lang))}</span>
@@ -46,10 +47,29 @@ function productTile(product, lang) {
   </button>`;
 }
 
+/**
+ * A service nobody has defined yet.
+ *
+ * Grey, not a button, no price, no sheet, and no copy written to make it look
+ * finished — one word, so a guest knows it is coming and knows there is nothing to
+ * read. Rendered as a <div> precisely so it cannot be tapped.
+ */
+function comingSoonTile(product, lang, className) {
+  return `<div class="${className} is-coming-soon" aria-disabled="true">
+    ${icon(tileIcon(product), 24)}
+    <span class="quick__title">${esc(t(product.title, lang))}</span>
+    <span class="badge">${esc(UI[lang].comingSoonBadge)}</span>
+  </div>`;
+}
+
 const tileIcon = (product) => ({
-  'privilege-card': 'card', 'light-breakfast': 'tray', brunch: 'tray',
-  'wine-in-room': 'wine', 'transfer-airport': 'car',
-  'celebration-setup': 'glass', 'chianti-experience': 'hills',
+  'privilege-card': 'card',
+  'light-breakfast': 'tray', brunch: 'tray', 'sunrise-breakfast': 'cup',
+  'wine-in-room': 'wine',
+  'transfer-airport': 'car', 'luggage-transfer': 'suitcase',
+  'hair-service': 'scissors',
+  celebration: 'glass',
+  'chianti-experience': 'hills',
 }[product.id] ?? 'gift');
 
 function fromLabel(range, lang) {
@@ -97,6 +117,16 @@ export function shopView(lang) {
 export function productCard(product, lang) {
   const range = priceRange(product);
   const purchasable = isPurchasable(product, { allowPlaceholders: true });
+
+  if (product.comingSoon) {
+    return `<div class="card is-coming-soon" aria-disabled="true">
+      <span class="card__icon">${icon(tileIcon(product), 22)}</span>
+      <span class="card__body">
+        <span class="card__title">${esc(t(product.title, lang))}</span>
+        <span class="card__meta"><span class="badge">${esc(UI[lang].comingSoonBadge)}</span></span>
+      </span>
+    </div>`;
+  }
 
   let badge = '';
   if (product.status === 'coming-soon') {

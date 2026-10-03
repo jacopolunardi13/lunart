@@ -2,10 +2,18 @@
  * The rooms, as a guest who has already booked needs them: which one am I in, what
  * does it look over, what is in it. Not a sales sheet.
  *
- * Category names follow the historic knowledge base (Standard / Deluxe / Superior),
- * which is what the room descriptions and photographs support. The InYourLife draft
- * uses a different ladder (Standard / Queen / Queen Deluxe / Superior) — that
- * mismatch is carried in `verify` rather than guessed at.
+ * The categories are LunArt's current mapping, confirmed in October 2026:
+ *
+ *   301  Standard
+ *   302  Queen
+ *   303  Superior   — normally set up as a triple
+ *   304  Queen      — an extra bed where practical, not a standard triple
+ *   305  Superior   — normally set up as a triple
+ *
+ * Two changes are known to be coming and are deliberately not published: 305 is
+ * intended to become a Family room, and a sixth room is expected which may be
+ * another Superior. Neither is a fact a guest can act on yet, so neither is in
+ * `rooms`; the sixth room waits in `plannedRooms`, which nothing renders.
  */
 
 export const rooms = [
@@ -26,7 +34,7 @@ export const rooms = [
   {
     id: '302',
     number: '302',
-    category: { it: 'Deluxe', en: 'Deluxe' },
+    category: { it: 'Queen', en: 'Queen' },
     view: { it: 'Arno e scorcio sugli Uffizi', en: 'Arno and a glimpse of the Uffizi' },
     summary: {
       it: 'Ampia, con scrivania e un affaccio che prende il fiume e, di lato, gli Uffizi.',
@@ -57,11 +65,11 @@ export const rooms = [
   {
     id: '304',
     number: '304',
-    category: { it: 'Deluxe', en: 'Deluxe' },
+    category: { it: 'Queen', en: 'Queen' },
     view: { it: 'Arno e Uffizi', en: 'Arno and Uffizi' },
     summary: {
-      it: 'Spaziosa e luminosa, con vista sul fiume e sugli Uffizi.',
-      en: 'Bright and roomy, looking over the river and the Uffizi.',
+      it: 'Spaziosa e luminosa, con vista sul fiume e sugli Uffizi. Su richiesta può accettare un letto aggiuntivo, ma non è una tripla standard.',
+      en: 'Bright and roomy, looking over the river and the Uffizi. It can take an extra bed on request, though it is not a standard triple.',
     },
     photos: [
       { src: 'rooms/304-camera', alt: { it: 'Camera Deluxe LunArt con scrivania e finestra', en: 'LunArt Deluxe room with desk and window' } },
@@ -84,24 +92,32 @@ export const rooms = [
       { src: 'rooms/305-bagno', alt: { it: 'Bagno privato della 305', en: 'Private bathroom of room 305' } },
     ],
   },
+];
+
+
+/**
+ * Known to be coming, deliberately unpublished.
+ *
+ * A sixth room is expected and 305 is intended to become a Family room. Neither is
+ * something a guest can book, and publishing a category before it exists is how a
+ * guide ends up contradicting the booking engine. Nothing renders this list.
+ */
+export const plannedRooms = [
   {
     id: '306',
     number: '306',
-    category: { it: 'Familiare', en: 'Family' },
-    comingSoon: true,
-    view: null,
-    summary: {
-      it: 'Due ambienti separati e due bagni privati. Non è ancora prenotabile.',
-      en: 'Two separate rooms and two private bathrooms. Not bookable yet.',
+    category: null,
+    note: {
+      it: 'Sesta camera attesa. Categoria non ancora definita: potrebbe essere un’altra Superior.',
+      en: 'A sixth room is expected. The category is not settled: it may be another Superior.',
     },
-    photos: [],
     verify: { level: 'confirm',
-      note: 'Confermato: la soluzione Familiare resta “prossima apertura” e non prenotabile. Da aggiornare solo quando diventa effettivamente vendibile.' },
+      note: 'Non pubblicare la categoria della sesta camera finché non è decisa e vendibile. Vale anche per il passaggio della 305 a Familiare.' },
   },
 ];
 
-/** Shared across every room, so it is stated once rather than six times. */
+/** Shared across every room, so it is stated once rather than five times. */
 export const roomsCommon = {
-  it: 'Tutte le camere sono al terzo piano, con bagno privato, climatizzazione, Smart TV, macchina Nespresso, bollitore, mini-frigo e cassaforte.',
-  en: 'Every room is on the third floor, with a private bathroom, climate control, a Smart TV, a Nespresso machine, a kettle, a mini-fridge and a safe.',
+  it: 'Tutte le camere sono al terzo piano, con bagno privato, climatizzazione, Smart TV, macchina Nespresso, bollitore, mini-frigo e cassaforte. Pantofole sì, accappatoio no.',
+  en: 'Every room is on the third floor, with a private bathroom, climate control, a Smart TV, a Nespresso machine, a kettle, a mini-fridge and a safe. Slippers yes, bathrobe no.',
 };

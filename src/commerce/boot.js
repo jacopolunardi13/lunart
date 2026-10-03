@@ -12,7 +12,7 @@ import { shopView, shopTeaser } from './ui/shop.js';
 import { openProductSheet } from './ui/product-sheet.js';
 import { openCartSheet } from './ui/cart-sheet.js';
 import { openOrderSheet, purchasesBlock } from './ui/orders.js';
-import { openCardSheet, cardBlock } from './ui/card-sheet.js';
+import { openCardSheet, cardBlock, stayBenefitsBlock } from './ui/card-sheet.js';
 import * as cart from './cart.js';
 
 export async function init() {
@@ -22,6 +22,6 @@ export async function init() {
 
 export {
   shopView, shopTeaser, openProductSheet, openCartSheet,
-  openOrderSheet, purchasesBlock, openCardSheet, cardBlock,
+  openOrderSheet, purchasesBlock, openCardSheet, cardBlock, stayBenefitsBlock,
   cart, catalogueAvailable,
 };

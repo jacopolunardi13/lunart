@@ -8,14 +8,17 @@
  * `sanitiseLine` is the reason that is safe: a cart line is reduced to ids,
  * quantities and dates before anything looks at it. A payload carrying `amount`,
  * `price`, `total` or a doctored `sku` loses those fields on the way in — not
- * because they are rejected, but because they are never read.
+ * because they are rejected, but because they are never read. Surcharges are the
+ * same: an oversized suitcase costs what the price table says it costs, and the
+ * client only gets to say how many there are.
  */
 
-import { PRODUCTS } from './catalog.js';
+import { PRODUCTS, visibleVariants } from './catalog.js';
 import { resolvePrice, isSellable, CURRENCY } from './prices.js';
-import { getWine, leadTimeMinutesFor } from './wine.js';
+import { getWine, leadTimeMinutesFor, leadMinutesForWineOrder } from './wine.js';
 import { propertyTimeToInstant, propertyDate, addDays, isValidDate, isValidTime } from './time.js';
 import { isSlotOffered, slotsFor } from './schedule.js';
+import { cardFitsStay, asStay, stayDates } from './stay.js';
 
 const productsById = new Map(PRODUCTS.map((p) => [p.id, p]));
 export const getProduct = (id) => productsById.get(id);
@@ -32,48 +35,101 @@ export function skuFor(product, variant) {
   return variant ? `${product.id}:${variant.id}` : product.id;
 }
 
+/** True when this line needs a delivery slot or a time at all. */
+export function needsTime(product, line) {
+  if (product?.requiresTime) return true;
+  const rule = product?.requiresTimeWhen;
+  if (!rule) return false;
+  return line?.options?.[rule.option] === rule.equals;
+}
+
 /**
  * When ordering closes for a given delivery.
  *
- * `eveningBefore` is a wall-clock deadline the day before, in Florence time.
- * `leadMinutes` counts back from the start of the chosen slot, by however much
- * notice the item itself needs — for wine that comes from the bottle, so two
- * bottles in the same basket can have different deadlines.
+ * `dayBefore` is a wall-clock deadline the day before, in Florence time.
+ * `leadMinutes` counts back from the end of the chosen window, by however much
+ * notice the order needs — for wine that comes from what the whole wine order is
+ * worth, which is why the basket's subtotal is passed in rather than guessed.
  */
-export function cutoffFor(product, variant, { date, slotId } = {}) {
+export function cutoffFor(product, variant, { date, slotId } = {}, context = {}) {
   const rule = product?.cutoff;
   if (!rule || !date || !isValidDate(date)) return { deadline: null, kind: rule?.kind ?? null, minutes: null };
 
-  if (rule.kind === 'eveningBefore') {
-    const hour = String(rule.hour ?? 21).padStart(2, '0');
+  if (rule.kind === 'dayBefore' || rule.kind === 'eveningBefore') {
+    const hour = String(rule.hour ?? 12).padStart(2, '0');
     return {
-      kind: 'eveningBefore',
-      hour: rule.hour ?? 21,
+      kind: 'dayBefore',
+      hour: rule.hour ?? 12,
       deadline: propertyTimeToInstant(addDays(date, -1), `${hour}:00`),
       minutes: null,
     };
   }
 
   if (rule.kind === 'leadMinutes') {
-    const minutes = leadMinutesFor(product, variant, rule);
+    const minutes = leadMinutesFor(product, variant, rule, context);
     const slot = (product.deliverySlots ?? []).find((s) => s.id === slotId);
-    const start = slot?.from ?? '00:00';
-    const slotStart = propertyTimeToInstant(date, start);
-    if (!slotStart) return { deadline: null, kind: 'leadMinutes', minutes };
-    return { kind: 'leadMinutes', minutes, deadline: new Date(slotStart.getTime() - minutes * 60_000) };
+    // Counted from the end of the window: the last moment the bottle may arrive.
+    const edge = slot?.to ?? slot?.from ?? '23:59';
+    const until = propertyTimeToInstant(date, edge);
+    if (!until) return { deadline: null, kind: 'leadMinutes', minutes };
+    return { kind: 'leadMinutes', minutes, deadline: new Date(until.getTime() - minutes * 60_000) };
   }
 
   return { deadline: null, kind: rule.kind, minutes: null };
 }
 
-/** How much notice this particular thing needs. */
-export function leadMinutesFor(product, variant, rule = product?.cutoff) {
+/**
+ * How much notice this particular thing needs.
+ *
+ * For wine the rule is the order, not the bottle: €90 or more in the basket is an
+ * express run at ninety minutes, below it waits for the next day's delivery. A
+ * bottle may still declare its own `leadTimeMinutes` when it is physically
+ * elsewhere, and that wins — where something is beats what it costs.
+ */
+export function leadMinutesFor(product, variant, rule = product?.cutoff, context = {}) {
   if (typeof variant?.leadTimeMinutes === 'number') return variant.leadTimeMinutes;
   const bottle = variant && getWine(variant.id);
-  if (bottle) return leadTimeMinutesFor(bottle);
+  if (bottle) {
+    const own = leadTimeMinutesFor(bottle);
+    if (typeof own === 'number') return own;
+    return leadMinutesForWineOrder(context.wineSubtotal ?? 0);
+  }
   if (typeof rule?.minutes === 'number') return rule.minutes;
   if (typeof product?.leadTimeMinutes === 'number') return product.leadTimeMinutes;
   return 0;
+}
+
+/**
+ * Until when a guest can call this off.
+ * A service rule, nothing to do with the accommodation booking's own terms.
+ */
+export function cancellableUntil(product, line = {}) {
+  const rule = product?.cancellation;
+  if (!rule || rule.kind === 'none') return { kind: 'none', deadline: null };
+  if (!isValidDate(line.date)) return { kind: rule.kind, deadline: null };
+
+  if (rule.kind === 'dayBefore') {
+    const hour = String(rule.hour ?? 12).padStart(2, '0');
+    return { kind: 'dayBefore', hour: rule.hour ?? 12, deadline: propertyTimeToInstant(addDays(line.date, -1), `${hour}:00`) };
+  }
+
+  if (rule.kind === 'hoursBefore') {
+    const slot = (product.deliverySlots ?? []).find((s) => s.id === line.slotId);
+    const at = slot?.from ?? line.time;
+    if (!at || !isValidTime(at)) return { kind: 'hoursBefore', hours: rule.hours, deadline: null };
+    const start = propertyTimeToInstant(line.date, at);
+    return { kind: 'hoursBefore', hours: rule.hours, deadline: new Date(start.getTime() - rule.hours * 3_600_000) };
+  }
+
+  return { kind: rule.kind, deadline: null };
+}
+
+/** True when this line can still be cancelled at `now`. */
+export function isCancellable(product, line, now = new Date()) {
+  const { kind, deadline } = cancellableUntil(product, line);
+  if (kind === 'none') return false;
+  if (!deadline) return true;
+  return now <= deadline;
 }
 
 /**
@@ -113,10 +169,45 @@ export function sanitiseLine(raw = {}) {
 }
 
 /**
+ * What a line costs on top of its own price: an option that upgrades the bottle, a
+ * numeric field that counts oversized suitcases. Each one is priced from the table
+ * by its own SKU, so the client decides how many and never how much.
+ */
+export function surchargesFor(product, line, { allowPlaceholders = false } = {}) {
+  const out = [];
+
+  for (const option of product?.options ?? []) {
+    const chosenId = line.options?.[option.id];
+    const choice = option.choices?.find((c) => c.id === chosenId);
+    if (!choice?.surcharge?.sku) continue;
+    const price = resolvePrice(choice.surcharge.sku);
+    out.push({
+      kind: 'option', id: option.id, choice: choice.id, sku: choice.surcharge.sku,
+      units: 1, unit: price.amount ?? 0, amount: price.amount ?? 0,
+      sellable: isSellable(choice.surcharge.sku, { allowPlaceholders }),
+    });
+  }
+
+  for (const field of product?.requiresFields ?? []) {
+    if (!field.surcharge?.sku) continue;
+    const units = Math.trunc(Number(line.fields?.[field.id] ?? 0));
+    if (!Number.isFinite(units) || units <= 0) continue;
+    const price = resolvePrice(field.surcharge.sku);
+    out.push({
+      kind: 'field', id: field.id, sku: field.surcharge.sku,
+      units, unit: price.amount ?? 0, amount: (price.amount ?? 0) * units,
+      sellable: isSellable(field.surcharge.sku, { allowPlaceholders }),
+    });
+  }
+
+  return out;
+}
+
+/**
  * Check and price one line.
  * Returns every problem it finds rather than the first, so a form can show them all.
  */
-export function validateLine(rawLine, { now = new Date(), allowPlaceholders = false } = {}) {
+export function validateLine(rawLine, { now = new Date(), allowPlaceholders = false, stay = null, context = {} } = {}) {
   const line = sanitiseLine(rawLine);
   const errors = [];
   const product = getProduct(line.productId);
@@ -134,6 +225,9 @@ export function validateLine(rawLine, { now = new Date(), allowPlaceholders = fa
   if (product.variants?.length > 0 && !variant) {
     errors.push({ code: 'variant-required', field: 'variantId' });
   }
+  // A variant still being settled is in the catalogue but not for sale, and is not
+  // published either — asking for it by name does not make it buyable.
+  if (variant?.hidden || variant?.pending) errors.push({ code: 'variant-unavailable', field: 'variantId' });
 
   // Quantity
   const { min = 1, max = 1 } = product.quantity ?? {};
@@ -150,8 +244,8 @@ export function validateLine(rawLine, { now = new Date(), allowPlaceholders = fa
     }
   }
 
-  // Slot or time
-  if (product.requiresTime) {
+  // Slot or time, which some products only need in certain configurations.
+  if (needsTime(product, line)) {
     const slots = product.deliverySlots ?? [];
     if (slots.length > 0) {
       if (!line.slotId || !slots.some((s) => s.id === line.slotId)) {
@@ -174,14 +268,34 @@ export function validateLine(rawLine, { now = new Date(), allowPlaceholders = fa
     }
   }
 
+  /**
+   * Anything sold inside a stay has to fit inside it. With no stay known — the
+   * guide opened without a personal link — there is nothing to check against, and
+   * inventing a window would be worse than not having one.
+   */
+  const bounded = asStay(stay);
+  if (product.withinStay && bounded) {
+    const days = variant?.meta?.days ?? 0;
+    if (line.date && !stayDates(bounded).includes(line.date)) {
+      errors.push({ code: 'date-outside-stay', field: 'date', stay: bounded });
+    } else if (line.date && days && !cardFitsStay(bounded, line.date, days)) {
+      errors.push({ code: 'duration-outside-stay', field: 'variantId', stay: bounded, days });
+    }
+  }
+
   if (product.requiresRoom && !line.room) errors.push({ code: 'room-required', field: 'room' });
 
-  // Options
+  // Options, including the ones a variant narrows down.
   for (const option of product.options ?? []) {
+    const allowed = variant?.allowedOptions?.[option.id];
     const chosen = line.options[option.id];
     const known = option.choices.some((c) => c.id === chosen);
-    if (option.required && !chosen) errors.push({ code: 'option-required', field: option.id });
+    const required = option.required && (!allowed || allowed.length > 0);
+    if (required && !chosen) errors.push({ code: 'option-required', field: option.id });
     else if (chosen && !known) errors.push({ code: 'option-invalid', field: option.id });
+    else if (chosen && allowed && !allowed.includes(chosen)) {
+      errors.push({ code: 'option-not-available', field: option.id, allowed });
+    }
   }
 
   // Free-text fields
@@ -197,7 +311,7 @@ export function validateLine(rawLine, { now = new Date(), allowPlaceholders = fa
   }
 
   // Cut-off
-  const cutoff = cutoffFor(product, variant, line);
+  const cutoff = cutoffFor(product, variant, line, context);
   if (cutoff.deadline && now > cutoff.deadline) {
     errors.push({ code: 'past-cutoff', field: 'date', deadline: cutoff.deadline.toISOString(), minutes: cutoff.minutes });
   }
@@ -209,8 +323,16 @@ export function validateLine(rawLine, { now = new Date(), allowPlaceholders = fa
     errors.push({ code: price.status === 'placeholder' ? 'price-not-confirmed' : 'price-not-set', field: 'price', sku });
   }
 
+  const surcharges = surchargesFor(product, line, { allowPlaceholders });
+  for (const surcharge of surcharges) {
+    if (!surcharge.sellable) errors.push({ code: 'surcharge-not-priced', field: surcharge.id, sku: surcharge.sku });
+  }
+
   const unit = typeof price.amount === 'number' ? price.amount : 0;
   const quantity = Math.max(0, line.quantity);
+  const extra = surcharges.reduce((sum, s) => sum + s.amount, 0);
+  const cancel = cancellableUntil(product, line);
+
   return {
     ok: errors.length === 0,
     line: { ...line, sku },
@@ -219,14 +341,37 @@ export function validateLine(rawLine, { now = new Date(), allowPlaceholders = fa
     errors,
     price,
     unit,
-    amount: errors.length === 0 ? unit * quantity : 0,
+    surcharges,
+    surcharge: extra,
+    amount: errors.length === 0 ? unit * quantity + extra : 0,
     cutoff: cutoff.deadline ? { ...cutoff, deadline: cutoff.deadline.toISOString() } : null,
+    cancellation: cancel.deadline ? { ...cancel, deadline: cancel.deadline.toISOString() } : cancel,
   };
 }
 
-/** Check and price a whole basket. */
-export function priceCart(rawLines = [], { now = new Date(), allowPlaceholders = false } = {}) {
-  const lines = (Array.isArray(rawLines) ? rawLines : []).map((l) => validateLine(l, { now, allowPlaceholders }));
+/**
+ * Check and price a whole basket.
+ *
+ * Two passes, because one rule is about the basket rather than the line: how much
+ * notice wine needs depends on what the wine in the basket is worth. The first pass
+ * prices the wine, the second decides with that number in hand — so two bottles
+ * bought together can be express when either alone would not be.
+ */
+export function priceCart(rawLines = [], { now = new Date(), allowPlaceholders = false, stay = null } = {}) {
+  const raw = Array.isArray(rawLines) ? rawLines : [];
+
+  const wineSubtotal = raw.reduce((sum, rawLine) => {
+    const line = sanitiseLine(rawLine);
+    const product = getProduct(line.productId);
+    if (product?.category !== 'wine') return sum;
+    const variant = getVariant(product, line.variantId);
+    const price = resolvePrice(skuFor(product, variant));
+    const quantity = Math.max(0, Math.trunc(line.quantity));
+    return sum + (typeof price.amount === 'number' ? price.amount * quantity : 0);
+  }, 0);
+
+  const context = { wineSubtotal };
+  const lines = raw.map((l) => validateLine(l, { now, allowPlaceholders, stay, context }));
   const ok = lines.length > 0 && lines.every((l) => l.ok);
   const subtotal = lines.reduce((sum, l) => sum + l.amount, 0);
   return {
@@ -235,6 +380,7 @@ export function priceCart(rawLines = [], { now = new Date(), allowPlaceholders =
     lines,
     subtotal,
     total: subtotal,
+    wineSubtotal,
     errors: lines.flatMap((l, index) => l.errors.map((e) => ({ ...e, index }))),
     empty: lines.length === 0,
   };
@@ -250,7 +396,7 @@ export function paymentModeFor(pricedLines) {
   return 'instant';
 }
 
-export { CURRENCY };
+export { CURRENCY, visibleVariants };
 
 /** The times a product is actually free, for the form and for `/api/availability`. */
 export function offeredSlots(productId, date) {

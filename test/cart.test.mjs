@@ -42,6 +42,12 @@ const wine = (over = {}) => ({
   date: soon(3), slotId: 'w-1900', room: '303', ...over,
 });
 
+/** LunArt's own in-room prices, from `commerce/prices.js`. */
+const BRUNELLO = 8900;
+const VERMENTINO = 4300;
+const DOM = 59000;
+const BRUNCH = 6900;
+
 test('an empty cart is empty', async () => {
   const cart = await loadCart(fakeStorage());
   assert.equal(cart.count(), 0);
@@ -55,7 +61,7 @@ test('adding the same thing twice counts it twice, not lists it twice', async ()
   cart.add(wine());
   assert.equal(cart.getLines().length, 1);
   assert.equal(cart.count(), 2);
-  assert.equal(cart.review().total, 14000);
+  assert.equal(cart.review().total, BRUNELLO * 2);
 });
 
 test('the same bottle on a different evening is a different line', async () => {
@@ -67,12 +73,12 @@ test('the same bottle on a different evening is a different line', async () => {
 
 test('different products and variants stay apart and add up', async () => {
   const cart = await loadCart(fakeStorage());
-  cart.add(wine());                                    // 70
-  cart.add(wine({ variantId: 'vermentino' }));         // 34
+  cart.add(wine());                                    // 89
+  cart.add(wine({ variantId: 'vermentino' }));         // 43
   cart.add({ productId: 'brunch', variantId: 'opera', quantity: 1, date: soon(2),
-             slotId: 'b-0830', room: '303', options: { hotDrink: 'espresso' } });  // 50
+             slotId: 'b-0830', room: '303', options: { hotDrink: 'espresso' } });  // 69
   assert.equal(cart.getLines().length, 3);
-  assert.equal(cart.review().total, 7000 + 3400 + 5000);
+  assert.equal(cart.review().total, BRUNELLO + VERMENTINO + BRUNCH);
 });
 
 test('quantity is clamped to what the product allows', async () => {
@@ -106,7 +112,7 @@ test('the cart is written to storage and read back', async () => {
   const second = await loadCart(storage);
   assert.equal(second.count(), 2);
   assert.equal(second.getLines()[1].variantId, 'dom-perignon');
-  assert.equal(second.review().total, 7000 + 50000);
+  assert.equal(second.review().total, BRUNELLO + DOM);
 });
 
 test('no amount is ever stored or sent', async () => {
@@ -121,7 +127,7 @@ test('no amount is ever stored or sent', async () => {
   for (const key of ['amount', 'price', 'total']) {
     assert.equal(key in cart.payload()[0], false, `${key} should not be sent`);
   }
-  assert.equal(cart.review().total, 7000, 'the price still comes from the catalogue');
+  assert.equal(cart.review().total, BRUNELLO, 'the price still comes from the catalogue');
 });
 
 test('nonsense in storage is discarded rather than crashing the guide', async () => {
@@ -136,7 +142,7 @@ test('a cart still works when storage refuses to write', async () => {
   const cart = await loadCart(fakeStorage({ failWrites: true }));
   cart.add(wine());
   assert.equal(cart.count(), 1);
-  assert.equal(cart.review().total, 7000);
+  assert.equal(cart.review().total, BRUNELLO);
 });
 
 test('a cart with a stale date explains itself instead of silently failing', async () => {

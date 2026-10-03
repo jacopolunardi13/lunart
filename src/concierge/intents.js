@@ -129,6 +129,11 @@ export const INTENTS = [
   { id: 'day-trip', entry: 'day-trips', anchors: ['dayTrip'] },
 
   { id: 'wellness', entry: 'wellness', anchors: ['wellness'] },
+
+  // ── In-room services ─────────────────────────────────────────────────────
+  { id: 'hair', answersPrice: true, entry: 'hair-in-room', anchors: ['hair'] },
+
+  { id: 'celebration', answersPrice: true, entry: 'celebration-in-room', anchors: ['celebration'] },
 ];
 
 /** Offered on a fallback, and as the opening suggestions, per guest phase. */

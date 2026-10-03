@@ -15,6 +15,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { parseFeedConfig } from './ingest/ical.js';
 
 const bool = (value, fallback = false) => {
   if (value == null || value === '') return fallback;
@@ -63,6 +64,46 @@ export const config = {
   dataDir: env.LUNART_DATA_DIR ?? '',
 
   staffToken: env.STAFF_TOKEN ?? '',
+
+  /* ── Reservations ──────────────────────────────────────────────────────── */
+
+  /** Which mailbox the QuoVai notifications are read from. Empty means none. */
+  mailboxSource: env.RESERVATION_MAILBOX ?? '',
+  gmailClientId: env.GMAIL_CLIENT_ID ?? '',
+  gmailClientSecret: env.GMAIL_CLIENT_SECRET ?? '',
+  gmailRefreshToken: env.GMAIL_REFRESH_TOKEN ?? '',
+  gmailQuery: env.GMAIL_QUERY ?? '',
+  /** How often to read it, in minutes. Zero turns polling off. */
+  mailboxPollMinutes: Number(env.RESERVATION_POLL_MINUTES ?? 0),
+
+  /** QuoVai's API or webhook, if it ever exists. */
+  quovaiApiBase: env.QUOVAI_API_BASE ?? '',
+  quovaiApiKey: env.QUOVAI_API_KEY ?? '',
+  quovaiWebhookSecret: env.QUOVAI_WEBHOOK_SECRET ?? '',
+
+  /** `303:https://…ics,305:https://…ics` or a bare list of URLs. */
+  icalFeeds: parseFeedConfig(env.QUOVAI_ICAL_FEEDS ?? ''),
+  icalPollMinutes: Number(env.ICAL_POLL_MINUTES ?? 0),
+
+  /** How the guest email actually leaves. Empty means nothing is sent. */
+  mailProvider: env.MAIL_PROVIDER ?? '',
+  mailFrom: env.MAIL_FROM ?? 'lunartfirenze@gmail.com',
+  /** Zero turns the send loop off; the schedule is still written. */
+  deliveryPollMinutes: Number(env.DELIVERY_POLL_MINUTES ?? 0),
+
+  /* ── Staff notifications ───────────────────────────────────────────────── */
+
+  vapidPublicKey: env.VAPID_PUBLIC_KEY ?? '',
+  vapidPrivateKey: env.VAPID_PRIVATE_KEY ?? '',
+  vapidSubject: env.VAPID_SUBJECT ?? '',
+
+  /* ── The hair professional's calendar ──────────────────────────────────── */
+
+  providerCalendar: env.PROVIDER_CALENDAR ?? 'google-calendar',
+  googleCalendarId: env.GOOGLE_CALENDAR_ID ?? '',
+  googleCalendarWriteId: env.GOOGLE_CALENDAR_WRITE_ID ?? '',
+  googleServiceAccountEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? '',
+  googleServiceAccountKey: env.GOOGLE_SERVICE_ACCOUNT_KEY ?? '',
 };
 
 /** Anything an operator needs to know before this is called live. */
@@ -83,7 +124,22 @@ export function configWarnings() {
     warnings.push('ALLOW_PLACEHOLDER_PRICES is on in production: unconfirmed prices can be charged.');
   }
   if (!config.staffToken) {
-    warnings.push('STAFF_TOKEN is not set: the provider confirm/decline endpoints are open to anyone who can reach them.');
+    warnings.push('STAFF_TOKEN is not set: the Staff app and the provider endpoints are open to anyone who can reach them.');
+  }
+  if (!config.mailboxSource) {
+    warnings.push('RESERVATION_MAILBOX is not set: QuoVai notifications are not being read, so reservations have to be entered by hand.');
+  }
+  if (!config.mailProvider) {
+    warnings.push('MAIL_PROVIDER is not set: guest guide emails are scheduled and rendered but never sent.');
+  }
+  if (config.icalFeeds.length === 0) {
+    warnings.push('QUOVAI_ICAL_FEEDS is not set: there is no calendar to reconcile against.');
+  }
+  if (!config.vapidPublicKey || !config.vapidPrivateKey) {
+    warnings.push('VAPID keys are not set: the Staff app works, but nothing is pushed to a phone.');
+  }
+  if (!config.googleCalendarId) {
+    warnings.push('GOOGLE_CALENDAR_ID is not set: hair appointments are not written to a provider calendar and availability stays manual.');
   }
   return warnings;
 }

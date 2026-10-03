@@ -20,6 +20,7 @@ import { openSheet, closeSheet } from './ui/sheet.js';
 let commerce = null;
 import { openSearch, closeSearch, isSearchOpen } from './ui/search.js';
 import * as concierge from './concierge/ui.js';
+import { loadGuest, tokenFromPath, guest } from './guest.js';
 import { PHASES, getEntry } from '../data/index.js';
 
 const PHASE_KEY = 'lunart.phase';
@@ -38,6 +39,15 @@ function readPhase() {
     if (PHASES.some((p) => p.id === saved)) return saved;
   } catch { /* private browsing */ }
   return 'before';
+}
+
+/** True when this guest has picked a phase themselves; their choice wins over ours. */
+function hasChosenPhase() {
+  try {
+    return PHASES.some((p) => p.id === localStorage.getItem(PHASE_KEY));
+  } catch {
+    return false;
+  }
 }
 
 function savePhase(phase) {
@@ -171,7 +181,9 @@ async function fillGuestBlocks() {
   if (!slot || !commerce?.catalogueAvailable()) return;
   const [cards, purchases] = await Promise.all([commerce.cardBlock(state.lang), commerce.purchasesBlock(state.lang)]);
   if (!document.body.contains(slot)) return;
-  slot.innerHTML = cards + purchases;
+  // What comes with the stay is not something the guest has to have bought, so it
+  // goes first — above the card and above anything they ordered.
+  slot.innerHTML = commerce.stayBenefitsBlock(state.lang) + cards + purchases;
 }
 
 function buildChrome() {
@@ -273,6 +285,23 @@ async function start() {
   state.view = parseHash().view;
   render();
   onRoute();
+
+  /**
+   * A personal link, if that is how this was opened.
+   *
+   * Resolved after the first paint for the same reason as the shop: the guide is
+   * already useful without it. When it arrives the guide re-renders knowing the
+   * guest's name, their room and which part of the stay they are in — and the phase
+   * they chose by hand, if they did, is left alone.
+   */
+  const token = tokenFromPath();
+  if (token) {
+    const context = await loadGuest(token);
+    if (context?.phase && !hasChosenPhase()) {
+      state.phase = context.phase;
+    }
+    if (context) render();
+  }
 
   try {
     commerce = await import('./commerce/boot.js');

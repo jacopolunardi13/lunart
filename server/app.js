@@ -9,6 +9,7 @@
 
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 import { config, configWarnings } from './config.js';
 import { createStore } from './store.js';
@@ -24,9 +25,32 @@ import {
   isPurchasable, availabilitySources, PAYMENT_STATUS, FULFILMENT_STATUS,
 } from '../commerce/index.js';
 import { applySchedule, scheduleInForce, slotsFor, daysWithSlots } from '../commerce/schedule.js';
-import { PARTNERS, activePartners, getPartner, guestBenefit } from '../commerce/partners.js';
+import {
+  PARTNERS, activePartners, getPartner, guestBenefit, applyPartners, cardPartners,
+  cardBenefits, stayBenefits,
+} from '../commerce/partners.js';
+import { publicProduct } from '../commerce/catalog.js';
+import { cardStartDates, cardVariantsForStay } from '../commerce/stay.js';
 import { renderMockCheckout } from './mock-checkout.js';
 import { rateLimit, clientKey } from './rate-limit.js';
+
+import { staffView, completePastStays, stayOf, isLive } from './reservations.js';
+import { resolveGuideLink, guideContextView, recoverGuideLink } from './guide-link.js';
+import {
+  createMailer, scheduleGuideEmail, sendDueGuideEmails, renderGuideEmail,
+  mailProviders, guideUrl, DELIVERY_STATUS,
+} from './delivery.js';
+import { ingestMessage, ingestMessages, ingestEvent, resolveAlert } from './ingest/index.js';
+import { createMailbox, mailboxSources, pollMailbox, createMemoryMailbox } from './ingest/mailbox.js';
+import { createQuovaiApiAdapter, reservationSources } from './ingest/quovai-api.js';
+import { reconcileFeeds } from './ingest/ical.js';
+import { createPushAdapter, notifyStaff, registerSubscription } from './push.js';
+import { createProviderCalendar, providerCalendars } from './calendar/google.js';
+import {
+  STAFF_QUEUES, queueOf, staffOrderView, orderQueues, dashboard, syncOverview,
+  setFulfilment, requestSubstitution, assignOrder, cancelOrder, refundOrder,
+  createManualReservation, editReservation, cancelReservationByStaff, guideLinkFor,
+} from './staff.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 
@@ -43,6 +67,10 @@ export async function createApp(overrides = {}) {
     // flow can be walked through. Production has neither.
     const { devSchedule } = await import('../commerce/schedule.dev.js');
     applySchedule(devSchedule());
+    // And one obviously-fake card partner, so the Privilege Card can be bought and
+    // the whole flow walked. Production has none, which is why it is not on sale.
+    const { devPartners } = await import('../commerce/partners.dev.js');
+    applyPartners(devPartners());
   }
 
   const stripe = overrides.stripe
@@ -50,7 +78,30 @@ export async function createApp(overrides = {}) {
       ? createStripe({ secretKey: settings.stripe.secretKey, apiVersion: settings.stripe.apiVersion })
       : createMockStripe());
 
-  const ctx = { settings, store, stripe };
+  /**
+   * The outside world, as adapters. Each one reports whether it is actually
+   * configured, and the unconfigured ones refuse rather than pretending.
+   */
+  const mailer = overrides.mailer ?? createMailer(settings);
+  const mailbox = overrides.mailbox ?? createMailbox(settings);
+  const push = overrides.push ?? createPushAdapter(settings);
+  const quovaiApi = overrides.quovaiApi ?? createQuovaiApiAdapter(settings);
+  const providerCalendar = overrides.providerCalendar ?? createProviderCalendar(settings);
+
+  const ctx = { settings, store, stripe, mailer, push, providerCalendar };
+
+  const origin = settings.publicUrl;
+
+  /**
+   * Two invented reservations, so the Staff app and the personal link have
+   * something to show. Only in the preview, only when the store is empty, and
+   * through the real ingestion path rather than written straight in.
+   */
+  let previewSeed = null;
+  if (settings.useDevPrices && overrides.seed !== false) {
+    const { seedPreview } = await import('./dev-seed.js');
+    previewSeed = await seedPreview({ store, publicUrl: origin });
+  }
 
   /* ── Catalogue ───────────────────────────────────────────────────────── */
 
@@ -60,7 +111,7 @@ export async function createApp(overrides = {}) {
       currency: 'EUR',
       categories: COMMERCE_CATEGORIES,
       products: PRODUCTS.map((product) => ({
-        ...product,
+        ...publicProduct(product),
         purchasable: isPurchasable(product, { allowPlaceholders }),
       })),
       planned: PLANNED_PRODUCTS,
@@ -79,6 +130,13 @@ export async function createApp(overrides = {}) {
        */
       schedule: scheduleInForce(),
       partners: activePartners(),
+      /**
+       * The two kinds of benefit, kept apart. What comes with the stay is not what
+       * the card is for, and a guest who already has the 30% must not be sold it
+       * again.
+       */
+      stayBenefits: stayBenefits(settings.publicUrl),
+      cardBenefits: cardBenefits(settings.publicUrl),
       /** The amounts in force. The browser renders these and sends none of them back. */
       prices: priceTable(allSkus()),
       allowPlaceholderPrices: allowPlaceholders,
@@ -87,10 +145,26 @@ export async function createApp(overrides = {}) {
     });
   }
 
+  /**
+   * The stay a request is being made inside, from the guest's own link.
+   *
+   * The browser sends the opaque guide token; the server turns it into dates. A
+   * request with no token has no stay, and anything that has to fit inside one
+   * simply cannot be sold — which is better than trusting a client-supplied range.
+   */
+  async function stayFor(body = {}) {
+    const token = String(body.guideToken ?? '').trim();
+    if (!token) return { stay: null, reservation: null };
+    const resolved = await resolveGuideLink({ store, token });
+    if (!resolved?.live) return { stay: null, reservation: resolved?.reservation ?? null, blocked: Boolean(resolved) };
+    return { stay: resolved.stay, reservation: resolved.reservation };
+  }
+
   /** Price a basket without buying it, so the cart can explain itself. */
   async function postCartPrice(req, res) {
     const body = await readJson(req);
-    const priced = priceCart(body.lines ?? [], { allowPlaceholders: settings.allowPlaceholderPrices });
+    const { stay } = await stayFor(body);
+    const priced = priceCart(body.lines ?? [], { allowPlaceholders: settings.allowPlaceholderPrices, stay });
     sendJson(res, 200, {
       ok: priced.ok,
       empty: priced.empty,
@@ -105,9 +179,12 @@ export async function createApp(overrides = {}) {
         quantity: l.line.quantity,
         unit: l.unit,
         amount: l.amount,
+        surcharge: l.surcharge ?? 0,
+        surcharges: l.surcharges ?? [],
         ok: l.ok,
         errors: l.errors,
         cutoff: l.cutoff,
+        cancellation: l.cancellation ?? null,
       })),
     });
   }
@@ -130,11 +207,20 @@ export async function createApp(overrides = {}) {
       return;
     }
 
+    const { stay, reservation, blocked } = await stayFor(body);
+    if (blocked) {
+      // The link resolves to a stay that is no longer live. Nothing new is sold
+      // against a cancelled reservation.
+      sendJson(res, 409, { error: 'reservation-not-live' });
+      return;
+    }
+
     const built = priceAndBuild({
       lines: body.lines ?? [],
       customer,
       lang,
       allowPlaceholders: settings.allowPlaceholderPrices,
+      stay,
     });
 
     if (!built.ok) {
@@ -144,7 +230,16 @@ export async function createApp(overrides = {}) {
       return;
     }
 
-    const order = await store.orders.create(built.order);
+    const order = await store.orders.create({
+      ...built.order,
+      /** Which stay this belongs to, when the guest came in by their own link. */
+      reservation_id: reservation?.id ?? null,
+      customer: {
+        ...built.order.customer,
+        room: built.order.customer.room || reservation?.room || '',
+        booking_reference: built.order.customer.booking_reference || reservation?.booking_reference || '',
+      },
+    });
     const manualCapture = order.payment_mode === 'authorize-then-capture';
 
     let session;
@@ -355,16 +450,6 @@ export async function createApp(overrides = {}) {
 
   /* ── Provider decisions, for staff ───────────────────────────────────── */
 
-  function staffAuthorised(req) {
-    if (settings.staffToken) {
-      const header = String(req.headers.authorization ?? '');
-      return header === `Bearer ${settings.staffToken}`;
-    }
-    // Without a token configured this is a preview, not an operation. Refusing in
-    // production is the safe side of the trade: better unusable than open.
-    return settings.mode !== 'production';
-  }
-
   async function postProviderDecision(req, res, { id, decision }) {
     if (!staffAuthorised(req)) { sendJson(res, 401, { error: 'unauthorised' }); return; }
 
@@ -405,6 +490,389 @@ export async function createApp(overrides = {}) {
           lines: o.lines.map((l) => ({ title: l.title, variant_title: l.variant_title, date: l.date, time: l.time, fields: l.fields })),
         })),
     });
+  }
+
+  /* ── The personal guide link ─────────────────────────────────────────── */
+
+  /**
+   * What the guide knows about the guest who opened it.
+   *
+   * The token is the only thing the browser holds, and it is opaque: this is where
+   * it becomes a first name, a room and a set of dates. What comes back is the
+   * minimum the guide needs — no surname, no email, no phone, no booking number.
+   */
+  async function getGuideContext(req, res, { token }) {
+    const limited = rateLimit(`guide:${clientKey(req)}`, { limit: 60, windowMs: 60_000 });
+    if (!limited.allowed) {
+      sendJson(res, 429, { error: 'too-many-requests' }, { 'retry-after': String(limited.retryAfterSeconds) });
+      return;
+    }
+
+    const resolved = await resolveGuideLink({ store, token });
+    if (!resolved) { sendJson(res, 404, { error: 'not-found' }); return; }
+
+    const view = guideContextView(resolved);
+    /** The card lengths this stay can actually take, so the form offers no others. */
+    const card = PRODUCTS.find((p) => p.id === 'privilege-card');
+    const variants = resolved.stay ? cardVariantsForStay(card?.variants ?? [], resolved.stay) : [];
+    sendJson(res, 200, {
+      ...view,
+      cardOptions: variants.map((variant) => ({
+        variantId: variant.id,
+        days: variant.meta?.days ?? null,
+        startDates: cardStartDates(resolved.stay, variant.meta?.days ?? 0),
+      })),
+    });
+  }
+
+  /**
+   * The guide itself, served from a personal link.
+   *
+   * `index.html` references its assets relatively, because the static site is also
+   * published by GitHub Pages and may sit under a path. From `/g/<token>` that would
+   * ask for `/g/assets/...`, so this one route sends the same page with a `<base>` on
+   * it. The file on disk is untouched: the static deployment keeps working exactly as
+   * it does now.
+   */
+  async function getGuidePage(req, res) {
+    const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    sendHtml(res, 200, html.replace('<head>', '<head>\n<base href="/">'), { 'cache-control': 'no-cache' });
+  }
+
+  /**
+   * A lost link, given back.
+   *
+   * Surname and booking number, heavily rate limited, and one answer for every
+   * failure. The limit is per address and per surname, so working through booking
+   * numbers for one guest is as slow as working through guests.
+   */
+  async function postGuideRecover(req, res) {
+    const body = await readJson(req);
+    const lastName = String(body.lastName ?? '').trim();
+    const reference = String(body.reference ?? '').trim();
+
+    // Per address generously, because a family on the same hotel Wi-Fi shares one;
+    // per surname tightly, because that is the axis somebody guessing moves along.
+    const byAddress = rateLimit(`recover:${clientKey(req)}`, { limit: 10, windowMs: 10 * 60_000 });
+    const byName = rateLimit(`recover-name:${lastName.toLowerCase()}`, { limit: 5, windowMs: 10 * 60_000 });
+    if (!byAddress.allowed || !byName.allowed) {
+      sendJson(res, 429, { ok: false, reason: 'too-many-attempts' },
+        { 'retry-after': String(Math.max(byAddress.retryAfterSeconds ?? 0, byName.retryAfterSeconds ?? 0)) });
+      return;
+    }
+
+    if (!lastName || !reference) { sendJson(res, 400, { ok: false, reason: 'incomplete' }); return; }
+
+    const result = await recoverGuideLink({ store, lastName, reference, origin });
+    // Same status and same body whether the reservation exists or not.
+    if (!result.ok) { sendJson(res, 404, { ok: false, reason: 'not-found' }); return; }
+    sendJson(res, 200, result);
+  }
+
+  /* ── Reservation ingestion ───────────────────────────────────────────── */
+
+  /**
+   * QuoVai's webhook, when QuoVai has one.
+   *
+   * The route exists so the address can be given out and the plumbing tested; the
+   * adapter decides whether it can be honoured. Unconfigured it answers 503 with a
+   * reason, which is a better thing to find in their logs than a 404.
+   */
+  async function postQuovaiWebhook(req, res) {
+    const raw = await readRawBody(req);
+    if (!quovaiApi.configured) {
+      sendJson(res, 503, { error: 'source-not-configured', requires: quovaiApi.requires });
+      return;
+    }
+    if (!quovaiApi.verify(raw.toString('utf8'), req.headers['x-quovai-signature'] ?? req.headers['x-signature'])) {
+      sendJson(res, 400, { error: 'signature-verification-failed' });
+      return;
+    }
+    let event;
+    try {
+      event = quovaiApi.toEvent(JSON.parse(raw.toString('utf8')));
+    } catch (error) {
+      sendJson(res, 422, { error: error.code ?? 'unmappable-payload', message: error.message });
+      return;
+    }
+    const result = await ingestEvent({ store, event });
+    sendJson(res, result.ok ? 200 : 422, result);
+  }
+
+  /* ── Staff ───────────────────────────────────────────────────────────── */
+
+  function staffAuthorised(req) {
+    if (settings.staffToken) {
+      const header = String(req.headers.authorization ?? '');
+      return header === `Bearer ${settings.staffToken}`;
+    }
+    // Without a token configured this is a preview, not an operation. Refusing in
+    // production is the safe side of the trade: better unusable than open.
+    return settings.mode !== 'production';
+  }
+
+  const guard = (handler) => async (req, res, params, url) => {
+    if (!staffAuthorised(req)) { sendJson(res, 401, { error: 'unauthorised' }); return; }
+    await handler(req, res, params, url);
+  };
+
+  async function getStaffDashboard(req, res) {
+    sendJson(res, 200, {
+      ...await dashboard({ store }),
+      push: { configured: push.configured, publicKey: push.publicKey },
+      sources: reservationSources(settings),
+    });
+  }
+
+  async function getStaffOrders(req, res, _params, url) {
+    const queue = url.searchParams.get('queue');
+    const orders = await store.orders.list({ limit: 200 });
+    const chosen = queue && STAFF_QUEUES.includes(queue)
+      ? orders.filter((order) => queueOf(order) === queue)
+      : orders;
+    sendJson(res, 200, {
+      queue: queue ?? 'all',
+      counts: Object.fromEntries(STAFF_QUEUES.map((q) => [q, orders.filter((o) => queueOf(o) === q).length])),
+      orders: chosen.map((order) => staffOrderView(order)),
+    });
+  }
+
+  /** One function per decision a person can make. Money only where it says money. */
+  async function postStaffOrderAction(req, res, { id, action }) {
+    const order = await store.orders.get(id);
+    if (!order) { sendJson(res, 404, { error: 'not-found' }); return; }
+    const body = await readJson(req).catch(() => ({}));
+    const note = String(body.note ?? '').slice(0, 300);
+    const by = String(body.by ?? 'staff').slice(0, 40);
+
+    let result;
+    switch (action) {
+      case 'confirm':
+        if (order.status !== PAYMENT_STATUS.authorized) {
+          sendJson(res, 409, { error: 'not-awaiting-confirmation', status: order.status });
+          return;
+        }
+        result = { ok: true, order: await confirmProviderOrder(order, ctx, note) };
+        break;
+      case 'reject':
+        if (order.status !== PAYMENT_STATUS.authorized) {
+          sendJson(res, 409, { error: 'not-awaiting-confirmation', status: order.status });
+          return;
+        }
+        result = { ok: true, order: await declineProviderOrder(order, ctx, note) };
+        break;
+      case 'preparing':
+        result = await setFulfilment({ store, order, to: FULFILMENT_STATUS['in-preparation'], note, by });
+        break;
+      case 'delivered':
+        result = await setFulfilment({ store, order, to: FULFILMENT_STATUS.delivered, note, by });
+        break;
+      case 'completed':
+        result = await setFulfilment({ store, order, to: FULFILMENT_STATUS.completed, note, by });
+        break;
+      case 'substitution':
+        result = await requestSubstitution({ store, order, note, by });
+        break;
+      case 'assign':
+        result = await assignOrder({ store, order, assignee: body.assignee, by });
+        break;
+      case 'cancel':
+        result = await cancelOrder({ store, stripe, order, note, by });
+        break;
+      case 'refund':
+        result = await refundOrder({ store, stripe, order, note, by });
+        break;
+      default:
+        sendJson(res, 400, { error: 'unknown-action' });
+        return;
+    }
+
+    if (!result.ok) { sendJson(res, 409, result); return; }
+    sendJson(res, 200, {
+      ok: true,
+      order: staffOrderView(result.order),
+      refund_outstanding: result.refund_outstanding ?? false,
+      released: result.released ?? undefined,
+    });
+  }
+
+  /** How to reach the guest about this order, assembled from the order itself. */
+  async function getStaffOrderContact(req, res, { id }) {
+    const order = await store.orders.get(id);
+    if (!order) { sendJson(res, 404, { error: 'not-found' }); return; }
+    const phone = order.customer?.phone
+      || order.lines.map((l) => l.fields?.phone).find(Boolean)
+      || '';
+    const digits = String(phone).replace(/[^\d+]/g, '');
+    sendJson(res, 200, {
+      name: order.customer?.name ?? '',
+      email: order.customer?.email ?? '',
+      phone,
+      room: order.customer?.room ?? order.lines.map((l) => l.room).find(Boolean) ?? '',
+      whatsapp: digits ? `https://wa.me/${digits.replace(/^\+/, '')}` : null,
+      tel: digits ? `tel:${digits}` : null,
+      mailto: order.customer?.email ? `mailto:${order.customer.email}` : null,
+    });
+  }
+
+  async function getStaffReservations(req, res, _params, url) {
+    const all = await store.reservations.list({ limit: 300 });
+    const which = url.searchParams.get('status');
+    const rows = which ? all.filter((r) => r.status === which) : all;
+    sendJson(res, 200, {
+      reservations: rows
+        .sort((a, b) => String(a.check_in).localeCompare(String(b.check_in)))
+        .map(staffView),
+    });
+  }
+
+  async function postStaffReservations(req, res) {
+    const body = await readJson(req);
+    const result = await createManualReservation({ store, input: body });
+    if (!result.ok) { sendJson(res, 422, result); return; }
+    await notifyStaff({
+      store, push, event: 'reservation-new',
+      data: {
+        reservationId: result.reservation.id,
+        guest: [result.reservation.first_name, result.reservation.last_name].filter(Boolean).join(' '),
+        room: result.reservation.room,
+        check_in: result.reservation.check_in,
+        check_out: result.reservation.check_out,
+      },
+    });
+    sendJson(res, 201, { ok: true, action: result.action, reservation: staffView(result.reservation) });
+  }
+
+  async function postStaffReservationAction(req, res, { id, action }) {
+    const reservation = await store.reservations.get(id);
+    if (!reservation) { sendJson(res, 404, { error: 'not-found' }); return; }
+    const body = await readJson(req).catch(() => ({}));
+
+    if (action === 'edit') {
+      const result = await editReservation({ store, reservation, patch: body });
+      sendJson(res, 200, { ok: true, action: result.action, reservation: staffView(result.reservation) });
+      return;
+    }
+    if (action === 'cancel') {
+      const result = await cancelReservationByStaff({ store, reservation, reason: body.reason ?? '' });
+      sendJson(res, 200, { ok: true, reservation: staffView(result.reservation) });
+      return;
+    }
+    if (action === 'link') {
+      const result = await guideLinkFor({ store, reservation, origin, rotate: body.rotate === true });
+      sendJson(res, 200, { ok: true, ...result });
+      return;
+    }
+    if (action === 'email') {
+      // Re-date the email, or see what it would say. Nothing is sent from here.
+      const delivery = await scheduleGuideEmail({ store, reservation, reason: 'staff' });
+      sendJson(res, 200, {
+        ok: true,
+        delivery,
+        preview: renderGuideEmail({ reservation, origin, lang: reservation.lang }),
+      });
+      return;
+    }
+    sendJson(res, 400, { error: 'unknown-action' });
+  }
+
+  async function getStaffSync(req, res) {
+    sendJson(res, 200, {
+      ...await syncOverview({ store }),
+      mailbox: mailbox ? { id: mailbox.id, configured: mailbox.configured } : { id: null, configured: false },
+      mail: { provider: mailer.id, configured: mailer.configured },
+      push: { configured: push.configured },
+      calendar: { id: providerCalendar.id, configured: providerCalendar.configured },
+      sources: reservationSources(settings),
+    });
+  }
+
+  /** Read the mailbox now, rather than waiting for the next poll. */
+  async function postStaffPoll(req, res) {
+    const result = await pollMailbox({ store, mailbox, ingest: ingestMessages });
+    sendJson(res, result.ok ? 200 : 503, result);
+  }
+
+  /** Compare the calendars now. */
+  async function postStaffReconcile(req, res) {
+    const result = await reconcileFeeds({ store, feeds: settings.icalFeeds });
+    sendJson(res, result.ok ? 200 : 503, result);
+  }
+
+  /**
+   * Feed one notification in by hand.
+   *
+   * The way a forwarded email becomes a reservation when the mailbox is not
+   * connected, and the way the whole ingestion path is exercised in the preview.
+   */
+  async function postStaffIngest(req, res) {
+    const body = await readJson(req);
+    const result = await ingestMessage({
+      store,
+      message: {
+        subject: body.subject ?? '',
+        from: body.from ?? '',
+        body: body.body ?? '',
+        messageId: body.messageId ?? '',
+      },
+    });
+    sendJson(res, result.ok ? 200 : 422, result);
+  }
+
+  async function postStaffAlertResolve(req, res, { id }) {
+    const alert = await resolveAlert({ store, id });
+    if (!alert) { sendJson(res, 404, { error: 'not-found' }); return; }
+    sendJson(res, 200, { ok: true, alert });
+  }
+
+  /** Register a phone for notifications. Accepted with or without VAPID keys. */
+  async function postStaffSubscribe(req, res) {
+    const body = await readJson(req);
+    const result = await registerSubscription({ store, subscription: body.subscription, label: body.label });
+    sendJson(res, result.ok ? 200 : 400, { ...result, configured: push.configured });
+  }
+
+  /** Send one, so a phone can be checked. Says plainly when nothing really went. */
+  async function postStaffNotifyTest(req, res) {
+    const result = await notifyStaff({
+      store, push, event: 'reconciliation',
+      data: { key: 'test', message: 'Notifica di prova dalla LunArt Staff app' },
+    });
+    sendJson(res, 200, result);
+  }
+
+  /** The emails due now. Nothing leaves unless a mail provider is configured. */
+  async function postStaffSendEmails(req, res) {
+    const sent = await sendDueGuideEmails({ store, mailer, origin });
+    sendJson(res, 200, {
+      ok: true,
+      provider: mailer.id,
+      configured: mailer.configured,
+      processed: sent.length,
+      deliveries: sent,
+    });
+  }
+
+  /** A manifest of its own, so the Staff app installs as itself. */
+  async function getStaffManifest(req, res) {
+    res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-cache' })
+      .end(JSON.stringify({
+        name: 'LunArt Staff',
+        short_name: 'LunArt Staff',
+        description: 'Ordini, prenotazioni e sincronizzazione per lo staff LunArt.',
+        start_url: '/staff',
+        scope: '/staff',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#16140f',
+        theme_color: '#16140f',
+        lang: 'it',
+        icons: [
+          { src: '/assets/icon.svg', sizes: 'any', type: 'image/svg+xml' },
+          { src: '/assets/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/assets/icon-512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      }, null, 2));
   }
 
   /* ── Mock checkout ───────────────────────────────────────────────────── */
@@ -452,6 +920,21 @@ export async function createApp(overrides = {}) {
       appointmentDays: Object.fromEntries(
         PRODUCTS.filter((p) => p.availabilityMode === 'timeslots').map((p) => [p.id, daysWithSlots(p.id).length]),
       ),
+      cardPartners: cardPartners().length,
+      cardOnSale: isPurchasable(PRODUCTS.find((p) => p.id === 'privilege-card'), {
+        allowPlaceholders: settings.allowPlaceholderPrices,
+      }),
+      reservations: {
+        sources: reservationSources(settings),
+        mailbox: mailbox ? { id: mailbox.id, configured: mailbox.configured } : { id: null, configured: false },
+        mailboxes: mailboxSources(),
+        pollMinutes: settings.mailboxPollMinutes,
+        icalFeeds: settings.icalFeeds.length,
+        icalPollMinutes: settings.icalPollMinutes,
+      },
+      guestEmail: { provider: mailer.id, configured: mailer.configured, providers: mailProviders() },
+      push: { configured: push.configured, requires: push.requires },
+      providerCalendar: { id: providerCalendar.id, configured: providerCalendar.configured, options: providerCalendars(settings) },
       warnings: configWarnings(),
     });
   }
@@ -473,6 +956,34 @@ export async function createApp(overrides = {}) {
     ['GET',  '/api/partners/:id', getPartnerInfo],
     ['GET',  '/partner/:id/manifest.webmanifest', getPartnerManifest],
     ['GET',  '/partner/:id', (req, res) => serveStatic(req, res, ROOT, '/partner.html')],
+
+    /* The guest's own link. The page is the guide; the context comes from the API. */
+    ['GET',  '/api/guide/:token', getGuideContext],
+    ['POST', '/api/guide/recover', postGuideRecover],
+    ['GET',  '/g/:token', getGuidePage],
+    ['GET',  '/recover', (req, res) => serveStatic(req, res, ROOT, '/recover.html')],
+
+    /* Reservation ingestion. */
+    ['POST', '/api/quovai/webhook', postQuovaiWebhook],
+
+    /* Staff. Every one of these is behind the staff token. */
+    ['GET',  '/api/staff/dashboard', guard(getStaffDashboard)],
+    ['GET',  '/api/staff/orders', guard(getStaffOrders)],
+    ['GET',  '/api/staff/orders/:id/contact', guard(getStaffOrderContact)],
+    ['POST', '/api/staff/orders/:id/:action', guard(postStaffOrderAction)],
+    ['GET',  '/api/staff/reservations', guard(getStaffReservations)],
+    ['POST', '/api/staff/reservations', guard(postStaffReservations)],
+    ['POST', '/api/staff/reservations/:id/:action', guard(postStaffReservationAction)],
+    ['GET',  '/api/staff/sync', guard(getStaffSync)],
+    ['POST', '/api/staff/sync/poll', guard(postStaffPoll)],
+    ['POST', '/api/staff/sync/reconcile', guard(postStaffReconcile)],
+    ['POST', '/api/staff/sync/ingest', guard(postStaffIngest)],
+    ['POST', '/api/staff/sync/send-emails', guard(postStaffSendEmails)],
+    ['POST', '/api/staff/alerts/:id/resolve', guard(postStaffAlertResolve)],
+    ['POST', '/api/staff/push/subscribe', guard(postStaffSubscribe)],
+    ['POST', '/api/staff/push/test', guard(postStaffNotifyTest)],
+    ['GET',  '/staff/manifest.webmanifest', getStaffManifest],
+    ['GET',  '/staff', (req, res) => serveStatic(req, res, ROOT, '/staff.html')],
     // The QR a guest shows points here, so it must resolve to the venue's page and
     // not fall through to the guide's catch-all.
     ['GET',  '/validate-card', (req, res) => serveStatic(req, res, ROOT, '/validate-card.html')],
@@ -501,7 +1012,42 @@ export async function createApp(overrides = {}) {
     sendText(res, 404, 'Not found');
   }
 
-  return { handle, store, stripe, settings, listen: (port = settings.port) => createServer(handle).listen(port) };
+  /**
+   * The work nobody triggers.
+   *
+   * Reading the mailbox, sending what is due, reconciling the calendars and
+   * retiring finished stays. Called on an interval by `index.js` when the relevant
+   * configuration exists, and callable directly, which is how it is tested.
+   */
+  async function runScheduledWork({ now = new Date(), force = false } = {}) {
+    const did = {};
+    if (mailbox && (force || settings.mailboxPollMinutes > 0)) {
+      did.mailbox = await pollMailbox({ store, mailbox, ingest: ingestMessages, now });
+    }
+    if (force || settings.deliveryPollMinutes > 0) {
+      did.emails = (await sendDueGuideEmails({ store, mailer, origin, now })).length;
+    }
+    if (settings.icalFeeds.length > 0 && (force || settings.icalPollMinutes > 0)) {
+      did.reconciliation = await reconcileFeeds({ store, feeds: settings.icalFeeds, now });
+    }
+    did.completed = (await completePastStays({ store, now })).length;
+    return did;
+  }
+
+  return {
+    handle,
+    store,
+    stripe,
+    settings,
+    mailer,
+    mailbox,
+    push,
+    quovaiApi,
+    providerCalendar,
+    runScheduledWork,
+    previewSeed,
+    listen: (port = settings.port) => createServer(handle).listen(port),
+  };
 }
 
 /* ── Event handling, shared by the real webhook and the mock ───────────── */
@@ -514,7 +1060,7 @@ export async function createApp(overrides = {}) {
  * event again — discovering that by issuing a second Privilege Card is not an
  * acceptable way to find out.
  */
-export async function handleStripeEvent(event, { store, stripe, settings }) {
+export async function handleStripeEvent(event, { store, stripe, settings, push = null, providerCalendar = null }) {
   if (!event?.id || !event?.type) return { ignored: true, reason: 'malformed' };
   if (await store.events.seen(event.id)) return { deduplicated: true };
 
@@ -553,12 +1099,14 @@ export async function handleStripeEvent(event, { store, stripe, settings }) {
           fulfilment_status: FULFILMENT_STATUS['awaiting-confirmation'],
           provider: { ...order.provider, status: 'awaiting', updated_at: new Date().toISOString() },
         }, 'authorised, awaiting provider');
+        await alertStaff(order, { store, push });
       } else {
         outcome = await move(PAYMENT_STATUS.paid, { stripe_payment_intent_id: intentId }, 'paid at checkout');
-        const fulfilled = await fulfilOrder(order, { store, signingKey: settings.cardSigningKey });
+        const fulfilled = await fulfilOrder(order, { store, signingKey: settings.cardSigningKey, providerCalendar });
         order = fulfilled.order;
         outcome.entitlements = fulfilled.cards.length;
       }
+      await alertStaff(order, { store, push });
       break;
     }
 
@@ -568,7 +1116,7 @@ export async function handleStripeEvent(event, { store, stripe, settings }) {
 
     case 'payment_intent.succeeded': {
       outcome = await move(PAYMENT_STATUS.paid, { stripe_payment_intent_id: object.id }, 'captured');
-      const fulfilled = await fulfilOrder(order, { store, signingKey: settings.cardSigningKey });
+      const fulfilled = await fulfilOrder(order, { store, signingKey: settings.cardSigningKey, providerCalendar });
       order = fulfilled.order;
       outcome.entitlements = fulfilled.cards.length;
       break;
@@ -599,6 +1147,37 @@ export async function handleStripeEvent(event, { store, stripe, settings }) {
 
   await store.events.remember(event.id, { type: event.type, order_id: order.id });
   return outcome;
+}
+
+/**
+ * Tell staff an order landed.
+ *
+ * Never allowed to fail the order: a notification that does not arrive is an
+ * inconvenience, an exception thrown out of a webhook handler is a payment Stripe
+ * will retry. Unconfigured push records the wording and says it was simulated.
+ */
+async function alertStaff(order, { store, push }) {
+  if (!push) return;
+  try {
+    const first = order.lines[0];
+    const money = `${(order.amount / 100).toFixed(2).replace('.', ',')} €`;
+    await notifyStaff({
+      store,
+      push,
+      event: order.fulfilment_status === FULFILMENT_STATUS['awaiting-confirmation'] ? 'order-awaiting' : 'order-new',
+      data: {
+        orderId: order.id,
+        title: first?.variant_title ? `${first.title} — ${first.variant_title}` : (first?.title ?? 'Ordine'),
+        room: order.customer?.room || first?.room || '',
+        amount: money,
+        when: [first?.date, first?.time].filter(Boolean).join(' '),
+        express: order.lines.some((line) => line.product_id === 'wine-in-room') && order.amount >= 9000,
+        url: '/staff',
+      },
+    });
+  } catch (error) {
+    console.warn('[push] staff notification failed:', error.message);
+  }
 }
 
 /* ── Provider decisions ────────────────────────────────────────────────── */

@@ -39,6 +39,9 @@ function orderLines(priced, lang = 'it') {
     quantity: entry.line.quantity,
     unit_amount: entry.unit,
     amount: entry.amount,
+    /** What was added on top, and why — priced here, never sent by the client. */
+    surcharges: entry.surcharges ?? [],
+    surcharge_amount: entry.surcharge ?? 0,
     date: entry.line.date,
     slot_id: entry.line.slotId,
     time: entry.line.time,
@@ -86,8 +89,8 @@ export function buildOrder({ priced, customer, lang = 'it', paymentMode }) {
 }
 
 /** Re-price from the catalogue and build the order. The client's numbers are never read. */
-export function priceAndBuild({ lines, customer, lang, now, allowPlaceholders }) {
-  const priced = priceCart(lines, { now, allowPlaceholders });
+export function priceAndBuild({ lines, customer, lang, now, allowPlaceholders, stay = null }) {
+  const priced = priceCart(lines, { now, allowPlaceholders, stay });
   if (!priced.ok) return { ok: false, priced };
   const paymentMode = paymentModeFor(priced.lines);
   return { ok: true, priced, order: buildOrder({ priced, customer, lang, paymentMode }) };
@@ -95,7 +98,7 @@ export function priceAndBuild({ lines, customer, lang, now, allowPlaceholders })
 
 /** Stripe line items, built from what the server computed, not from the request. */
 export function stripeLineItems(order, lang = 'it') {
-  return order.lines.map((line) => ({
+  const items = order.lines.map((line) => ({
     quantity: line.quantity,
     price_data: {
       currency: order.currency.toLowerCase(),
@@ -107,7 +110,35 @@ export function stripeLineItems(order, lang = 'it') {
       },
     },
   }));
+
+  /**
+   * Surcharges are their own line, so the guest sees what they are paying for and
+   * the Stripe total matches the order total. Folding them into the unit price
+   * would make a €90 transfer with one extra case look like a €105 transfer.
+   */
+  for (const line of order.lines) {
+    for (const surcharge of line.surcharges ?? []) {
+      if (!surcharge.amount) continue;
+      items.push({
+        quantity: surcharge.units ?? 1,
+        price_data: {
+          currency: order.currency.toLowerCase(),
+          unit_amount: surcharge.unit,
+          product_data: { name: `${line.title} — ${surchargeName(surcharge, lang)}` },
+        },
+      });
+    }
+  }
+  return items;
 }
+
+const SURCHARGE_NAMES = {
+  oversizedItems: { it: 'bagaglio extra', en: 'extra luggage' },
+  upgrade: { it: 'upgrade bottiglia', en: 'bottle upgrade' },
+};
+
+const surchargeName = (surcharge, lang) =>
+  SURCHARGE_NAMES[surcharge.id]?.[lang] ?? SURCHARGE_NAMES[surcharge.id]?.it ?? surcharge.id;
 
 export function appendEvent(order, type, note = '') {
   return { ...order, events: [...(order.events ?? []), { at: new Date().toISOString(), type, note }] };
@@ -119,7 +150,9 @@ export function appendEvent(order, type, note = '') {
  * Idempotent on purpose: webhooks are retried, and a second delivery of the same
  * `checkout.session.completed` must not produce a second Privilege Card.
  */
-export async function fulfilOrder(order, { store, signingKey }) {
+export async function fulfilOrder(order, { store, signingKey, providerCalendar = null }) {
+  const appointments = await recordAppointments(order, { store, providerCalendar });
+  if (appointments) order = appointments;
   if (order.entitlements?.length) return { order, cards: [] };
 
   const cards = [];
@@ -149,6 +182,55 @@ export async function fulfilOrder(order, { store, signingKey }) {
     events: [...(order.events ?? []), { at: new Date().toISOString(), type: 'entitlements-issued', note: `${cards.length} card` }],
   });
   return { order: updated, cards };
+}
+
+/**
+ * Put a paid appointment into the professional's calendar.
+ *
+ * With no calendar connected this records that it could not be written rather than
+ * failing the order: the appointment exists, staff can see it, and it will be in a
+ * calendar the moment one is configured. Writing is attempted once — the marker on
+ * the order is what makes a retried webhook harmless.
+ */
+async function recordAppointments(order, { store, providerCalendar }) {
+  const lines = order.lines.filter((line) => line.fulfillment_type === 'provider' && line.date && line.time);
+  if (lines.length === 0 || order.calendar) return null;
+
+  const written = [];
+  for (const line of lines) {
+    if (line.product_id !== 'hair-service') continue;
+    const booking = {
+      variantId: line.variant_id,
+      serviceTitle: line.variant_title ?? line.title,
+      date: line.date,
+      time: line.time,
+      room: line.room,
+      guestName: line.fields?.guestName ?? order.customer?.name ?? '',
+      phone: line.fields?.phone ?? order.customer?.phone ?? '',
+      notes: line.fields?.notes ?? '',
+      orderId: order.id,
+    };
+    if (!providerCalendar) {
+      written.push({ product_id: line.product_id, ok: false, reason: 'no-calendar-adapter' });
+      continue;
+    }
+    try {
+      const outcome = await providerCalendar.createEvent(booking);
+      written.push({ product_id: line.product_id, ok: Boolean(outcome?.ok), reason: outcome?.reason ?? null, minutes: outcome?.event?.minutes ?? null });
+    } catch (error) {
+      written.push({ product_id: line.product_id, ok: false, reason: error.code ?? 'calendar-failed', message: error.message });
+    }
+  }
+  if (written.length === 0) return null;
+
+  return store.orders.update(order.id, {
+    calendar: { attempted_at: new Date().toISOString(), adapter: providerCalendar?.id ?? null, results: written },
+    events: [...(order.events ?? []), {
+      at: new Date().toISOString(),
+      type: 'calendar-write',
+      note: written.every((w) => w.ok) ? 'scritto sul calendario' : 'calendario non collegato: appuntamento solo su LunArt',
+    }],
+  });
 }
 
 /** What the guest is shown about their own order. No Stripe ids, no tokens but their own. */

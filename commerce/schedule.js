@@ -24,16 +24,26 @@ export const MANUAL_SCHEDULE = {
   'hair-service': {},
 };
 
-/** How long each service takes, so a slot can be shown with an end time. */
+/**
+ * How long each service blocks the professional for.
+ *
+ * Internal only. These are the numbers a calendar needs to stop two appointments
+ * overlapping; they are not a promise to the guest and are never rendered — a
+ * guest books a time, not a duration, and telling them "60 minutes" invites an
+ * argument about minute 61.
+ */
 export const SERVICE_MINUTES = {
-  'men-cut': 45,
   'men-beard': 30,
-  'men-cut-beard': 75,
-  'women-blowdry': 45,
+  'men-cut': 60,
+  'men-cut-beard': 60,
+  'women-blowdry': 90,
   'women-cut-blow': 90,
-  'women-evening': 60,
+  'women-evening': 90,
   ceremony: 90,
 };
+
+/** Minutes to block out for one service, falling back to the longest we know. */
+export const serviceMinutes = (variantId) => SERVICE_MINUTES[variantId] ?? 90;
 
 /**
  * The schedule in force, which is not always the one written above.

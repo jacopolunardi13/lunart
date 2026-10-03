@@ -14,8 +14,12 @@ import {
   validateLine, priceCart, sanitiseLine, cutoffFor, leadMinutesFor,
   getProduct, getVariant, skuFor, paymentModeFor,
 } from '../commerce/ordering.js';
-import { resolvePrice, isSellable, applyPriceOverrides, pricingGaps, PRICES } from '../commerce/prices.js';
-import { WINES, getWine, leadTimeMinutesFor, curatedWines } from '../commerce/wine.js';
+import {
+  resolvePrice, isSellable, applyPriceOverrides, pricingGaps, PRICES, WINE_PRICE_OVERRIDES,
+} from '../commerce/prices.js';
+import {
+  WINES, getWine, leadTimeMinutesFor, curatedWines, leadMinutesForWineOrder, WINE_LEAD_TIME,
+} from '../commerce/wine.js';
 import { PRODUCTS } from '../commerce/catalog.js';
 import { PARTNERS, activePartners, benefitFor, guestBenefit, validationPath, BENEFIT_KINDS, PARTNER_CATEGORIES } from '../commerce/partners.js';
 import { propertyTimeToInstant, propertyDate, addDays, lastDayOf } from '../commerce/time.js';
@@ -29,20 +33,35 @@ const line = (over = {}) => ({
   date: soon(3), slotId: 'w-1900', room: '303', ...over,
 });
 
+/** The Brunello, at LunArt's own confirmed in-room price. */
+const BRUNELLO = 8900;
+
 /* ── Prices ──────────────────────────────────────────────────────────────── */
 
 test('the confirmed prices are the ones LunArt has set', () => {
   const confirmed = {
     'transfer-airport': 9000,
+    'transfer-airport:oversized': 1500,
     'privilege-card:2d': 1500,
     'privilege-card:5d': 2500,
     'privilege-card:8d': 3500,
-    'hair-service:men-cut': 5000,
+    'hair-service:men-cut': 4900,
     'hair-service:men-beard': 3500,
-    'hair-service:men-cut-beard': 7000,
-    'hair-service:women-blowdry': 7000,
+    'hair-service:men-cut-beard': 6900,
+    'hair-service:women-blowdry': 7900,
     'hair-service:women-cut-blow': 9500,
-    'hair-service:women-evening': 9000,
+    'hair-service:women-evening': 8900,
+    'light-breakfast': 4900,
+    'brunch:opera': 6900,
+    'brunch:mare': 6900,
+    'luggage-transfer:smn': 5000,
+    'luggage-transfer:centro': 6000,
+    'luggage-transfer:airport': 9000,
+    'luggage-transfer:comune': 10000,
+    'luggage-transfer:oversized': 1500,
+    'celebration:romantic': 12900,
+    'celebration:signature': 21900,
+    'celebration:champagne': 27900,
   };
   for (const [sku, amount] of Object.entries(confirmed)) {
     const price = resolvePrice(sku);
@@ -64,26 +83,56 @@ test('a haircut and a beard together cost less than the two apart', () => {
 });
 
 test('an unconfirmed price never sells on a production server', () => {
-  assert.equal(isSellable('wine:brunello'), false, 'placeholder refused by default');
-  assert.equal(isSellable('wine:brunello', { allowPlaceholders: true }), true, 'allowed when asked for');
+  // A bottle LunArt has not set a selling price for falls back to the carta figure,
+  // which is somebody else's number and is refused on its own.
+  assert.equal(resolvePrice('wine:morellino').status, 'placeholder');
+  assert.equal(isSellable('wine:morellino'), false, 'placeholder refused by default');
+  assert.equal(isSellable('wine:morellino', { allowPlaceholders: true }), true, 'allowed when asked for');
 });
 
 test('a price nobody has set never sells, however the server is configured', () => {
   // Colour and highlights are not offered at all; ceremony styling waits on the
   // provider, so it renders and says so rather than being quietly buyable.
-  for (const sku of ['light-breakfast', 'celebration-setup', 'chianti-experience', 'hair-service:ceremony']) {
+  for (const sku of ['sunrise-breakfast', 'chianti-experience', 'hair-service:ceremony']) {
     assert.equal(resolvePrice(sku).status, 'to-configure', sku);
     assert.equal(isSellable(sku), false, sku);
     assert.equal(isSellable(sku, { allowPlaceholders: true }), false, `${sku} with placeholders`);
   }
 });
 
-test('wine is priced from the carta unless it is overridden', () => {
+test('a bottle LunArt has priced sells at that price, and the rest fall back to the carta', () => {
   for (const bottle of WINES) {
     const price = resolvePrice(`wine:${bottle.id}`);
-    assert.equal(price.amount, bottle.sourcePrice, bottle.name);
-    assert.equal(price.status, 'placeholder');
+    const own = WINE_PRICE_OVERRIDES[bottle.id];
+    if (own) {
+      assert.equal(price.amount, own.amount, bottle.name);
+      assert.equal(price.status, 'confirmed', bottle.name);
+    } else {
+      assert.equal(price.amount, bottle.sourcePrice, bottle.name);
+      assert.equal(price.status, 'placeholder', bottle.name);
+    }
   }
+});
+
+test('every bottle on the guide’s list has a price LunArt confirmed', () => {
+  for (const bottle of curatedWines()) {
+    const price = resolvePrice(`wine:${bottle.id}`);
+    assert.equal(price.status, 'confirmed', `${bottle.name} is offered without a confirmed price`);
+    assert.ok(isSellable(`wine:${bottle.id}`), bottle.name);
+  }
+});
+
+test('the champagne upgrade is the difference between the bottles, not a typed-in number', () => {
+  const moet = resolvePrice('wine:moet-chandon').amount;
+  const ruinart = resolvePrice('wine:ruinart-bdb').amount;
+  const dom = resolvePrice('wine:dom-perignon').amount;
+  assert.equal(resolvePrice('celebration:upgrade-ruinart-bdb').amount, ruinart - moet);
+  assert.equal(resolvePrice('celebration:upgrade-dom-perignon').amount, dom - moet);
+
+  // Move the wine price and the upgrade moves with it.
+  applyPriceOverrides({ 'wine:ruinart-bdb': { amount: 40000, status: 'confirmed' } });
+  assert.equal(resolvePrice('celebration:upgrade-ruinart-bdb').amount, 40000 - moet);
+  applyPriceOverrides({});
 });
 
 test('an unknown SKU resolves rather than throwing', () => {
@@ -115,15 +164,15 @@ test('anything resembling money is dropped on the way in', () => {
 test('a tampered amount changes nothing about what is charged', () => {
   const honest = validateLine(line(), { now: NOW, allowPlaceholders: true });
   const tampered = validateLine({ ...line(), amount: 1, price: 1, total: 1 }, { now: NOW, allowPlaceholders: true });
-  assert.equal(honest.amount, 7000);
-  assert.equal(tampered.amount, 7000, 'the server priced it from the catalogue');
+  assert.equal(honest.amount, BRUNELLO);
+  assert.equal(tampered.amount, BRUNELLO, 'the server priced it from the catalogue');
 });
 
 test('a tampered SKU cannot buy a cheap thing at another price', () => {
   // Claiming the privilege card's SKU on a wine line must not change either.
   const result = validateLine({ ...line(), sku: 'privilege-card:2d' }, { now: NOW, allowPlaceholders: true });
   assert.equal(result.line.sku, 'wine:brunello');
-  assert.equal(result.amount, 7000);
+  assert.equal(result.amount, BRUNELLO);
 });
 
 test('quantity is clamped to what the product allows', () => {
@@ -140,81 +189,133 @@ test('quantity is clamped to what the product allows', () => {
 test('a refused line never contributes to a total', () => {
   const cart = priceCart([line(), line({ date: '2020-01-01' })], { now: NOW, allowPlaceholders: true });
   assert.equal(cart.ok, false);
-  assert.equal(cart.total, 7000, 'only the good line counts');
+  assert.equal(cart.total, BRUNELLO, 'only the good line counts');
 });
 
 /* ── Cut-offs ────────────────────────────────────────────────────────────── */
 
-test('a bottle under EUR 100 needs twelve hours', () => {
-  const bottle = getWine('brunello');
-  assert.ok(bottle.sourcePrice < 10000);
-  assert.equal(leadTimeMinutesFor(bottle), 720);
+test('a wine order under EUR 90 needs twelve hours', () => {
+  assert.equal(leadMinutesForWineOrder(0), 720);
+  assert.equal(leadMinutesForWineOrder(WINE_LEAD_TIME.expressThreshold - 1), 720);
 
   const product = getProduct('wine-in-room');
-  const variant = getVariant(product, 'brunello');
-  const { deadline, minutes } = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-1900' });
+  const variant = getVariant(product, 'vermentino');          // 43 EUR
+  const { deadline, minutes } = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-1900' }, { wineSubtotal: 4300 });
   assert.equal(minutes, 720);
-  // 19:00 in Florence on the 5th, less twelve hours.
-  assert.equal(deadline.toISOString(), new Date(propertyTimeToInstant('2026-10-05', '19:00').getTime() - 720 * 60_000).toISOString());
+  // Counted back from the end of the 19:00–20:00 window, in Florence time.
+  assert.equal(
+    deadline.toISOString(),
+    new Date(propertyTimeToInstant('2026-10-05', '20:00').getTime() - 720 * 60_000).toISOString(),
+  );
 });
 
-test('a bottle at EUR 100 or above needs ninety minutes', () => {
-  for (const id of ['modus-primo', 'moet-chandon', 'dom-perignon']) {
-    const bottle = getWine(id);
-    assert.ok(bottle.sourcePrice >= 10000, id);
-    assert.equal(leadTimeMinutesFor(bottle), 90, id);
+test('a wine order of EUR 90 or more is Express at ninety minutes', () => {
+  assert.equal(leadMinutesForWineOrder(WINE_LEAD_TIME.expressThreshold), 90);
+  assert.equal(leadMinutesForWineOrder(20000), 90);
+
+  const product = getProduct('wine-in-room');
+  const variant = getVariant(product, 'brunello');            // 89 EUR on its own
+  const { minutes } = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-2100' }, { wineSubtotal: BRUNELLO });
+  assert.equal(minutes, 720, 'one Brunello is 89 EUR, which is not Express');
+
+  const express = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-2100' }, { wineSubtotal: 9000 });
+  assert.equal(express.minutes, 90);
+});
+
+test('the rule is about the order, so two bottles together can be Express', () => {
+  const two = priceCart([line({ variantId: 'vermentino' }), line({ variantId: 'vernaccia' })], { now: NOW });
+  assert.equal(two.wineSubtotal, 4300 + 5900);
+  assert.ok(two.wineSubtotal >= 9000, 'together they pass the threshold');
+  for (const priced of two.lines) assert.equal(priced.cutoff.minutes, 90);
+
+  const one = priceCart([line({ variantId: 'vermentino' })], { now: NOW });
+  assert.equal(one.lines[0].cutoff.minutes, 720, 'alone it does not');
+});
+
+test('the last Express order for the same evening is 20:30', () => {
+  const product = getProduct('wine-in-room');
+  const lastSlot = product.deliverySlots.at(-1);
+  assert.equal(lastSlot.from, '21:00');
+  assert.equal(lastSlot.to, '22:00', 'wine goes up until ten');
+
+  const { deadline } = cutoffFor(product, getVariant(product, 'brunello'),
+    { date: '2026-10-05', slotId: lastSlot.id }, { wineSubtotal: 12000 });
+  assert.equal(deadline.toISOString(), propertyTimeToInstant('2026-10-05', '20:30').toISOString());
+});
+
+test('wine is delivered between eleven and ten, and nowhere else', () => {
+  const slots = getProduct('wine-in-room').deliverySlots;
+  assert.equal(slots[0].from, '11:00');
+  assert.equal(slots.at(-1).to, '22:00');
+  for (const slot of slots) {
+    assert.ok(slot.from >= '11:00' && slot.to <= '22:00', slot.id);
   }
 });
 
-test('a bottle can state its own notice, whatever it costs', () => {
-  // The capability matters more than any value we would invent: the real
-  // constraint is where a bottle is, not what it costs.
-  const cheapButSlow = { id: 'x', sourcePrice: 3000, leadTimeMinutes: 2880 };
-  const dearButQuick = { id: 'y', sourcePrice: 50000, leadTimeMinutes: 30 };
-  assert.equal(leadTimeMinutesFor(cheapButSlow), 2880, 'the override wins over the cheap default');
-  assert.equal(leadTimeMinutesFor(dearButQuick), 30, 'and over the expensive one');
+test('a bottle can still state its own notice, whatever the order is worth', () => {
+  // The order-total rule is the commercial default. A bottle kept off site has a
+  // physical constraint, and that beats the default in either direction.
+  assert.equal(leadTimeMinutesFor({ id: 'x', sourcePrice: 3000, leadTimeMinutes: 2880 }), 2880);
+  assert.equal(leadTimeMinutesFor({ id: 'y', sourcePrice: 50000 }), null, 'no opinion of its own');
 
   const product = getProduct('wine-in-room');
-  assert.equal(leadMinutesFor(product, { id: 'z', leadTimeMinutes: 15 }), 15);
+  assert.equal(leadMinutesFor(product, { id: 'z', leadTimeMinutes: 15 }, product.cutoff, { wineSubtotal: 0 }), 15);
 });
 
 test('ordering a bottle too late is refused', () => {
   const now = new Date('2026-10-05T16:00:00Z');      // 18:00 in Florence
-  const late = validateLine(
-    { productId: 'wine-in-room', variantId: 'brunello', quantity: 1, date: '2026-10-05', slotId: 'w-1900', room: '303' },
-    { now, allowPlaceholders: true },
+  // One Vermentino: 43 EUR, so twelve hours, so this evening is long gone.
+  const late = priceCart(
+    [{ productId: 'wine-in-room', variantId: 'vermentino', quantity: 1, date: '2026-10-05', slotId: 'w-1900', room: '303' }],
+    { now },
   );
   assert.equal(late.ok, false);
   assert.ok(late.errors.some((e) => e.code === 'past-cutoff'));
 
-  // The same evening, the ninety-minute bottle is still fine.
-  const inTime = validateLine(
-    { productId: 'wine-in-room', variantId: 'dom-perignon', quantity: 1, date: '2026-10-05', slotId: 'w-2100', room: '303' },
-    { now, allowPlaceholders: true },
+  // A basket over ninety euros is Express, and the ten o'clock window is still open.
+  const inTime = priceCart(
+    [{ productId: 'wine-in-room', variantId: 'dom-perignon', quantity: 1, date: '2026-10-05', slotId: 'w-2100', room: '303' }],
+    { now },
   );
   assert.equal(inTime.ok, true, JSON.stringify(inTime.errors));
 });
 
-test('breakfast closes at nine the evening before, Florence time', () => {
+test('breakfast closes at noon the day before, Florence time', () => {
   const product = getProduct('brunch');
   const { deadline, kind } = cutoffFor(product, null, { date: '2026-10-06' });
-  assert.equal(kind, 'eveningBefore');
-  assert.equal(deadline.toISOString(), propertyTimeToInstant('2026-10-05', '21:00').toISOString());
+  assert.equal(kind, 'dayBefore');
+  assert.equal(deadline.toISOString(), propertyTimeToInstant('2026-10-05', '12:00').toISOString());
 
   const base = { productId: 'brunch', variantId: 'opera', quantity: 1, date: '2026-10-06', slotId: 'b-0830', room: '303', options: { hotDrink: 'espresso' } };
-  const justInTime = validateLine(base, { now: new Date('2026-10-05T18:59:00Z'), allowPlaceholders: true });  // 20:59 local
-  const tooLate   = validateLine(base, { now: new Date('2026-10-05T19:01:00Z'), allowPlaceholders: true });  // 21:01 local
+  const justInTime = validateLine(base, { now: new Date('2026-10-05T09:59:00Z') });   // 11:59 local
+  const tooLate   = validateLine(base, { now: new Date('2026-10-05T10:01:00Z') });   // 12:01 local
   assert.equal(justInTime.ok, true, JSON.stringify(justInTime.errors));
   assert.equal(tooLate.ok, false);
   assert.ok(tooLate.errors.some((e) => e.code === 'past-cutoff'));
+});
+
+test('the light breakfast is two bowls and a juice, and brings no hot drink', () => {
+  const product = getProduct('light-breakfast');
+  assert.equal(resolvePrice('light-breakfast').amount, 4900);
+  assert.equal(product.maxGuests, 2);
+  assert.equal((product.options ?? []).some((o) => o.id === 'hotDrink'), false,
+    'the room has a Nespresso machine and a kettle');
+  assert.ok(product.includes.it.some((item) => /special bowl/i.test(item)));
+  assert.ok(product.includes.en.some((item) => /juice/i.test(item)));
+  // And it can still be bought by noon the day before.
+  const ok = validateLine({
+    productId: 'light-breakfast', quantity: 1, date: '2026-10-06', slotId: 'b-0830', room: '303',
+  }, { now: new Date('2026-10-05T09:00:00Z') });
+  assert.equal(ok.ok, true, JSON.stringify(ok.errors));
+  assert.equal(ok.amount, 4900);
 });
 
 test('the deadline is a wall clock in Florence, not UTC', () => {
   // Summer and winter give different instants for the same stated hour.
   const winter = cutoffFor(getProduct('brunch'), null, { date: '2026-01-16' }).deadline;
   const summer = cutoffFor(getProduct('brunch'), null, { date: '2026-07-16' }).deadline;
-  assert.equal(winter.toISOString(), '2026-01-15T20:00:00.000Z');
-  assert.equal(summer.toISOString(), '2026-07-15T19:00:00.000Z');
+  assert.equal(winter.toISOString(), '2026-01-15T11:00:00.000Z');
+  assert.equal(summer.toISOString(), '2026-07-15T10:00:00.000Z');
 });
 
 /* ── Validation of everything else a line needs ──────────────────────────── */
@@ -238,27 +339,160 @@ test('an option that is not on the menu is refused', () => {
   assert.ok(result.errors.some((e) => e.code === 'option-invalid'));
 });
 
+const transferFields = (over = {}) => ({
+  passengerName: 'Jacopo', passengers: '2',
+  largeSuitcases: '2', trolleys: '2', personalBags: '2', phone: '+39392', ...over,
+});
+
 test('the transfer needs the details a driver actually needs', () => {
   const missing = validateLine({
     productId: 'transfer-airport', variantId: 'to-airport', quantity: 1, date: soon(5), time: '09:30',
   }, { now: NOW });
   const fields = missing.errors.filter((e) => e.code === 'field-required').map((e) => e.field);
-  assert.deepEqual(fields.sort(), ['luggage', 'passengerName', 'passengers', 'phone']);
+  assert.deepEqual(fields.sort(), ['largeSuitcases', 'passengerName', 'passengers', 'personalBags', 'phone', 'trolleys']);
 
   const complete = validateLine({
     productId: 'transfer-airport', variantId: 'to-airport', quantity: 1, date: soon(5), time: '09:30',
-    fields: { passengerName: 'Jacopo', passengers: '2', luggage: '2', phone: '+39392' },
+    fields: transferFields(),
   }, { now: NOW });
   assert.equal(complete.ok, true, JSON.stringify(complete.errors));
   assert.equal(complete.amount, 9000);
 });
 
+test('the transfer carries five passengers at most', () => {
+  const field = getProduct('transfer-airport').requiresFields.find((f) => f.id === 'passengers');
+  assert.equal(field.max, 5);
+  const six = validateLine({
+    productId: 'transfer-airport', variantId: 'to-airport', quantity: 1, date: soon(5), time: '09:30',
+    fields: transferFields({ passengers: '6' }),
+  }, { now: NOW });
+  assert.equal(six.ok, false);
+  assert.ok(six.errors.some((e) => e.code === 'field-out-of-range' && e.field === 'passengers'));
+});
+
+test('an oversized case is fifteen euros, and the client only says how many', () => {
+  const one = validateLine({
+    productId: 'transfer-airport', variantId: 'to-airport', quantity: 1, date: soon(5), time: '09:30',
+    fields: transferFields({ oversizedItems: '1' }),
+  }, { now: NOW });
+  assert.equal(one.ok, true, JSON.stringify(one.errors));
+  assert.equal(one.amount, 9000 + 1500);
+
+  const two = validateLine({
+    productId: 'transfer-airport', variantId: 'to-airport', quantity: 1, date: soon(5), time: '09:30',
+    fields: transferFields({ oversizedItems: '2' }),
+  }, { now: NOW });
+  assert.equal(two.amount, 9000 + 3000);
+  assert.equal(two.surcharges[0].sku, 'transfer-airport:oversized');
+  assert.equal(two.surcharges[0].unit, 1500, 'the price came from the table, not the payload');
+});
+
 test('a number field outside its range is refused', () => {
   const result = validateLine({
     productId: 'transfer-airport', variantId: 'to-airport', quantity: 1, date: soon(5), time: '09:30',
-    fields: { passengerName: 'Jacopo', passengers: '40', luggage: '2', phone: '+39392' },
+    fields: transferFields({ passengers: '40' }),
   }, { now: NOW });
   assert.ok(result.errors.some((e) => e.code === 'field-out-of-range' && e.field === 'passengers'));
+});
+
+/* ── Luggage transfer ────────────────────────────────────────────────────── */
+
+test('the luggage transfer is priced by where it goes', () => {
+  const expected = { smn: 5000, centro: 6000, airport: 9000, comune: 10000 };
+  for (const [variantId, amount] of Object.entries(expected)) {
+    const result = validateLine({
+      productId: 'luggage-transfer', variantId, quantity: 1, date: soon(3), time: '10:00', room: '303',
+      fields: { contactName: 'Marta', address: 'Via dei Neri 4', largeSuitcases: '2', trolleys: '1', personalBags: '1', phone: '+39348' },
+    }, { now: NOW });
+    assert.equal(result.ok, true, `${variantId}: ${JSON.stringify(result.errors)}`);
+    assert.equal(result.amount, amount, variantId);
+  }
+});
+
+test('the luggage transfer closes at noon the day before and charges for oversized items', () => {
+  const product = getProduct('luggage-transfer');
+  assert.deepEqual(product.cutoff, { kind: 'dayBefore', hour: 12 });
+
+  const withExtra = validateLine({
+    productId: 'luggage-transfer', variantId: 'airport', quantity: 1, date: '2026-10-06', time: '09:00', room: '303',
+    fields: { contactName: 'Marta', address: 'Aeroporto', largeSuitcases: '3', trolleys: '2', personalBags: '2', oversizedItems: '2', phone: '+39348' },
+  }, { now: new Date('2026-10-05T09:00:00Z') });
+  assert.equal(withExtra.ok, true, JSON.stringify(withExtra.errors));
+  assert.equal(withExtra.amount, 9000 + 3000);
+
+  const tooLate = validateLine({
+    productId: 'luggage-transfer', variantId: 'airport', quantity: 1, date: '2026-10-06', time: '09:00', room: '303',
+    fields: { contactName: 'Marta', address: 'Aeroporto', largeSuitcases: '1', trolleys: '0', personalBags: '0', phone: '+39348' },
+  }, { now: new Date('2026-10-05T10:30:00Z') });
+  assert.equal(tooLate.ok, false);
+  assert.ok(tooLate.errors.some((e) => e.code === 'past-cutoff'));
+});
+
+/* ── Romantic and celebration ────────────────────────────────────────────── */
+
+const celebration = (over = {}) => ({
+  productId: 'celebration', variantId: 'romantic', quantity: 1, date: soon(3), room: '303',
+  options: { when: 'arrival', bottle: 'prosecco-cuvee' }, ...over,
+});
+
+test('the three celebration tiers are priced as confirmed', () => {
+  assert.equal(validateLine(celebration(), { now: NOW }).amount, 12900);
+  assert.equal(validateLine(celebration({
+    variantId: 'signature', options: { when: 'arrival', bottle: 'franciacorta-saten' },
+  }), { now: NOW }).amount, 21900);
+  assert.equal(validateLine(celebration({
+    variantId: 'champagne', options: { when: 'arrival', bottle: 'moet-chandon' },
+  }), { now: NOW }).amount, 27900);
+});
+
+test('a tier only offers the bottles it comes with', () => {
+  // The Brunello is a real choice on the Signature tier, and not on the Romantic one.
+  const wrong = validateLine(celebration({ options: { when: 'arrival', bottle: 'brunello' } }), { now: NOW });
+  assert.equal(wrong.ok, false);
+  assert.ok(wrong.errors.some((e) => e.code === 'option-not-available' && e.field === 'bottle'));
+
+  // And a bottle that is on no tier's list is simply not a choice at all.
+  const unknown = validateLine(celebration({ options: { when: 'arrival', bottle: 'dom-perignon' } }), { now: NOW });
+  assert.ok(unknown.errors.some((e) => e.code === 'option-invalid' && e.field === 'bottle'));
+});
+
+test('the champagne upgrade costs the difference between the bottles', () => {
+  const upgraded = validateLine(celebration({
+    variantId: 'champagne',
+    options: { when: 'arrival', bottle: 'moet-chandon', upgrade: 'dom-perignon' },
+  }), { now: NOW });
+  assert.equal(upgraded.ok, true, JSON.stringify(upgraded.errors));
+  const difference = resolvePrice('wine:dom-perignon').amount - resolvePrice('wine:moet-chandon').amount;
+  assert.equal(upgraded.amount, 27900 + difference);
+});
+
+test('a set-up during the stay needs a time, one before arrival does not', () => {
+  const during = validateLine(celebration({ options: { when: 'during', bottle: 'prosecco-cuvee' } }), { now: NOW });
+  assert.equal(during.ok, false);
+  assert.ok(during.errors.some((e) => e.code === 'slot-required'));
+
+  const timed = validateLine(celebration({
+    options: { when: 'during', bottle: 'prosecco-cuvee' }, slotId: 'c-1930',
+  }), { now: NOW });
+  assert.equal(timed.ok, true, JSON.stringify(timed.errors));
+
+  const onArrival = validateLine(celebration(), { now: NOW });
+  assert.equal(onArrival.ok, true, JSON.stringify(onArrival.errors));
+});
+
+test('a requested set-up time runs from noon to ten, in half hours', () => {
+  const slots = getProduct('celebration').deliverySlots;
+  assert.equal(slots[0].from, '12:00');
+  assert.equal(slots.at(-1).to, '22:00');
+  assert.equal(slots.length, 20);
+});
+
+test('a celebration closes at noon the day before', () => {
+  const inTime = validateLine(celebration({ date: '2026-10-06' }), { now: new Date('2026-10-05T09:00:00Z') });
+  const late = validateLine(celebration({ date: '2026-10-06' }), { now: new Date('2026-10-05T11:00:00Z') });
+  assert.equal(inTime.ok, true, JSON.stringify(inTime.errors));
+  assert.equal(late.ok, false);
+  assert.ok(late.errors.some((e) => e.code === 'past-cutoff'));
 });
 
 test('things not on sale cannot be bought', () => {
@@ -266,9 +500,17 @@ test('things not on sale cannot be bought', () => {
   assert.equal(coming.ok, false);
   assert.ok(coming.errors.some((e) => e.code === 'not-on-sale'));
 
-  const onRequest = validateLine({ productId: 'celebration-setup', quantity: 1, date: soon(3), room: '303' }, { now: NOW, allowPlaceholders: true });
+  const onRequest = validateLine({ productId: 'sunrise-breakfast', quantity: 1, date: soon(3), room: '303' }, { now: NOW, allowPlaceholders: true });
   assert.equal(onRequest.ok, false);
   assert.ok(onRequest.errors.some((e) => e.code === 'request-only'));
+});
+
+test('a coming-soon product is a word and nothing else', () => {
+  const chianti = getProduct('chianti-experience');
+  assert.equal(chianti.comingSoon, true);
+  assert.equal(chianti.summary.it, '', 'no copy invented to fill the tile');
+  assert.equal(chianti.description, undefined);
+  assert.equal(resolvePrice('chianti-experience').amount, null);
 });
 
 /* ── Baskets ─────────────────────────────────────────────────────────────── */
@@ -282,13 +524,13 @@ test('a basket of several different things adds up', () => {
 
   assert.equal(cart.ok, true, JSON.stringify(cart.errors));
   assert.equal(cart.lines.length, 3);
-  assert.equal(cart.total, 7000 + 3400 + 5000);
+  assert.equal(cart.total, BRUNELLO + 4300 + 6900);
   assert.equal(cart.currency, 'EUR');
 });
 
 test('quantity multiplies', () => {
   const cart = priceCart([line({ quantity: 3 })], { now: NOW, allowPlaceholders: true });
-  assert.equal(cart.total, 21000);
+  assert.equal(cart.total, BRUNELLO * 3);
 });
 
 test('an empty basket is not a valid one', () => {
@@ -302,7 +544,7 @@ test('a basket holding the transfer is authorised rather than charged', () => {
   const withTransfer = priceCart([
     line(),
     { productId: 'transfer-airport', variantId: 'to-airport', quantity: 1, date: soon(5), time: '09:30',
-      fields: { passengerName: 'J', passengers: '1', luggage: '1', phone: '+39' } },
+      fields: { passengerName: 'J', passengers: '1', largeSuitcases: '1', trolleys: '0', personalBags: '1', phone: '+39' } },
   ], { now: NOW, allowPlaceholders: true });
   assert.equal(paymentModeFor(withTransfer.lines), 'authorize-then-capture');
   assert.equal(paymentModeFor(priceCart([line()], { now: NOW, allowPlaceholders: true }).lines), 'instant');
@@ -313,7 +555,10 @@ test('a basket holding the transfer is authorised rather than charged', () => {
 test('every product is complete and bilingual', () => {
   const categories = new Set(COMMERCE_CATEGORIES.map((c) => c.id));
   for (const product of PRODUCTS) {
-    for (const field of ['title', 'summary', 'description', 'terms']) {
+    // A coming-soon product is deliberately bare: a title, and nothing written to
+    // make it look finished.
+    const fields = product.comingSoon ? ['title'] : ['title', 'summary', 'description', 'terms'];
+    for (const field of fields) {
       assert.ok(product[field]?.it?.trim(), `${product.id}.${field} is missing Italian`);
       assert.ok(product[field]?.en?.trim(), `${product.id}.${field} is missing English`);
     }
@@ -335,7 +580,8 @@ test('every variant resolves to a SKU the pricing table knows about', () => {
 
 test('the wine selection is a subset of the carta, and on sale', () => {
   const curated = curatedWines();
-  assert.ok(curated.length > 0 && curated.length < WINES.length, 'curated, not the whole list');
+  assert.equal(curated.length, 14, 'exactly the bottles LunArt has priced');
+  assert.ok(curated.length < WINES.length, 'curated, not the whole list');
   for (const bottle of curated) {
     assert.equal(bottle.available, true);
     assert.ok(WINES.includes(bottle));

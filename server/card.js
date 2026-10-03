@@ -26,7 +26,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomRef, opaqueToken } from './store.js';
 import { propertyDate, lastDayOf, endOfPropertyDay, propertyTimeToInstant, isValidDate } from '../commerce/time.js';
-import { allGuestBenefits, guestBenefit } from '../commerce/partners.js';
+import { allGuestBenefits, cardBenefits, guestBenefit } from '../commerce/partners.js';
 
 export const CARD_STATUS = {
   active: 'active',
@@ -211,7 +211,13 @@ export function holderView(card, now = new Date()) {
     state: cardState(card, now),
     status: card.status,
     transferable: false,
-    benefits: allGuestBenefits(),
+    /**
+     * What the card itself gets you. Deliberately not every benefit LunArt has:
+     * the Opera Caffè 30% comes with the stay, so it is listed under the stay and
+     * not here. Putting it on the card would be selling a guest something they
+     * already have.
+     */
+    benefits: cardBenefits(),
   };
 }
 
