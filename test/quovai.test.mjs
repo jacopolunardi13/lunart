@@ -13,8 +13,11 @@ import { readFile } from 'node:fs/promises';
 import { createHmac } from 'node:crypto';
 
 import {
-  parseQuovaiEmail, isQuovaiMessage, kindOf, parseItalianDate, parseMoney, flatten, fieldOf,
+  parseQuovaiEmail, isQuovaiMessage, classifyQuovaiMessage, kindOf,
+  parseItalianDate, parseMoney, flatten, fieldOf, splitReference,
 } from '../server/ingest/quovai-email.js';
+import { repairFromMailbox } from '../server/ingest/repair.js';
+import * as REAL from './fixtures/quovai.js';
 import { ingestMessage, ingestMessages } from '../server/ingest/index.js';
 import { parseIcal, reconcile, reconcileFeeds, parseFeedConfig } from '../server/ingest/ical.js';
 import { createQuovaiApiAdapter, reservationSources } from '../server/ingest/quovai-api.js';
@@ -419,4 +422,357 @@ test('feeds are configured as room:url pairs, or bare urls', () => {
   ]);
   assert.deepEqual(parseFeedConfig('https://all.ics'), [{ room: '', url: 'https://all.ics' }]);
   assert.deepEqual(parseFeedConfig(''), []);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   The real thing.
+
+   Everything above was written against a shape nobody had seen. These are the
+   notifications LunArt actually receives, and the first live Gmail ingestion
+   showed the parser getting two things wrong on both counts that matter: QuoVai
+   does not label the guest's name, and the room number is in the table's data
+   rather than beside the word "Camera". The four reservations below are the four
+   that were really in the staging store.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── A. Parsing ─────────────────────────────────────────────────────────── */
+
+test('the guest name is read even though QuoVai never labels it', () => {
+  const irene = parseQuovaiEmail(REAL.IRENE);
+  assert.equal(irene.ok, true);
+  assert.equal(irene.event.first_name, 'Irene');
+  assert.equal(irene.event.last_name, 'Cappellini');
+
+  const martin = parseQuovaiEmail(REAL.MARTIN);
+  assert.equal(martin.event.first_name, 'Martin');
+  assert.equal(martin.event.last_name, 'Markert');
+});
+
+test('the room comes out of the table data, not from beside the word Camera', () => {
+  // "302 queen std" / "305 sup": the number leads the row and the word "Camera"
+  // is a column header several lines above it.
+  assert.equal(parseQuovaiEmail(REAL.IRENE).event.room, '302');
+  assert.equal(parseQuovaiEmail(REAL.MARTIN).event.room, '304');
+  assert.equal(parseQuovaiEmail(REAL.KELLY).event.room, '305');
+  assert.equal(parseQuovaiEmail(REAL.FLORIAN).event.room, '305');
+});
+
+test('all four live reservations read exactly as the owner verified them', () => {
+  const expected = [
+    { ref: '6230618454', guest: 'Martin Markert', room: '304', from: '2026-10-02', to: '2026-10-03', channel: 'BOOKING.COM', kind: 'modified' },
+    { ref: '6213834462', guest: 'Kelly Kay', room: '305', from: '2026-10-13', to: '2026-10-14', channel: 'BOOKING.COM', kind: 'new' },
+    { ref: '6703524869', guest: 'Irene Cappellini', room: '302', from: '2026-11-07', to: '2026-11-08', channel: 'BOOKING.COM', kind: 'new' },
+    { ref: '2568875469', guest: 'Florian Tinsley', room: '305', from: '2027-05-29', to: '2027-06-02', channel: 'EXPEDIA', kind: 'new' },
+  ];
+  const got = REAL.REAL_RESERVATIONS.map((message) => {
+    const { event, kind } = parseQuovaiEmail(message);
+    return {
+      ref: event.booking_reference,
+      guest: `${event.first_name} ${event.last_name}`.trim(),
+      room: event.room,
+      from: event.check_in,
+      to: event.check_out,
+      channel: event.channel,
+      kind,
+    };
+  });
+  assert.deepEqual(got, expected);
+});
+
+/**
+ * The booking number is the key the upsert turns on, and QuoVai prints the status
+ * on the same line as it. Squeezing the spaces out filed the stay under
+ * "6703524869NEW" — unreadable to a guest, and a second row as soon as the same
+ * booking came back as MODIFIED.
+ */
+test('the status word beside the booking number is not part of the booking number', () => {
+  for (const message of [...REAL.REAL_RESERVATIONS, REAL.IRENE_CANCELLED]) {
+    const { event } = parseQuovaiEmail(message);
+    assert.match(event.booking_reference, /^\d{10}$/, `"${event.booking_reference}" is not a booking number`);
+  }
+  assert.equal(parseQuovaiEmail(REAL.IRENE).event.booking_reference, '6703524869');
+  assert.equal(parseQuovaiEmail(REAL.IRENE_CANCELLED).event.booking_reference, '6703524869');
+});
+
+test('and it is what tells NEW from MODIFIED from CANCELLED', () => {
+  assert.equal(parseQuovaiEmail(REAL.KELLY).kind, 'new');
+  assert.equal(parseQuovaiEmail(REAL.MARTIN).kind, 'modified');
+  assert.equal(parseQuovaiEmail(REAL.IRENE_CANCELLED).kind, 'cancelled');
+});
+
+test('a cancellation of a real booking still carries its name and room', () => {
+  const { event } = parseQuovaiEmail(REAL.IRENE_CANCELLED);
+  assert.equal(event.last_name, 'Cappellini');
+  assert.equal(event.room, '302');
+});
+
+test('a multi-part surname keeps its particle', () => {
+  const name = (full) => {
+    const message = {
+      subject: '🔔 QuoVai — nuova prenotazione',
+      from: 'QuoVai <noreply@quovai.com>',
+      body: `Numero prenotazione: 1234567890 NEW\n\n${full}\n\nStruttura: LUNART\nCheck-in: 01/02/2027\nCheck-out: 03/02/2027`,
+    };
+    const { event } = parseQuovaiEmail(message);
+    return `${event.first_name}|${event.last_name}`;
+  };
+  assert.equal(name('Irene Cappellini'), 'Irene|Cappellini');
+  assert.equal(name('Maria Teresa Di Napoli'), 'Maria Teresa|Di Napoli');
+  assert.equal(name('Jan van der Berg'), 'Jan|van der Berg');
+  assert.equal(name('Cher'), '|Cher');
+});
+
+/** The name must come from the one place it lives, not from any standalone line. */
+test('a line that is not a name is not taken for one', () => {
+  const { event } = parseQuovaiEmail({
+    subject: '🔔 QuoVai — nuova prenotazione',
+    from: 'QuoVai <noreply@quovai.com>',
+    body: 'Numero prenotazione: 1234567890 NEW\n\nStruttura: LUNART\nCheck-in: 01/02/2027\nCheck-out: 03/02/2027\n\nMartin Markert',
+  });
+  // The field block started immediately, so there was no unlabelled name to take —
+  // and a name sitting below the block is not where QuoVai puts it.
+  assert.equal(event.last_name, '');
+});
+
+/** A number in prose is not a room. */
+test('a room number mentioned in a note is not read as the room', () => {
+  const { event } = parseQuovaiEmail({
+    subject: '🔔 QuoVai — nuova prenotazione',
+    from: 'QuoVai <noreply@quovai.com>',
+    body: [
+      'Numero prenotazione: 1234567890 NEW',
+      '',
+      'Anna Bianchi',
+      '',
+      'Struttura: LUNART',
+      'Check-in: 01/02/2027',
+      'Check-out: 03/02/2027',
+      'Note: se possibile vorremmo la 305, grazie',
+    ].join('\n'),
+  });
+  assert.equal(event.room, '', 'a request is not an assignment');
+  assert.match(event.notes, /305/, 'and the request itself is kept');
+});
+
+/* ── B. Classification ──────────────────────────────────────────────────── */
+
+test('the police forms are not a reservation, and raise nothing', async () => {
+  for (const message of [REAL.SCHEDINE, REAL.SCHEDINE_14]) {
+    const verdict = classifyQuovaiMessage(message);
+    assert.equal(verdict.relevant, false);
+    assert.equal(verdict.reason, 'operational-notice');
+  }
+
+  const store = createStore();
+  const outcome = await ingestMessages({ store, messages: [REAL.SCHEDINE, REAL.SCHEDINE_14] });
+  assert.equal(outcome.ignored, 2);
+  assert.equal(outcome.failed, 0);
+  assert.equal((await store.alerts.open()).length, 0, 'noise must not become a warning');
+  assert.equal((await store.reservations.list()).length, 0);
+});
+
+test('a completed online check-in is not a reservation either', async () => {
+  // Its subject says "prenotazione 1308918", which is exactly what used to fool us.
+  const verdict = classifyQuovaiMessage(REAL.ONLINE_CHECKIN);
+  assert.equal(verdict.relevant, false);
+  assert.equal(verdict.reason, 'operational-notice');
+
+  const store = createStore();
+  await ingestMessages({ store, messages: [REAL.ONLINE_CHECKIN] });
+  assert.equal((await store.alerts.open()).length, 0);
+});
+
+test('a genuine notification that will not read still reaches staff', async () => {
+  const verdict = classifyQuovaiMessage(REAL.MALFORMED);
+  assert.equal(verdict.relevant, true, 'it says it is a reservation, so it is one');
+
+  const store = createStore();
+  const outcome = await ingestMessages({ store, messages: [REAL.MALFORMED] });
+  assert.equal(outcome.failed, 1);
+  assert.equal(outcome.ignored, 0);
+  const alerts = await store.alerts.open();
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].kind, 'unreadable-notification');
+  assert.equal(alerts[0].detail.reason, 'unreadable-dates');
+});
+
+test('noise and reservations in one batch are told apart', async () => {
+  const store = createStore();
+  const outcome = await ingestMessages({
+    store,
+    messages: [REAL.SCHEDINE, REAL.IRENE, REAL.ONLINE_CHECKIN, REAL.KELLY, REAL.MALFORMED],
+  });
+  assert.equal(outcome.created, 2);
+  assert.equal(outcome.ignored, 2);
+  assert.equal(outcome.failed, 1);
+  assert.equal((await store.alerts.open()).length, 1, 'one warning, for the one that earned it');
+});
+
+/* ── C. Repair ──────────────────────────────────────────────────────────── */
+
+/**
+ * The staging store as the old parser left it: the stay is there, with its dates
+ * and its guide link, and without the guest's name or the room.
+ */
+async function staleStore() {
+  const store = createStore();
+  const reservations = [
+    { ref: '6230618454MODIFIED', from: '2026-10-02', to: '2026-10-03' },
+    { ref: '6213834462NEW', from: '2026-10-13', to: '2026-10-14' },
+    { ref: '6703524869NEW', from: '2026-11-07', to: '2026-11-08' },
+    { ref: '2568875469NEW', from: '2027-05-29', to: '2027-06-02' },
+  ];
+  const made = [];
+  for (const row of reservations) {
+    made.push(await store.reservations.create(buildReservation({
+      source: 'quovai',
+      booking_reference: row.ref,
+      check_in: row.from,
+      check_out: row.to,
+      first_name: '',
+      last_name: '',
+      room: '',
+      adults: 2,
+    })));
+  }
+  return { store, made };
+}
+
+test('repair fills in the name and the room the old parser lost', async () => {
+  const { store } = await staleStore();
+  const mailbox = createMemoryMailbox([...REAL.REAL_RESERVATIONS]);
+
+  const result = await repairFromMailbox({ store, mailbox });
+  assert.equal(result.ok, true);
+  assert.equal(result.scanned, 4);
+  assert.equal(result.reservations, 4);
+  assert.equal(result.matched, 4, 'matched under the booking number the old parser mangled');
+  assert.equal(result.repaired, 4);
+  assert.equal(result.unmatched, 0);
+  assert.equal(result.failed, 0);
+
+  const rows = await store.reservations.list();
+  const byName = Object.fromEntries(rows.map((r) => [`${r.first_name} ${r.last_name}`.trim(), r]));
+  assert.equal(byName['Martin Markert'].room, '304');
+  assert.equal(byName['Kelly Kay'].room, '305');
+  assert.equal(byName['Irene Cappellini'].room, '302');
+  assert.equal(byName['Florian Tinsley'].room, '305');
+  // And the booking numbers are numbers a guest could read back.
+  for (const row of rows) assert.match(row.booking_reference, /^\d{10}$/);
+});
+
+test('repair never creates a reservation, and keeps every identity it found', async () => {
+  const { store, made } = await staleStore();
+  const before = made.map((r) => ({ id: r.id, token: r.guide_token, created: r.guide_created_at, ref: r.staff_ref }));
+
+  await repairFromMailbox({ store, mailbox: createMemoryMailbox([...REAL.REAL_RESERVATIONS]) });
+
+  const after = await store.reservations.list();
+  assert.equal(after.length, 4, 'four before, four after');
+  for (const was of before) {
+    const now = after.find((r) => r.id === was.id);
+    assert.ok(now, 'the reservation id survived');
+    assert.equal(now.guide_token, was.token, 'the guest keeps the link they already have');
+    assert.equal(now.guide_created_at, was.created);
+    assert.equal(now.staff_ref, was.ref);
+  }
+});
+
+test('repair schedules no email and sends nothing', async () => {
+  const { store, made } = await staleStore();
+  // One of them has already had its guide email; that must not be undone.
+  await store.reservations.update(made[0].id, { guide_email_status: 'sent', guide_email_sent_at: '2026-09-30T08:00:00.000Z' });
+
+  await repairFromMailbox({ store, mailbox: createMemoryMailbox([...REAL.REAL_RESERVATIONS]) });
+
+  assert.equal((await store.deliveries.list()).length, 0, 'no delivery was scheduled');
+  const sent = (await store.reservations.list()).find((r) => r.id === made[0].id);
+  assert.equal(sent.guide_email_status, 'sent', 'an email already sent stays sent');
+  assert.equal(sent.guide_email_sent_at, '2026-09-30T08:00:00.000Z');
+});
+
+test('repair does not move the dates or change the status', async () => {
+  const { store, made } = await staleStore();
+  const before = made.map((r) => ({ id: r.id, from: r.check_in, to: r.check_out, status: r.status }));
+
+  await repairFromMailbox({ store, mailbox: createMemoryMailbox([...REAL.REAL_RESERVATIONS]) });
+
+  const after = await store.reservations.list();
+  for (const was of before) {
+    const now = after.find((r) => r.id === was.id);
+    assert.equal(now.check_in, was.from);
+    assert.equal(now.check_out, was.to);
+    assert.equal(now.status, was.status, 'a repair is not a modification');
+  }
+});
+
+test('running repair a second time changes nothing', async () => {
+  const { store } = await staleStore();
+  const first = await repairFromMailbox({ store, mailbox: createMemoryMailbox([...REAL.REAL_RESERVATIONS]) });
+  const snapshot = JSON.stringify((await store.reservations.list()).map((r) => ({ ...r, history: r.history.length })));
+
+  const second = await repairFromMailbox({ store, mailbox: createMemoryMailbox([...REAL.REAL_RESERVATIONS]) });
+  assert.equal(first.repaired, 4);
+  assert.equal(second.repaired, 0, 'nothing left to correct');
+  assert.equal(second.unchanged, 4);
+  assert.equal(
+    JSON.stringify((await store.reservations.list()).map((r) => ({ ...r, history: r.history.length }))),
+    snapshot,
+    'and not one field moved',
+  );
+});
+
+test('repair leaves the history, and says in it what it did', async () => {
+  const { store, made } = await staleStore();
+  await repairFromMailbox({ store, mailbox: createMemoryMailbox([REAL.IRENE]) });
+  const row = (await store.reservations.list()).find((r) => r.last_name === 'Cappellini');
+  const repair = row.history.filter((h) => h.type === 'parser-repair');
+  assert.equal(repair.length, 1);
+  assert.match(repair[0].detail, /room: 302/);
+  assert.match(repair[0].detail, /last_name: Cappellini/);
+});
+
+test('repair ignores the noise in the same mailbox', async () => {
+  const { store } = await staleStore();
+  const result = await repairFromMailbox({
+    store,
+    mailbox: createMemoryMailbox([REAL.SCHEDINE, REAL.IRENE, REAL.ONLINE_CHECKIN]),
+  });
+  assert.equal(result.ignored, 2);
+  assert.equal(result.reservations, 1);
+  assert.equal(result.repaired, 1);
+});
+
+test('repair does not invent a reservation for a booking we never had', async () => {
+  const store = createStore();
+  const result = await repairFromMailbox({ store, mailbox: createMemoryMailbox([REAL.IRENE]) });
+  assert.equal(result.unmatched, 1);
+  assert.equal(result.repaired, 0);
+  assert.equal((await store.reservations.list()).length, 0, 'repair repairs; polling creates');
+});
+
+/** Ordinary polling must stay exactly as idempotent as it was. */
+test('the dedupe bypass belongs to repair alone', async () => {
+  const store = createStore();
+  const mailbox = createMemoryMailbox([REAL.IRENE]);
+  const first = await pollMailbox({ store, mailbox, ingest: ingestMessages });
+  assert.equal(first.created, 1);
+
+  mailbox.push(REAL.IRENE);
+  const second = await pollMailbox({ store, mailbox, ingest: ingestMessages });
+  assert.equal(second.duplicates, 1, 'the same message twice is still recognised');
+  assert.equal(second.created, 0);
+  assert.equal((await store.reservations.list()).length, 1);
+});
+
+test('an empty value never overwrites something we already hold', async () => {
+  const { store } = await staleStore();
+  await repairFromMailbox({ store, mailbox: createMemoryMailbox([...REAL.REAL_RESERVATIONS]) });
+  // These fixtures carry no guest email; the field must be left as it was rather
+  // than blanked by a parser that simply did not find one.
+  const row = (await store.reservations.list()).find((r) => r.last_name === 'Kay');
+  const withEmail = await store.reservations.update(row.id, { guest_email: 'kelly@example.invalid' });
+  await repairFromMailbox({ store, mailbox: createMemoryMailbox([REAL.KELLY]) });
+  const after = (await store.reservations.list()).find((r) => r.id === withEmail.id);
+  assert.equal(after.guest_email, 'kelly@example.invalid');
 });

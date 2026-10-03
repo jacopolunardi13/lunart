@@ -177,6 +177,77 @@ export async function upsertReservation({ store, event, now = new Date() }) {
   return { ok: true, action: reviving ? 'reinstated' : 'modified', reservation: updated, changed };
 }
 
+/**
+ * What a parser repair is allowed to touch.
+ *
+ * Deliberately narrower than MUTABLE. A repair exists because the parser read the
+ * email badly, so it may correct what the parser produces — the name, the room,
+ * the channel, the contact details. It may not touch the dates, because moving
+ * them is a modification to the stay and modifications arrive as notifications and
+ * reschedule the guest email; nor the status, because a repair is not a
+ * cancellation or a reinstatement; nor the guide token, the guide email state or
+ * the staff reference, because a guest already holds a link and may already have
+ * had the email.
+ */
+export const REPAIRABLE = [
+  'first_name', 'last_name', 'guest_email', 'guest_phone', 'channel',
+  'adults', 'children', 'guest_count', 'room', 'rate', 'total_amount',
+  'source_reference', 'booked_at', 'notes',
+];
+
+/**
+ * Fill in and correct what a better parser can now read.
+ *
+ * Nothing here creates, cancels, reinstates, schedules or sends. It takes a
+ * reservation that already exists and an event parsed from the email it came from,
+ * and moves the record towards the email — once. Run it again with the same email
+ * and it finds nothing to change, which is what makes it safe to run twice by
+ * mistake.
+ *
+ * An empty value never overwrites a filled one: a parser that lost a field is not
+ * evidence that the field is empty, and the whole point of this is that the old
+ * parser lost fields.
+ */
+export async function repairReservation({ store, reservation, event, fields = REPAIRABLE }) {
+  if (!reservation) return { ok: false, reason: 'no-reservation' };
+
+  const incoming = buildReservation({ ...event, source: reservation.source });
+  const changed = {};
+  for (const field of fields) {
+    const next = incoming[field];
+    if (next === undefined || next === null || next === '' || next === 0) continue;
+    if (String(reservation[field] ?? '') === String(next)) continue;
+    changed[field] = next;
+  }
+
+  /**
+   * The booking number itself, when the parser mangled it.
+   *
+   * It is the key the upsert turns on, so it is never changed by an ordinary
+   * modification — but the old parser glued the status word onto it
+   * ("6703524869NEW"), and a number no guest could read back is exactly what a
+   * repair is for. Only ever towards the clean value, and never onto a number some
+   * other reservation already holds.
+   */
+  const clean = text(event.booking_reference, 80).toUpperCase();
+  if (clean && clean !== reservation.booking_reference && reservation.booking_reference.startsWith(clean)) {
+    const collision = await store.reservations.findByBooking(reservation.source, clean);
+    if (collision && collision.id !== reservation.id) {
+      return { ok: false, reason: 'reference-collision', reservation, collision: collision.id };
+    }
+    changed.booking_reference = clean;
+  }
+
+  if (Object.keys(changed).length === 0) return { ok: true, action: 'unchanged', reservation };
+
+  const described = Object.entries(changed).map(([field, value]) => `${field}: ${value}`).join(', ');
+  const updated = await store.reservations.update(reservation.id, {
+    ...changed,
+    history: note(reservation, 'parser-repair', described).history,
+  });
+  return { ok: true, action: 'repaired', reservation: updated, changed };
+}
+
 /** Called off. The record and everything bought against it stay exactly where they are. */
 export async function cancelReservation({ store, reservation, reason = '', now = new Date() }) {
   if (!reservation) return null;

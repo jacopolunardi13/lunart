@@ -297,3 +297,12 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 .preview-flag strong { letter-spacing: 0.14em; }
 
 [hidden] { display: none !important; }
+
+/* What the parser repair corrected, named so it can be checked rather than trusted. */
+.repair__list { margin: 10px 0 0; padding: 0; list-style: none; }
+.repair__list li {
+  padding: 7px 0;
+  border-top: 1px solid var(--staff-rule);
+  font-size: .9rem; line-height: 1.5;
+}
+.repair__list .mono { color: var(--staff-quiet); font-size: .82rem; }

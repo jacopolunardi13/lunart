@@ -179,7 +179,6 @@ function assignedRoom(lang) {
     </div>
     ${room.view ? `<p class="room__meta">${esc(t(room.view, lang))}</p>` : ''}
     <p class="room__summary">${esc(t(room.summary, lang))}</p>
-    ${room.photos.length === 0 ? `<p class="room__note">${esc(UI[lang].roomPhotosPending)}</p>` : ''}
   </article>`;
 }
 

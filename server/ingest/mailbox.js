@@ -88,7 +88,10 @@ export async function pollMailbox({ store, mailbox, ingest, now = new Date() }) 
   if (mailbox.markProcessed) {
     for (let i = 0; i < messages.length; i++) {
       const result = outcome.results?.[i];
-      if (!result?.ok) continue;
+      // Ingested, or deliberately not a reservation: both are finished with. Only a
+      // notification that would not read stays unmarked, so the next poll sees it
+      // again — and so does a staff member who fixes whatever was wrong.
+      if (!result?.ok && !result?.ignored) continue;
       await mailbox.markProcessed(messages[i].messageId, { gmailId: messages[i].gmailId });
     }
   }

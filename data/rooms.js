@@ -72,18 +72,20 @@ export const rooms = [
       en: 'Bright and roomy, looking over the river and the Uffizi. It can take an extra bed on request, though it is not a standard triple.',
     },
     /**
-     * Nessuna foto, finché non ce n'è una della 304.
+     * Una foto sola, e confermata.
      *
-     * Le due che c'erano non erano della 304. Quella con la scrivania e la finestra
+     * Qui c'era anche `304-camera`, con la scrivania e la finestra: non è la 304,
      * è la 302 — confermato dal proprietario, ed è lo stesso scatto che la 302 ha
-     * già come `302-scrivania`, quindi non va aggiunta una seconda volta. L'altra
-     * era un bagno generico della struttura, con una didascalia che evitava di
-     * nominare la stanza: dentro la galleria di una camera resta comunque una foto
-     * che dice "questa è la tua camera". Meglio nessuna foto che la foto sbagliata.
+     * già come `302-scrivania`, quindi è stato tolto da qui e non aggiunto lì.
+     * Il bagno invece è davvero quello della 304, confermato dal proprietario, e
+     * resta.
      */
-    photos: [],
-    verify: { level: 'blocker', field: 'foto',
-      note: 'La 304 non ha foto. Le due precedenti sono state rimosse: quella con scrivania e finestra è della 302 (confermato dal proprietario, già presente lì come 302-scrivania), l\u2019altra era un bagno generico della struttura. Servono scatti dedicati della 304 prima di pubblicarne di nuovo.' },
+    photos: [
+      { src: 'rooms/304-bagno', alt: { it: 'Bagno privato della 304 con doccia', en: 'Private bathroom of room 304 with shower' } },
+    ],
+    verify: { level: 'confirm', field: 'foto',
+      note: 'Rimossa `304-camera` (scrivania e finestra): è della 302, confermato dal proprietario, e la 302 la ha già come `302-scrivania`. Il bagno resta, confermato come 304. '
+        + 'Il proprietario indica altre tre foto verificate per la 304 — vista Arno dalla finestra, camera con letto e finestra, testiera grigia capitonné. In archivio i candidati sono `property/camera-finestra`, `property/camera-dettaglio` e `views/finestra-arno`, ma nessuno dei tre porta un riferimento alla stanza e `camera-dettaglio` è indistinguibile a occhio da `302-camera`: serve che il proprietario confermi il nome del file, non la descrizione. Finché non lo fa non vengono pubblicate, per non ripetere esattamente l\u2019errore appena corretto.' },
   },
   {
     id: '305',

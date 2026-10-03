@@ -158,12 +158,11 @@ test('rooms are complete and their photographs exist on disk', async (t) => {
 /**
  * A room gallery only ever shows that room.
  *
- * Room 304 carried two photographs that were not room 304: one was room 302 — the
- * owner confirmed it, and 302 already held the same shot — and the other was a
- * generic LunArt bathroom with a caption carefully worded not to name a room,
- * which inside a room's own gallery still reads as "this is yours". The filename
- * is the invariant: a photograph in room N's gallery lives at `rooms/N-...`.
- * Nothing else may be attributed to a room, however suggestive it looks.
+ * Room 304 carried a photograph that was not room 304: the desk-and-window shot is
+ * room 302 — the owner confirmed it, and 302 already held the same frame. The
+ * filename is the invariant: a photograph in room N's gallery lives at
+ * `rooms/N-...`. Nothing else may be attributed to a room, however suggestive it
+ * looks.
  */
 test('no room shows a photograph belonging to another room, or to no room', () => {
   const wrong = [];
@@ -199,6 +198,23 @@ test('a room with no photograph says so on the review screen', () => {
     assert.ok(room.verify, `room ${room.number} has no photo and no verify note`);
     assert.equal(room.verify.level, 'blocker', `room ${room.number} should block on its missing photos`);
   }
+});
+
+/**
+ * And every room has at least one, because a gallery with nothing in it is a room
+ * that looks unfinished to the one guest who is sleeping in it.
+ */
+test('every room shows at least one photograph of itself', () => {
+  const bare = rooms.filter((room) => room.photos.length === 0).map((room) => room.number);
+  assert.deepEqual(bare, []);
+});
+
+/** The one photograph that was taken away, and must not come back. */
+test('the room 302 desk shot is in room 302 and nowhere else', () => {
+  const owners = rooms.filter((room) => room.photos.some((p) => /302-scrivania/.test(p.src))).map((r) => r.number);
+  assert.deepEqual(owners, ['302'], 'exactly one room holds it');
+  const stray = rooms.flatMap((room) => room.photos.filter((p) => /304-camera/.test(p.src)).map(() => room.number));
+  assert.deepEqual(stray, [], '304-camera is room 302 and is published by neither');
 });
 
 test('contacts are reachable', () => {

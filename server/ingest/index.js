@@ -16,7 +16,7 @@
 
 import { upsertReservation, cancelReservation, RESERVATION_STATUS } from '../reservations.js';
 import { scheduleGuideEmail, cancelGuideEmail } from '../delivery.js';
-import { parseQuovaiEmail, isQuovaiMessage } from './quovai-email.js';
+import { parseQuovaiEmail, isQuovaiMessage, classifyQuovaiMessage } from './quovai-email.js';
 
 /**
  * Handle one canonical event.
@@ -80,12 +80,26 @@ export async function ingestEvent({ store, event, now = new Date() }) {
  * why the tests can run the real path against fixtures with no mailbox anywhere.
  */
 export async function ingestMessage({ store, message, now = new Date() }) {
-  if (!isQuovaiMessage(message)) return { ok: false, reason: 'not-a-reservation-notification' };
+  /**
+   * Two kinds of "no", and they are not the same kind.
+   *
+   * The reservation mailbox also carries the police forms waiting to be filed and
+   * a note every time somebody finishes the online check-in. Those are not stays,
+   * they were never going to parse as one, and turning each into "notifica non
+   * interpretabile" is how a warning list becomes something nobody reads. They are
+   * dropped without a sound.
+   *
+   * A message that *is* a reservation notification and will not parse is the
+   * opposite: a guest is arriving whether or not the email made sense, so that one
+   * goes in front of staff every time.
+   */
+  const verdict = classifyQuovaiMessage(message);
+  if (!verdict.relevant) {
+    return { ok: false, ignored: true, reason: verdict.reason, notice: verdict.notice ?? null };
+  }
 
   const parsed = parseQuovaiEmail(message);
   if (!parsed.ok) {
-    // Unreadable, not ignorable. Staff have to know a notification arrived that we
-    // could not understand, because a guest is about to turn up either way.
     await raiseAlert({
       store,
       key: `unparsed:${message.messageId ?? parsed.reason}`,
@@ -119,7 +133,10 @@ export async function ingestMessages({ store, messages = [], now = new Date() })
     cancelled: results.filter((r) => String(r.action ?? '').startsWith('cancelled')).length,
     duplicates: results.filter((r) => r.action === 'duplicate').length,
     unchanged: results.filter((r) => r.action === 'unchanged').length,
-    failed: results.filter((r) => r.ok === false).length,
+    /** Not reservations at all. Counted so a quiet morning is visibly quiet. */
+    ignored: results.filter((r) => r.ignored === true).length,
+    /** Reservation notifications that would not read. Each one raised a warning. */
+    failed: results.filter((r) => r.ok === false && !r.ignored).length,
     results,
   };
 }
@@ -147,4 +164,4 @@ export async function resolveAlert({ store, id, note = '' }) {
   return store.alerts.update(id, { status: 'resolved', resolved_at: new Date().toISOString(), note });
 }
 
-export { parseQuovaiEmail, isQuovaiMessage };
+export { parseQuovaiEmail, isQuovaiMessage, classifyQuovaiMessage };

@@ -45,6 +45,7 @@ import { ingestMessage, ingestMessages, ingestEvent, resolveAlert, raiseAlert } 
 import { createMailbox, mailboxSources, pollMailbox, createMemoryMailbox } from './ingest/mailbox.js';
 import { createQuovaiApiAdapter, reservationSources } from './ingest/quovai-api.js';
 import { reconcileFeeds } from './ingest/ical.js';
+import { repairFromMailbox } from './ingest/repair.js';
 import { createPushAdapter, notifyStaff, registerSubscription } from './push.js';
 import { createProviderCalendar, providerCalendars } from './calendar/google.js';
 import { freeSlots, freeDays, slotIsFree, verifySlotForCheckout } from './calendar/index.js';
@@ -955,6 +956,21 @@ export async function createApp(overrides = {}) {
     sendJson(res, result.ok ? 200 : 503, result);
   }
 
+  /**
+   * Re-read the mailbox and correct what an earlier parser filed badly.
+   *
+   * Staff-triggered and nothing else: it is behind the same token as every other
+   * staff route, it is not one of the scheduled jobs, and it is the only operation
+   * that looks past the message de-duplication. Nothing it does creates a
+   * reservation, moves a date, touches a guide link or sends an email — see
+   * `server/ingest/repair.js`, which says so in more detail and is where the
+   * guarantees actually live.
+   */
+  async function postStaffRepair(req, res) {
+    const result = await repairFromMailbox({ store, mailbox });
+    sendJson(res, result.ok ? 200 : 503, result);
+  }
+
   /** Run one scheduled job on demand, from the Staff app. */
   async function postStaffRunJob(req, res, { job }) {
     if (!scheduler.has(job)) { sendJson(res, 404, { error: 'unknown-job' }); return; }
@@ -1280,6 +1296,7 @@ export async function createApp(overrides = {}) {
     ['POST', '/api/staff/reservations/:id/:action', guard(postStaffReservationAction)],
     ['GET',  '/api/staff/sync', guard(getStaffSync)],
     ['POST', '/api/staff/sync/poll', guard(postStaffPoll)],
+    ['POST', '/api/staff/sync/repair', guard(postStaffRepair)],
     ['POST', '/api/staff/sync/reconcile', guard(postStaffReconcile)],
     ['POST', '/api/staff/sync/ingest', guard(postStaffIngest)],
     ['POST', '/api/staff/sync/send-emails', guard(postStaffSendEmails)],

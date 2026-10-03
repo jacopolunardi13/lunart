@@ -289,6 +289,48 @@ note(/no-feeds-configured/.test(await staffPage.textContent('#sync-result')),
   'reconciling with no feed says so rather than pretending');
 await staffPage.screenshot({ path: `${OUT}/staff-sync-390.png` });
 
+/* The parser repair, which is the only thing in here that looks past the message
+   de-duplication — so it is also the only thing that must be behind the token. */
+note(await staffPage.isVisible('[data-sync="repair"]'), 'the QuoVai repair is offered to staff');
+const repairLabel = await staffPage.textContent('[data-sync="repair"]');
+note(/ripara/i.test(repairLabel), `and says what it does (${repairLabel.trim()})`);
+
+/* Guarded exactly like every other staff route — in production that is a 401, and
+   on a development server every staff route falls open together. Either way, the
+   repair must behave the same as the dashboard beside it. */
+const [repairStatus, dashboardStatus] = await Promise.all([
+  fetch(`${BASE}/api/staff/sync/repair`, { method: 'POST' }).then((r) => r.status),
+  fetch(`${BASE}/api/staff/dashboard`).then((r) => r.status),
+]);
+note(
+  (repairStatus === 401) === (dashboardStatus === 401),
+  `the repair endpoint is guarded like the rest of the staff API (repair ${repairStatus}, dashboard ${dashboardStatus})`,
+);
+
+await staffPage.click('[data-sync="repair"]');
+await staffPage.waitForTimeout(1400);
+const repairText = (await staffPage.textContent('#sync-result')).replace(/\s+/g, ' ').trim();
+/* With a mailbox behind it the summary renders; without one it has to say so
+   rather than look like it did nothing. The unit tests cover the summary itself
+   against a mailbox full of the real notifications. */
+note(/Lette|Corrette|no-mailbox-configured|source-not-configured/.test(repairText),
+  `the repair answers plainly (${repairText.slice(0, 90)})`);
+note(!/^\s*$/.test(repairText), 'and never silently');
+await staffPage.screenshot({ path: `${OUT}/staff-repair-390.png` });
+
+/* The manual form carries one language selector. It only ever had one, but the
+   owner saw two, so this is the assertion rather than the assumption. */
+await staffPage.click('[data-view="reservations"]');
+await staffPage.waitForTimeout(800);
+const languageFields = await staffPage.evaluate(() => ({
+  labels: [...document.querySelectorAll('#manual .field__label')].filter((el) => /lingua|language/i.test(el.textContent)).length,
+  selects: document.querySelectorAll('#manual select[name="lang"]').length,
+  forms: document.querySelectorAll('#manual').length,
+}));
+note(languageFields.forms === 1, `one manual form (${languageFields.forms})`);
+note(languageFields.labels === 1, `one LINGUA label (${languageFields.labels})`);
+note(languageFields.selects === 1, `one language selector (${languageFields.selects})`);
+
 // Queues
 await staffPage.click('[data-view="new"]');
 await staffPage.waitForTimeout(700);
@@ -349,7 +391,8 @@ for (const number of ALL_ROOMS) {
   note(shown.phaseChips === 0, `${number} → no manual phase selector`);
 }
 
-// Room 304 has no verified photograph of its own, and must not borrow one.
+/* Room 304 shows its own bathroom — the owner's confirmed photograph — and never
+   the desk-and-window shot, which is room 302's and is already in room 302. */
 const r304 = await post('/api/staff/reservations', {
   first_name: 'Foto', last_name: `F304x${Date.now().toString(36).slice(-4)}`, guest_email: 'qa-304@example.invalid',
   check_in: today, check_out: inDays(2), room: '304', adults: 2, booking_reference: `QA-304-${Date.now()}`,
@@ -358,12 +401,10 @@ throwaway.push(r304.reservation.id);
 const link304 = (await post(`/api/staff/reservations/${r304.reservation.id}/link`)).link;
 await page.goto(link304, { waitUntil: 'networkidle' });
 await page.waitForTimeout(900);
-const photos304 = await page.evaluate(() => ({
-  images: [...document.querySelectorAll('.room--assigned img')].map((i) => i.getAttribute('src')),
-  note: document.querySelector('.room--assigned .room__note')?.textContent.trim() ?? '',
-}));
-note(photos304.images.length === 0, `304 shows no photograph at all (${photos304.images.join(', ') || 'none'})`);
-note(photos304.note.length > 0, `and says so rather than looking broken (${photos304.note})`);
+const photos304 = await page.evaluate(() => [...document.querySelectorAll('.room--assigned img, .room--assigned source')]
+  .map((el) => el.getAttribute('src') || el.getAttribute('srcset') || '').join(' '));
+note(/304-bagno/.test(photos304), '304 shows its own confirmed photograph');
+note(!/304-camera/.test(photos304), 'and never the shot that is actually room 302');
 await page.screenshot({ path: `${OUT}/room-304-390.png` });
 
 /* ── 7. The phase, computed and not asked ─────────────────────────────────

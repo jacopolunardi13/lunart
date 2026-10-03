@@ -15,6 +15,8 @@ import { createStore } from '../server/store.js';
 import { createMockStripe } from '../server/stripe.js';
 import { resetRateLimits } from '../server/rate-limit.js';
 import { ingestEvent } from '../server/ingest/index.js';
+import { createMemoryMailbox } from '../server/ingest/mailbox.js';
+import { buildReservation } from '../server/reservations.js';
 import { applyPriceOverrides } from '../commerce/prices.js';
 import { applyPartners, PARTNERS, cardPartners, stayPartners, stayBenefits, cardBenefits, guestBenefit } from '../commerce/partners.js';
 import { devPartners } from '../commerce/partners.dev.js';
@@ -543,4 +545,82 @@ test('nothing but a preview ever carries the flag', async () => {
   for (const integration of Object.values(health.integrations)) {
     assert.notEqual(integration.state, 'disabled-in-preview');
   }
+});
+
+/* ── The parser repair, over the real HTTP surface ─────────────────────────
+   The repair is the one operation in the system that deliberately looks past the
+   message de-duplication, so these check the two things that makes dangerous:
+   that it is behind the staff token like everything else, and that running it
+   from the outside does exactly what running it from the inside does — correct
+   what is there, create nothing, send nothing. */
+
+test('the repair endpoint is behind the staff token', async () => {
+  const app = await createApp({
+    store: createStore(),
+    stripe: createMockStripe(),
+    staffToken: 'repair-token',
+    mode: 'production',
+    mailbox: createMemoryMailbox([]),
+  });
+  const listener = app.listen(0);
+  await new Promise((resolve) => listener.once('listening', resolve));
+  const base = `http://127.0.0.1:${listener.address().port}`;
+
+  const refused = await fetch(`${base}/api/staff/sync/repair`, { method: 'POST' });
+  assert.equal(refused.status, 401);
+
+  const allowed = await fetch(`${base}/api/staff/sync/repair`, {
+    method: 'POST', headers: { authorization: 'Bearer repair-token' },
+  });
+  assert.equal(allowed.status, 200);
+  listener.close();
+});
+
+test('the repair corrects the live rows through the API, and only those', async () => {
+  const { REAL_RESERVATIONS } = await import('./fixtures/quovai.js');
+  const db = createStore();
+
+  // The staging store as the old parser left it: dates and links, no names, no rooms.
+  for (const row of [
+    { ref: '6230618454MODIFIED', from: '2026-10-02', to: '2026-10-03' },
+    { ref: '6703524869NEW', from: '2026-11-07', to: '2026-11-08' },
+  ]) {
+    await db.reservations.create(buildReservation({
+      source: 'quovai', booking_reference: row.ref, check_in: row.from, check_out: row.to, adults: 2,
+    }));
+  }
+
+  const app = await createApp({
+    store: db,
+    stripe: createMockStripe(),
+    staffToken: 'repair-token',
+    mode: 'production',
+    mailbox: createMemoryMailbox([...REAL_RESERVATIONS]),
+  });
+  const listener = app.listen(0);
+  await new Promise((resolve) => listener.once('listening', resolve));
+  const base = `http://127.0.0.1:${listener.address().port}`;
+  const repair = () => fetch(`${base}/api/staff/sync/repair`, {
+    method: 'POST', headers: { authorization: 'Bearer repair-token' },
+  }).then((r) => r.json());
+
+  const first = await repair();
+  assert.equal(first.ok, true);
+  assert.equal(first.matched, 2);
+  assert.equal(first.repaired, 2);
+  assert.equal(first.unmatched, 2, 'the two stays we never held are left alone');
+
+  const rows = await db.reservations.list();
+  assert.equal(rows.length, 2, 'repair created nothing');
+  assert.deepEqual(
+    rows.map((r) => `${r.first_name} ${r.last_name} · ${r.room}`).sort(),
+    ['Irene Cappellini · 302', 'Martin Markert · 304'],
+  );
+  assert.equal((await db.deliveries.list()).length, 0, 'and scheduled no email');
+
+  // Idempotent: the mailbox is refilled, the answer is "nothing to do".
+  const second = await repair();
+  assert.equal(second.repaired, 0);
+  assert.equal(second.unchanged, 0, 'the memory mailbox hands each message over once');
+  listener.close();
 });

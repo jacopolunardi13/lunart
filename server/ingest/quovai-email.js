@@ -27,10 +27,18 @@ import { createHash } from 'node:crypto';
 /** What kind of notification this is. */
 export const QUOVAI_KINDS = { new: 'new', modified: 'modified', cancelled: 'cancelled' };
 
+/**
+ * The subject, when it says outright what happened.
+ *
+ * `prenotazione` on its own used to be enough for "new", which made every
+ * "check-in online effettuato per prenotazione 1308918" a reservation. A subject
+ * now has to pair the word with something that happened to it, or carry QuoVai's
+ * own emoji.
+ */
 const SUBJECT_MARKERS = [
-  { kind: 'cancelled', patterns: [/⛔/, /\bcancellazione\b/i, /\bcancellation\b/i] },
-  { kind: 'modified', patterns: [/🔄/, /\bmodifica\b/i, /\bmodification\b/i, /\bmodified\b/i] },
-  { kind: 'new', patterns: [/🔔/, /\bprenotazione\b/i, /\breservation\b/i, /\bnew booking\b/i] },
+  { kind: 'cancelled', patterns: [/⛔/, /\bcancellazione\b/i, /\bcancellation\b/i, /prenotazione\s+cancellata/i, /booking\s+cancell(?:ed|ation)/i] },
+  { kind: 'modified', patterns: [/🔄/, /\bmodifica\s+(?:della\s+)?prenotazione\b/i, /prenotazione\s+modificata/i, /booking\s+modifi(?:ed|cation)/i] },
+  { kind: 'new', patterns: [/🔔/, /\bnuova\s+prenotazione\b/i, /prenotazione\s+confermata/i, /\bnew\s+(?:booking|reservation)\b/i] },
 ];
 
 const BODY_MARKERS = [
@@ -187,6 +195,10 @@ const wholeNumber = (input) => {
 
 /** Which notification this is, from the subject and from the body, in that order. */
 export function kindOf({ subject = '', body = '' }) {
+  // QuoVai states it outright, next to the booking number. Nothing beats that.
+  const beside = splitReference(fieldOf(body, LABELS.booking_reference)).status;
+  if (beside) return beside;
+
   for (const { kind, patterns } of BODY_MARKERS) {
     if (patterns.some((p) => p.test(body))) return kind;
   }
@@ -196,20 +208,185 @@ export function kindOf({ subject = '', body = '' }) {
   return null;
 }
 
-/** Does this look like a QuoVai notification at all? */
-export function isQuovaiMessage({ subject = '', from = '', body = '' } = {}) {
-  const haystack = `${subject}\n${from}`;
-  if (/quovai/i.test(haystack)) return true;
-  if (/\blunart\b/i.test(subject) && kindOf({ subject, body })) return true;
-  return /numero prenotazione/i.test(body) && /\bstruttura\b/i.test(body);
+/**
+ * Operational QuoVai mail: real, useful, and not a reservation.
+ *
+ * The same mailbox carries the police forms waiting to be filed and a note every
+ * time a guest finishes the online check-in. They are not stays and they were
+ * never going to parse as one, so the old pipeline turned each of them into
+ * "Notifica non interpretabile" and put it in front of staff — which is how a
+ * warning list becomes something nobody reads.
+ *
+ * These patterns only ever decide what to IGNORE. Anything carrying the structure
+ * of a reservation notification is handled as one even if it also matches here,
+ * because a real notification mentioning an online check-in must not disappear.
+ */
+const OPERATIONAL_MARKERS = [
+  { reason: 'schedine', pattern: /\bschedin[ae]\b/i },
+  { reason: 'online-check-in', pattern: /check-?in\s+online|online\s+check-?in/i },
+  { reason: 'alloggiati', pattern: /\balloggiati\s*web\b/i },
+  { reason: 'istat', pattern: /\bistat\b/i },
+  { reason: 'review', pattern: /\brecensione\b|\bnuova recensione\b/i },
+  { reason: 'invoice', pattern: /\bfattura\b|\bfatturazione\b/i },
+];
+
+/**
+ * Does this message carry the structure of a reservation notification?
+ *
+ * Not "did it parse" — structure. A notification whose dates are unreadable is
+ * still a notification, and staff have to hear about it; an email about eight
+ * police forms is not one however badly it reads. The two cases need different
+ * answers, so they need to be asked apart.
+ *
+ * The structure is the booking-number label, or a subject that says in so many
+ * words that a reservation was made, changed or called off. A bare "prenotazione"
+ * in a subject is not enough — "check-in online effettuato per prenotazione
+ * 1308918" contains it and is an operational notice.
+ */
+function hasReservationStructure({ subject = '', body = '' }) {
+  if (fieldOf(body, LABELS.booking_reference)) return true;
+  return SUBJECT_MARKERS.some(({ patterns }) => patterns.some((p) => p.test(subject)));
 }
 
-/** Split "Mario Rossi" into a first and last name without pretending to be clever. */
+/**
+ * What to do with one message from the reservation mailbox.
+ *
+ *   relevant: true   → the reservation parser, and a warning if it will not read
+ *   relevant: false  → nothing at all, quietly
+ *
+ * Sender alone decides nothing. Everything QuoVai sends comes from QuoVai.
+ */
+export function classifyQuovaiMessage({ subject = '', from = '', body = '', html = '' } = {}) {
+  const text = flatten(html || body);
+  const fromQuovai = /quovai/i.test(`${subject}\n${from}`);
+
+  // Structure first, always: it is the only thing that can say "this is a stay".
+  if (hasReservationStructure({ subject, body: text })) {
+    return { relevant: true, kind: kindOf({ subject, body: text }) };
+  }
+
+  if (!fromQuovai && !/\blunart\b/i.test(subject)) {
+    return { relevant: false, reason: 'not-from-the-reservation-mailbox' };
+  }
+
+  const operational = OPERATIONAL_MARKERS.find(({ pattern }) => pattern.test(subject) || pattern.test(text));
+  if (operational) return { relevant: false, reason: 'operational-notice', notice: operational.reason };
+
+  return { relevant: false, reason: 'not-a-reservation-notification' };
+}
+
+/** Kept for callers that only want the yes-or-no. */
+export function isQuovaiMessage(message = {}) {
+  return classifyQuovaiMessage(message).relevant;
+}
+
+/**
+ * Particles that belong to the surname they precede.
+ *
+ * "Maria Teresa Di Napoli" is Maria Teresa, surname Di Napoli — not Maria Teresa
+ * Di, surname Napoli. Taking the last word alone is right for most names and
+ * visibly wrong for these, and they are common enough in an Italian guest list to
+ * be worth the twelve words.
+ */
+const NAME_PARTICLES = new Set([
+  'di', 'de', 'del', 'della', 'dello', 'dei', 'degli', 'delle', 'da', 'dal', 'dalla',
+  'la', 'le', 'lo', 'van', 'von', 'der', 'den', 'ter', 'ten', 'af', 'av',
+  'du', 'des', 'el', 'al', 'bin', 'ibn', 'mac', 'mc', 'o’', "o'", 'st', 'san',
+]);
+
+/**
+ * Split a full name into a first and a last without pretending to be clever.
+ *
+ * One word is a surname. Two are a first and a last. More than two take the last
+ * word plus any particles immediately before it, which is as much cleverness as a
+ * guest list deserves — the whole name is kept either way, so nothing is lost if
+ * the split lands in the wrong place.
+ */
 function splitName(full) {
   const parts = String(full ?? '').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { first_name: '', last_name: '' };
   if (parts.length === 1) return { first_name: '', last_name: parts[0] };
-  return { first_name: parts.slice(0, -1).join(' '), last_name: parts[parts.length - 1] };
+
+  let cut = parts.length - 1;
+  while (cut > 1 && NAME_PARTICLES.has(parts[cut - 1].toLowerCase().replace(/\.$/, ''))) cut--;
+  return { first_name: parts.slice(0, cut).join(' '), last_name: parts.slice(cut).join(' ') };
+}
+
+/** The status words QuoVai puts beside the booking number. Never a guest's name. */
+const STATUS_WORDS = /^(new|modified|cancelled|canceled|nuova|modificata|cancellata|confermata|confirmed)$/i;
+
+/** Is this word one of them? Used where a lone status word has to be recognised. */
+export const isStatusWord = (value = '') => STATUS_WORDS.test(String(value).trim());
+
+/** Which notification a status word beside the booking number means. */
+const STATUS_KIND = {
+  new: 'new', nuova: 'new', confermata: 'new', confirmed: 'new',
+  modified: 'modified', modificata: 'modified',
+  cancelled: 'cancelled', canceled: 'cancelled', cancellata: 'cancelled',
+};
+
+/**
+ * The booking number, without the word printed next to it.
+ *
+ * QuoVai writes the status on the same line: "Numero prenotazione: 6703524869 NEW".
+ * Taking the whole value and squeezing the spaces out filed that stay under
+ * "6703524869NEW" — so the same booking arriving later as MODIFIED became a second
+ * reservation under "6703524869MODIFIED", and neither number was one a guest could
+ * read back. The reference is what it says it is; the status is read separately.
+ */
+export function splitReference(raw = '') {
+  const words = String(raw).trim().split(/\s+/).filter(Boolean);
+  let status = null;
+  while (words.length > 1 && STATUS_WORDS.test(words[words.length - 1])) {
+    status = STATUS_KIND[words.pop().toLowerCase()] ?? status;
+  }
+  return { reference: words.join(''), status };
+}
+
+/**
+ * The guest name, when QuoVai does not label it.
+ *
+ * The real notifications put the name on its own line directly under the booking
+ * number and directly above the field block:
+ *
+ *     Numero prenotazione: 6703524869 NEW
+ *     Irene Cappellini
+ *     Struttura: LUNART
+ *
+ * So that is exactly where this looks, and nowhere else. It starts at the booking
+ * reference line, stops at the first labelled field, and in between accepts only a
+ * line that could be a name: letters, no digits, no colon, no pipe, not a status
+ * word, not the property's own name. A line that fails any of those is skipped
+ * rather than guessed at — an email with no name is worth a warning, and a
+ * reservation filed under "Struttura" is not.
+ */
+export function unlabelledName(textBody, { property = '' } = {}) {
+  const lines = textBody.split('\n');
+  const anchor = lines.findIndex((line) => LABELS.booking_reference.some(
+    (alias) => new RegExp(`^\\s*\\|?\\s*${escapeRe(alias)}\\s*[:|]`, 'i').test(line),
+  ));
+  if (anchor < 0) return '';
+
+  // Five lines is the whole gap in every real example; beyond that we are guessing.
+  for (let i = anchor + 1; i < Math.min(lines.length, anchor + 6); i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // The field block has started: the name was not there.
+    if (isLabelLine(line) || /[:|]/.test(line)) return '';
+    if (!looksLikeName(line)) continue;
+    if (property && line.toLowerCase() === property.toLowerCase()) continue;
+    return line.replace(/\s+/g, ' ');
+  }
+  return '';
+}
+
+/** Letters, spaces and the punctuation names actually contain. Nothing else. */
+function looksLikeName(line) {
+  if (line.length < 2 || line.length > 80) return false;
+  if (STATUS_WORDS.test(line)) return false;
+  if (!/^[\p{L}][\p{L}\p{M}'’\-. ]*$/u.test(line)) return false;
+  const words = line.split(/\s+/);
+  return words.length >= 1 && words.length <= 5;
 }
 
 /** A stable id for a message that arrived without one. */
@@ -233,7 +410,7 @@ export function parseQuovaiEmail({ subject = '', from = '', body = '', html = ''
   const get = (key) => fieldOf(textBody, LABELS[key]);
   const warnings = [];
 
-  const booking_reference = get('booking_reference').replace(/\s+/g, '');
+  const { reference: booking_reference } = splitReference(get('booking_reference'));
   if (!booking_reference) return { ok: false, reason: 'no-booking-reference', kind };
 
   const check_in = parseItalianDate(get('check_in'));
@@ -245,10 +422,19 @@ export function parseQuovaiEmail({ subject = '', from = '', body = '', html = ''
     return { ok: false, reason: 'checkout-before-checkin', kind, booking_reference };
   }
 
+  const property = get('property');
+
   let first_name = get('first_name');
   let last_name = get('last_name');
   if (!last_name) {
     const combined = splitName(get('guest'));
+    first_name = first_name || combined.first_name;
+    last_name = combined.last_name;
+  }
+  // QuoVai's own notifications carry no label at all: the name is simply the line
+  // under the booking number. Labelled wins; this only fills a gap.
+  if (!last_name) {
+    const combined = splitName(unlabelledName(textBody, { property }));
     first_name = first_name || combined.first_name;
     last_name = combined.last_name;
   }
@@ -259,13 +445,15 @@ export function parseQuovaiEmail({ subject = '', from = '', body = '', html = ''
 
   const adults = wholeNumber(get('adults'));
   const children = wholeNumber(get('children'));
-  const room = roomOf(textBody, get('room'));
+  const notes = get('notes');
+  const room = roomOf(textBody, get('room'), { notes });
+  if (!room) warnings.push('no-room');
 
   const event = {
     kind,
     source: 'quovai',
     booking_reference,
-    source_reference: get('booking_reference').replace(/\s+/g, ''),
+    source_reference: booking_reference,
     channel: get('channel'),
     first_name,
     last_name,
@@ -279,31 +467,75 @@ export function parseQuovaiEmail({ subject = '', from = '', body = '', html = ''
     room,
     rate: get('rate'),
     total_amount: parseMoney(get('total_amount')),
-    notes: get('notes'),
+    notes,
     booked_at: parseItalianDate(get('booked_at')),
     source_updated_at: parseItalianDate(get('source_updated_at')),
     /** What makes processing idempotent. A real Message-Id if there is one. */
     message_id: messageId || fingerprint([subject, booking_reference, kind, get('source_updated_at'), check_in, check_out]),
     received_at: receivedAt ?? new Date().toISOString(),
-    property: get('property'),
+    property,
   };
 
   return { ok: true, kind, event, warnings };
 }
 
+/** The headers of QuoVai's room table, as they appear once the HTML is flattened. */
+const ROOM_TABLE_HEADERS = ['stanza', 'camera', 'room', 'alloggio', 'unità', 'unita', 'accommodation'];
+
 /**
- * The room, from the label or from the tariff row.
+ * The room, from the label or from the table.
  *
- * LunArt's rooms are numbered 301 to 305, and the room row in these emails carries
- * the number somewhere in it. Anything else is left empty for staff to fill rather
- * than guessed from a category name.
+ * The real emails do not put the number next to the word "Camera". The table
+ * flattens into its headers and then its data, and the number is in the data:
+ *
+ *     Stanza | Tariffa | Camera | Check-in | Check-out | Quantità | Prezzo | Stato
+ *     302 queen std
+ *     302 queen std /NR BB OTA
+ *     07/11
+ *     ...
+ *
+ * So the number is read from a row that *begins* with it, inside the window that
+ * starts at the table's own header. Two bounds, both deliberate: a row has to lead
+ * with the number, which "we are three adults, 305 would be lovely" does not, and
+ * the search never leaves the table, which is what keeps a note out of it. LunArt
+ * lets 301 to 305, with 306 expected; nothing outside that range is a room.
  */
-function roomOf(textBody, labelled) {
+function roomOf(textBody, labelled, { notes = '' } = {}) {
   const fromLabel = /\b(30[1-6])\b/.exec(labelled ?? '');
   if (fromLabel) return fromLabel[1];
-  const rows = textBody.split('\n').filter((line) => /camera|room|alloggio/i.test(line));
-  for (const row of rows) {
-    const match = /\b(30[1-6])\b/.exec(row);
+
+  const lines = textBody.split('\n');
+  const bare = (line) => line.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  // The table's window: from its first header, far enough to cover the data rows.
+  const header = lines.findIndex((line) => ROOM_TABLE_HEADERS.includes(bare(line)));
+  if (header >= 0) {
+    for (const line of lines.slice(header, header + 30)) {
+      const match = /(?:^|\|)\s*(30[1-6])\b/.exec(line);
+      if (match) return match[1];
+    }
+  }
+
+  /**
+   * No table header: a plain-text notification, or one laid out some other way.
+   *
+   * The leading-number rule still holds, and the notes are excluded outright —
+   * whatever a guest wrote in a request field is prose, and prose is the one place
+   * a number in this range would mean something else.
+   */
+  const noteLines = new Set(String(notes).split('\n').map((line) => line.trim()).filter(Boolean));
+  for (const line of lines) {
+    if (noteLines.has(line.trim())) continue;
+    const match = /^\s*\|?\s*(30[1-6])\b\s+\S/.exec(line);
+    if (match) return match[1];
+  }
+
+  // Last: a line that names a room and carries a number, which is the labelled
+  // shape written without a colon.
+  for (const line of lines) {
+    if (noteLines.has(line.trim())) continue;
+    if (!/\b(camera|room|stanza|alloggio)\b/i.test(line)) continue;
+    const match = /\b(30[1-6])\b/.exec(line);
     if (match) return match[1];
   }
   return '';

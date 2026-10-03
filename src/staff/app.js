@@ -325,6 +325,40 @@ async function renderReservations() {
   `);
 }
 
+/**
+ * What the repair did, in the five numbers that matter.
+ *
+ * Staff ran this because something looked wrong; a JSON dump is not an answer to
+ * that. Each reservation it corrected is named with the fields it filled in, so
+ * the result can be checked against the Prenotazioni list without trusting it.
+ */
+function repairSummary(result) {
+  const counts = [
+    ['Lette', result.scanned],
+    ['Prenotazioni', result.reservations],
+    ['Trovate', result.matched],
+    ['Corrette', result.repaired],
+    ['Già a posto', result.unchanged],
+    ['Non nostre', result.ignored],
+    ['Senza riscontro', result.unmatched],
+    ['Illeggibili', result.failed],
+  ];
+
+  const changes = (result.changes ?? []).map((change) => `
+    <li><strong>${esc(change.guest || change.booking_reference)}</strong>
+      <span class="mono">${esc(change.booking_reference)}</span> ·
+      ${esc(change.fields.join(', '))}</li>`).join('');
+
+  const problems = (result.problems ?? []).map((problem) => `
+    <li>${esc(problem.booking_reference ?? problem.subject ?? '')} — ${esc(problem.reason)}</li>`).join('');
+
+  return `<div class="banner" data-tone="${result.failed > 0 ? 'warn' : ''}">
+    <p>${counts.map(([label, value]) => `${esc(label)}: <strong>${Number(value ?? 0)}</strong>`).join(' · ')}</p>
+    ${changes ? `<ul class="repair__list">${changes}</ul>` : '<p class="note">Nessuna correzione da fare.</p>'}
+    ${problems ? `<p class="note">Da guardare:</p><ul class="repair__list">${problems}</ul>` : ''}
+  </div>`;
+}
+
 async function renderSync() {
   const data = await api('/sync');
 
@@ -390,6 +424,17 @@ async function renderSync() {
       <button class="action" type="button" data-sync="poll">Leggi le notifiche</button>
       <button class="action" type="button" data-sync="reconcile">Confronta i calendari</button>
       <button class="action" type="button" data-sync="send-emails">Invia le email in scadenza</button>
+    </div>
+
+    <h2>Riparazione</h2>
+    <p class="note">
+      Rilegge le notifiche QuoVai recenti con il parser aggiornato e corregge le
+      prenotazioni già salvate — nome e camera, dove mancavano. Non crea niente,
+      non sposta le date, non tocca il link dell’ospite e non manda nessuna email.
+      Si può lanciare due volte senza conseguenze.
+    </p>
+    <div class="actions">
+      <button class="action" type="button" data-sync="repair">Ripara prenotazioni QuoVai</button>
     </div>
     <div id="sync-result"></div>
 
@@ -582,8 +627,10 @@ document.addEventListener('click', async (event) => {
     syncButton.disabled = true;
     try {
       const result = await api(`/sync/${what}`, { method: 'POST', keepBody: true });
-      $('#sync-result').innerHTML = `<div class="banner" data-tone="${result.ok === false ? 'warn' : ''}">
-        <p class="mono">${esc(JSON.stringify(result, null, 1).slice(0, 900))}</p></div>`;
+      $('#sync-result').innerHTML = what === 'repair' && result.ok !== false
+        ? repairSummary(result)
+        : `<div class="banner" data-tone="${result.ok === false ? 'warn' : ''}">
+            <p class="mono">${esc(JSON.stringify(result, null, 1).slice(0, 900))}</p></div>`;
     } catch (error) {
       if (!error.handled) $('#sync-result').innerHTML = `<div class="banner" data-tone="bad">${esc(error.message)}</div>`;
     } finally {
