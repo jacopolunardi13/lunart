@@ -65,6 +65,7 @@ export const breakfast = [
       it: 'Vale anche se torni per un pranzo, una cena o un aperitivo, non solo per la colazione.',
       en: 'It applies when you come back for lunch, dinner or an aperitivo too, not just at breakfast.',
     },
+    actions: [{ kind: 'product', label: { it: 'La Privilege Card', en: 'The Privilege Card' }, value: 'privilege-card' }],
     intents: ['opera-benefit'],
   },
   {
@@ -78,7 +79,11 @@ export const breakfast = [
       it: 'Si può organizzare, chiedendola almeno il giorno prima. Non è un servizio continuativo: va concordata di volta in volta.',
       en: 'It can be arranged, asked for at least the day before. It is not a standing service: it is agreed each time.',
     },
-    actions: [{ kind: 'entry', label: { it: 'Chiedila per domani', en: 'Ask for tomorrow' }, value: 'contacts' }],
+    actions: [
+      { kind: 'product', label: { it: 'Ordina la colazione', en: 'Order breakfast' }, value: 'light-breakfast' },
+      { kind: 'product', label: { it: 'Ordina il brunch', en: 'Order the brunch' }, value: 'brunch' },
+      { kind: 'entry', label: { it: 'Oppure scrivici', en: 'Or message us' }, value: 'contacts' },
+    ],
     intents: ['breakfast-room'],
   },
   {

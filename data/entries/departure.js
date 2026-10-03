@@ -74,7 +74,10 @@ export const departure = [
       it: 'Il preventivo arriva prima della conferma, e il pagamento è anticipato. Non siamo un’agenzia: è un servizio che organizziamo per i nostri ospiti quando serve.',
       en: 'You get a quote before confirming, and payment is in advance. We are not a travel agency: it is something we arrange for our guests when it helps.',
     },
-    actions: [{ kind: 'entry', label: { it: 'Chiedi un preventivo', en: 'Ask for a quote' }, value: 'contacts' }],
+    actions: [
+      { kind: 'product', label: { it: 'Prenota il transfer', en: 'Book the transfer' }, value: 'transfer-airport' },
+      { kind: 'entry', label: { it: 'Oppure scrivici', en: 'Or message us' }, value: 'contacts' },
+    ],
     intents: ['transfer'],
   },
   {

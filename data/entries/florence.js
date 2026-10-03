@@ -37,6 +37,7 @@ export const florence = [
       en: 'A glass before dinner, which in Florence is nearly a meal in itself.',
     },
     places: ['il-santino', 'opera-aperitivo'],
+    actions: [{ kind: 'product', label: { it: 'O una bottiglia in camera', en: 'Or a bottle in your room' }, value: 'wine-in-room' }],
     intents: ['aperitivo'],
   },
   {

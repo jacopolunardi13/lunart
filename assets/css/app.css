@@ -543,3 +543,188 @@ li:last-child > .place { border-bottom: 0; }
   }
   .slider__track { scroll-behavior: auto; }
 }
+
+/* ===========================================================================
+   Experiences & Extras
+   ---------------------------------------------------------------------------
+   Same cards, same sheets, same type as the rest of the guide. A guest who has
+   already booked should not feel handed over to a shop halfway through their
+   stay — the wine they order is as much part of it as the Wi-Fi password.
+   =========================================================================== */
+
+.card__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.price { font-size: var(--small); font-variant-numeric: tabular-nums; }
+.price-tag { font-size: var(--micro); color: var(--ink-quiet); font-variant-numeric: tabular-nums; }
+
+.badge {
+  font-size: var(--micro); letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--paper-2); color: var(--ink-quiet);
+}
+/* An unconfirmed price has to be unmissable; a guest must never take one for final. */
+.badge--warn { background: #f3e6d4; color: #7a4e15; }
+
+/* --- Cart badge on the header ------------------------------------------- */
+.cart-button { position: relative; }
+/* `display` beats the hidden attribute, so say so explicitly: otherwise an empty
+   cart still shows a solid dot over the icon. */
+.cart-button__count[hidden] { display: none; }
+.cart-button__count {
+  position: absolute; top: 4px; right: 2px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: grid; place-items: center;
+  border-radius: 999px; background: var(--ink); color: var(--paper);
+  font-size: 0.625rem; font-variant-numeric: tabular-nums;
+}
+
+/* --- Forms --------------------------------------------------------------- */
+.field { display: block; margin: 14px 0; }
+.field--inline { max-width: 220px; }
+.field__label {
+  display: block; margin-bottom: 6px;
+  font-size: var(--micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-quiet);
+}
+.field__optional { text-transform: none; letter-spacing: 0; }
+.field__hint { display: block; margin-top: 5px; font-size: var(--micro); color: var(--ink-quiet); line-height: 1.5; }
+
+.field input, .field select, .field textarea {
+  width: 100%; min-height: var(--tap); padding: 10px 14px;
+  border: 1px solid var(--ink-line); border-radius: var(--radius-sm);
+  background: #fff; color: var(--ink);
+  /* 16px keeps iOS from zooming the page when a field takes focus. */
+  font: inherit; font-size: 1rem;
+}
+.field textarea { min-height: 72px; resize: vertical; }
+.field select { appearance: none; background-image: none; }
+
+fieldset.field { border: 0; padding: 0; }
+.chips--inline { padding: 0; gap: 8px; }
+.chip--choice { position: relative; cursor: pointer; display: inline-flex; align-items: center; }
+.chip--choice input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.chip--choice:has(input:checked) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.chip--choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.includes { margin: 14px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.includes li {
+  font-size: var(--micro); padding: 5px 11px; border-radius: 999px;
+  background: var(--paper-2); color: var(--ink-soft);
+}
+
+.notice {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin: 16px 0; padding: 13px 15px;
+  background: var(--paper-2); border-radius: var(--radius-sm);
+  font-size: var(--small); line-height: 1.6; color: var(--ink-soft);
+}
+.notice--attention { background: #f3e6d4; color: #6b4512; }
+.notice--attention svg { flex: none; margin-top: 2px; }
+
+.product-form__summary { margin: 18px 0 4px; }
+.summary-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 12px 0; border-top: 1px solid var(--ink-line);
+  font-size: var(--step-1);
+}
+.summary-row strong { font-family: var(--serif); font-size: var(--step-2); font-weight: 500; }
+.hint {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 6px; font-size: var(--micro); color: var(--ink-quiet);
+}
+
+.form-errors { margin-top: 10px; font-size: var(--small); color: #8a2f2f; }
+.form-errors li { margin-top: 4px; }
+.form-errors--block { padding: 10px 12px; background: #f6e8e8; border-radius: var(--radius-sm); }
+
+.terms { margin-top: 18px; font-size: var(--micro); line-height: 1.65; color: var(--ink-quiet); }
+.terms--warn { color: #7a4e15; }
+
+/* --- Cart ---------------------------------------------------------------- */
+.cart-lines { margin: 4px 0 0; }
+.cart-line {
+  display: flex; gap: 14px; justify-content: space-between;
+  padding: 15px 0; border-bottom: 1px solid var(--ink-faint);
+}
+.cart-line:last-child { border-bottom: 0; }
+.cart-line--bad { background: #fdf6f6; border-radius: var(--radius-sm); padding-inline: 10px; }
+.cart-line__main { min-width: 0; }
+.cart-line__title { font-family: var(--serif); font-size: var(--step-1); line-height: 1.25; }
+.cart-line__variant { font-size: var(--small); color: var(--ink-soft); margin-top: 2px; }
+.cart-line__when { font-size: var(--micro); color: var(--ink-quiet); margin-top: 4px; }
+.cart-line__error { font-size: var(--micro); color: #8a2f2f; margin-top: 6px; }
+.cart-line__side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; flex: none; }
+.cart-line__amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cart-line__remove {
+  min-height: 40px; padding: 0 4px;
+  font-size: var(--micro); color: var(--ink-quiet); text-decoration: underline;
+}
+.cart-line__remove:hover { color: var(--ink); }
+
+.stepper { display: flex; align-items: center; border: 1px solid var(--ink-line); border-radius: 999px; }
+.stepper__button { width: 40px; height: 40px; display: grid; place-items: center; font-size: 1rem; }
+.stepper__value { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
+
+.cart-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ink-line);
+  font-size: var(--step-1);
+}
+.cart-total strong { font-family: var(--serif); font-size: var(--step-3); font-weight: 500; }
+
+.checkout-form { margin-top: 24px; }
+.checkout-form__heading {
+  font-family: var(--serif); font-size: var(--step-2); margin-bottom: 4px;
+}
+.checkout-form__status { margin-top: 10px; font-size: var(--small); color: var(--ink-soft); min-height: 1.2em; }
+
+/* --- Order status -------------------------------------------------------- */
+.status-pill {
+  display: inline-block; margin-bottom: 14px; padding: 6px 13px;
+  border-radius: 999px; font-size: var(--small);
+  background: var(--paper-2); color: var(--ink-soft);
+}
+.status-pill[data-tone="good"]    { background: #e2ece2; color: #2f5233; }
+.status-pill[data-tone="waiting"] { background: #f3e6d4; color: #6b4512; }
+.status-pill[data-tone="bad"]     { background: #f6e8e8; color: #8a2f2f; }
+
+/* --- The Privilege Card -------------------------------------------------- */
+/* Drawn rather than photographed: it is a digital object, not a piece of plastic. */
+.privilege-card {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between;
+  aspect-ratio: 1.6 / 1; padding: 20px;
+  border-radius: 16px; background: var(--ink); color: var(--paper);
+}
+.privilege-card::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(120% 90% at 85% 10%, rgba(201, 168, 109, 0.3), transparent 60%);
+}
+.privilege-card[data-state="expired"], .privilege-card[data-state="revoked"] { opacity: 0.45; }
+.privilege-card__top { display: flex; justify-content: space-between; align-items: baseline; position: relative; z-index: 1; }
+.privilege-card__mark { font-family: var(--serif); font-size: 1.125rem; letter-spacing: 0.3em; text-transform: uppercase; }
+.privilege-card__kind { font-size: var(--micro); letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.6; }
+.privilege-card__holder { position: relative; z-index: 1; font-family: var(--serif); font-size: 1.5rem; }
+.privilege-card__foot {
+  position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 10px;
+  font-size: var(--micro); opacity: 0.75;
+}
+
+.card-code { margin: 20px 0; text-align: center; }
+.card-code__qr {
+  width: min(260px, 70vw); margin: 0 auto;
+  padding: 12px; background: #fff; border-radius: 12px; color: var(--ink);
+  border: 1px solid var(--ink-faint);
+}
+.card-code__manual { margin-top: 16px; }
+.card-code__label {
+  display: block; font-size: var(--micro); letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-quiet); margin-bottom: 4px;
+}
+.card-code__manual strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.375rem; letter-spacing: 0.1em;
+}
+.card-code__timer {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 12px; font-size: var(--micro); color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
+}

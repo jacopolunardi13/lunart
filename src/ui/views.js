@@ -10,6 +10,7 @@ import { esc, t, paragraphs } from './dom.js';
 import { icon } from './icons.js';
 import { UI } from '../i18n.js';
 import { entryCard, quickTile, placeRow, slider, facts, actions, picture } from './components.js';
+import { shopTeaser } from '../commerce/ui/shop.js';
 import {
   SECTIONS, PHASES, entries, entriesInSection, getEntry, getPlace,
   QUICK_ACTIONS, property, contacts, emergency, rooms, roomsCommon,
@@ -113,6 +114,11 @@ export function guideView(lang, phase) {
     <button class="search-trigger" type="button" data-open-search>
       ${icon('search', 18)}<span>${esc(UI[lang].search)}</span>
     </button>
+
+    <!-- Filled in after the first paint with whatever this guest already holds. -->
+    <div data-guest-blocks></div>
+
+    ${shopTeaser(lang)}
 
     ${orderedSections(phase).map((id) => sectionBlock(id, lang)).join('')}
     ${roomsBlock(lang)}

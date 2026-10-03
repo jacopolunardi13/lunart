@@ -353,6 +353,9 @@ export async function createApp(overrides = {}) {
     ['GET',  '/mock-checkout', getMockCheckout],
     ['POST', '/mock-checkout/:action', postMockCheckoutAction],
     ['GET',  '/api/health', getHealth],
+    // The QR a guest shows points here, so it must resolve to the venue's page and
+    // not fall through to the guide's catch-all.
+    ['GET',  '/validate-card', (req, res) => serveStatic(req, res, ROOT, '/validate-card.html')],
   ];
 
   async function handle(req, res) {

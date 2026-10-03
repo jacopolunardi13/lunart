@@ -80,13 +80,15 @@ for (const width of [360, 390, 430]) {
 
   const counts = await page.evaluate(() => ({
     cards: document.querySelectorAll('.card').length,
-    quick: document.querySelectorAll('.quick__item').length,
+    quick: document.querySelectorAll('.quick .quick__item').length,
+    extras: document.querySelectorAll('.section .quick__item').length,
     sliders: document.querySelectorAll('[data-slider]').length,
     h1: document.querySelectorAll('h1').length,
     imgNoAlt: [...document.querySelectorAll('img')].filter((i) => !i.getAttribute('alt')).length,
   }));
   note(counts.cards > 10, `entry cards rendered (${counts.cards})`);
   note(counts.quick === 4, `quick actions rendered (${counts.quick})`);
+  note(counts.extras > 0, `featured extras rendered (${counts.extras})`);
   note(counts.h1 === 1, `exactly one h1 (${counts.h1})`);
   note(counts.imgNoAlt === 0, `every image has alt (${counts.imgNoAlt} missing)`);
 

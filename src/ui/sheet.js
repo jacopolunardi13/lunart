@@ -10,7 +10,7 @@
 import { esc, t, paragraphs, trapFocus, lockScroll } from './dom.js';
 import { icon } from './icons.js';
 import { UI } from '../i18n.js';
-import { facts, actions, placeRow } from './components.js';
+import { facts, actions, placeRow, hydrateSliders } from './components.js';
 import { getEntry, getPlace } from '../../data/index.js';
 
 let root = null;
@@ -47,22 +47,25 @@ function body(entry, lang) {
   `;
 }
 
-/** Open the sheet on one entry. Returns false if the id is unknown. */
-export function openSheet(entryId, lang, { onClose } = {}) {
-  const entry = getEntry(entryId);
-  if (!entry) return false;
-
+/**
+ * Open the sheet on arbitrary content.
+ *
+ * The commerce screens — a product, the cart, a card — are sheets too, so the
+ * dialog behaviour (focus trap, Escape, scroll lock, restoring focus) is written
+ * once here rather than three more times.
+ */
+export function openCustomSheet({ title, body: html, lang = 'it', id = null, onMount, onClose }) {
   ensureElements(() => closeSheet(onClose));
-  currentId = entryId;
+  currentId = id;
 
   root.innerHTML = `
     <div class="sheet__grip" aria-hidden="true"></div>
     <div class="sheet__head">
-      <h2 class="sheet__title" id="sheet-title">${esc(t(entry.title, lang))}</h2>
+      <h2 class="sheet__title" id="sheet-title">${esc(title)}</h2>
       <button class="icon-button" type="button" data-close
         aria-label="${esc(UI[lang].close)}">${icon('close', 20)}</button>
     </div>
-    <div class="sheet__body">${body(entry, lang)}</div>`;
+    <div class="sheet__body">${html}</div>`;
 
   root.hidden = false;
   scrim.hidden = false;
@@ -73,10 +76,36 @@ export function openSheet(entryId, lang, { onClose } = {}) {
   });
 
   lockScroll(true);
+  hydrateSliders(root);
   root.querySelector('[data-close]')?.addEventListener('click', () => closeSheet(onClose));
   releaseFocus = trapFocus(root, { onEscape: () => closeSheet(onClose) });
+  onMount?.(root.querySelector('.sheet__body'), root);
   root.querySelector('[data-close]')?.focus();
   return true;
+}
+
+/** Replace what an already-open sheet is showing, keeping it open. */
+export function replaceSheetBody({ title, body: html, onMount }) {
+  if (!root || root.hidden) return false;
+  if (title != null) root.querySelector('.sheet__title').textContent = title;
+  const target = root.querySelector('.sheet__body');
+  target.innerHTML = html;
+  target.scrollTop = 0;
+  onMount?.(target, root);
+  return true;
+}
+
+/** Open the sheet on one entry. Returns false if the id is unknown. */
+export function openSheet(entryId, lang, { onClose } = {}) {
+  const entry = getEntry(entryId);
+  if (!entry) return false;
+  return openCustomSheet({
+    title: t(entry.title, lang),
+    body: body(entry, lang),
+    lang,
+    id: entryId,
+    onClose,
+  });
 }
 
 export function closeSheet(onClose) {

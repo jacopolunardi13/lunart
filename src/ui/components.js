@@ -69,6 +69,9 @@ export function action(item, lang, { primary = false } = {}) {
     case 'entry':
       return `<button class="${cls}" type="button" data-entry="${esc(item.value)}">
          ${icon('chevron', 16)}${label}</button>`;
+    case 'product':
+      return `<button class="${cls}" type="button" data-product="${esc(item.value)}">
+         ${icon('gift', 16)}${label}</button>`;
     default:
       return '';
   }

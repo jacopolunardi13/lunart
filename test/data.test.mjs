@@ -18,6 +18,7 @@ import {
 import { ICON_IDS } from '../src/ui/icons.js';
 import { SECTIONS } from '../data/schema.js';
 import { UI } from '../src/i18n.js';
+import { PRODUCTS } from '../commerce/catalog.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const LANGS = ['it', 'en'];
@@ -56,7 +57,7 @@ test('every entry is complete and bilingual', async (t) => {
 });
 
 test('facts and actions are well formed', () => {
-  const kinds = new Set(['tel', 'whatsapp', 'mailto', 'map', 'url', 'entry']);
+  const kinds = new Set(['tel', 'whatsapp', 'mailto', 'map', 'url', 'entry', 'product']);
   for (const entry of entries) {
     for (const fact of entry.facts ?? []) {
       if (typeof fact.label === 'object') assertL10n(fact.label, `${entry.id} fact label`);
@@ -70,6 +71,10 @@ test('facts and actions are well formed', () => {
       if (action.kind === 'entry') {
         assert.ok(getEntry(action.value),
           `${entry.id} links to missing entry "${action.value}"`);
+      }
+      if (action.kind === 'product') {
+        assert.ok(PRODUCTS.some((p) => p.id === action.value),
+          `${entry.id} links to missing product "${action.value}"`);
       }
       if (action.kind === 'url' || action.kind === 'map') {
         assert.match(action.value, /^https:\/\//, `${entry.id} action "${action.value}" is not https`);

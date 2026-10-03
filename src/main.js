@@ -12,12 +12,19 @@ import { UI, initialLang, saveLang } from './i18n.js';
 import { hydrateSliders } from './ui/components.js';
 import { guideView, florenceView, helpView, reviewView } from './ui/views.js';
 import { openSheet, closeSheet } from './ui/sheet.js';
+import { loadCatalogue, catalogueAvailable } from './commerce/api.js';
+import { shopView } from './commerce/ui/shop.js';
+import { openProductSheet } from './commerce/ui/product-sheet.js';
+import { openCartSheet } from './commerce/ui/cart-sheet.js';
+import { openOrderSheet, purchasesBlock } from './commerce/ui/orders.js';
+import { openCardSheet, cardBlock } from './commerce/ui/card-sheet.js';
+import * as cart from './commerce/cart.js';
 import { openSearch, closeSearch, isSearchOpen } from './ui/search.js';
 import * as concierge from './concierge/ui.js';
 import { PHASES, getEntry } from '../data/index.js';
 
 const PHASE_KEY = 'lunart.phase';
-const VIEWS = { guide: guideView, florence: florenceView, help: helpView };
+const VIEWS = { guide: guideView, florence: florenceView, help: helpView, shop: shopView };
 const reviewMode = new URLSearchParams(location.search).get('review') === '1';
 
 const state = {
@@ -44,6 +51,10 @@ function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
   const [head, tail] = raw.split('/');
   if (head === 'e' && tail) return { view: state.view, entry: decodeURIComponent(tail) };
+  if (head === 'product' && tail) return { view: state.view, product: decodeURIComponent(tail) };
+  if (head === 'order' && tail) return { view: state.view, order: decodeURIComponent(tail) };
+  if (head === 'card' && tail) return { view: state.view, card: decodeURIComponent(tail) };
+  if (head === 'cart') return { view: state.view, cart: true };
   if (head in VIEWS) return { view: head, entry: null };
   return { view: 'guide', entry: null };
 }
@@ -66,8 +77,15 @@ function openEntry(entryId) {
   location.hash = `#/e/${encodeURIComponent(entryId)}`;
 }
 
-function dismissEntry() {
-  if (!parseHash().entry) return;
+const openProduct = (productId) => { pushedEntry = true; location.hash = `#/product/${encodeURIComponent(productId)}`; };
+const openCart    = () => { pushedEntry = true; location.hash = '#/cart'; };
+const openOrder   = (token) => { pushedEntry = true; location.hash = `#/order/${encodeURIComponent(token)}`; };
+const openCard    = (token) => { pushedEntry = true; location.hash = `#/card/${encodeURIComponent(token)}`; };
+
+/** Any sheet closing comes back here, so the URL and the screen stay in step. */
+function dismissSheet() {
+  const route = parseHash();
+  if (!route.entry && !route.product && !route.order && !route.card && !route.cart) return;
   if (pushedEntry) {
     pushedEntry = false;
     history.back();
@@ -85,8 +103,19 @@ function onRoute() {
   }
 
   if (route.entry) {
-    const opened = openSheet(route.entry, state.lang, { onClose: dismissEntry });
+    if (!openSheet(route.entry, state.lang, { onClose: dismissSheet })) go(state.view);
+  } else if (route.product) {
+    const opened = openProductSheet(route.product, {
+      lang: state.lang,
+      onAdded: () => { updateCartBadge(); openCart(); },
+    });
     if (!opened) go(state.view);
+  } else if (route.cart) {
+    openCartSheet({ lang: state.lang, onShop: () => go('shop') });
+  } else if (route.order) {
+    openOrderSheet(route.order, { lang: state.lang, onCard: openCard });
+  } else if (route.card) {
+    openCardSheet(route.card, { lang: state.lang });
   } else {
     closeSheet();
   }
@@ -109,9 +138,36 @@ function render() {
     tab.setAttribute('aria-current', active ? 'page' : 'false');
     tab.querySelector('[data-tab-label]').textContent = UI[state.lang][tab.dataset.view];
   }
+  updateCartBadge();
+  fillGuestBlocks();
+
   const conciergeLabel = $('[data-tab-label-concierge]');
   if (conciergeLabel) conciergeLabel.textContent = UI[state.lang].concierge;
   $('#skip-link').textContent = UI[state.lang].skip;
+}
+
+function updateCartBadge() {
+  const button = $('#cart-button');
+  if (!button) return;
+  const total = cart.count();
+  button.hidden = total === 0 && !catalogueAvailable();
+  const badge = button.querySelector('.cart-button__count');
+  badge.textContent = total > 0 ? String(total) : '';
+  badge.hidden = total === 0;
+  button.setAttribute('aria-label', `${UI[state.lang].cart}${total > 0 ? ` (${total})` : ''}`);
+}
+
+/**
+ * The card and the purchases a guest already holds. Fetched after the first paint
+ * so the guide never waits on the API to draw, and simply absent when there is
+ * nothing — or when there is no server behind this copy of the guide.
+ */
+async function fillGuestBlocks() {
+  const slot = $('[data-guest-blocks]');
+  if (!slot || !catalogueAvailable()) return;
+  const [cards, purchases] = await Promise.all([cardBlock(state.lang), purchasesBlock(state.lang)]);
+  if (!document.body.contains(slot)) return;
+  slot.innerHTML = cards + purchases;
 }
 
 function buildChrome() {
@@ -163,6 +219,18 @@ function buildChrome() {
       return;
     }
 
+    const productTrigger = event.target.closest('[data-product]');
+    if (productTrigger) { event.preventDefault(); openProduct(productTrigger.dataset.product); return; }
+
+    const orderTrigger = event.target.closest('[data-order]');
+    if (orderTrigger) { event.preventDefault(); openOrder(orderTrigger.dataset.order); return; }
+
+    const cardTrigger = event.target.closest('[data-card]');
+    if (cardTrigger) { event.preventDefault(); openCard(cardTrigger.dataset.card); return; }
+
+    if (event.target.closest('[data-shop]')) { go('shop'); return; }
+    if (event.target.closest('#cart-button')) { openCart(); return; }
+
     const copyButton = event.target.closest('[data-copy]');
     if (copyButton) {
       try {
@@ -192,9 +260,18 @@ function buildChrome() {
   });
 }
 
-function start() {
+async function start() {
   buildChrome();
+  cart.onCartChange(updateCartBadge);
+
+  // Drawn first, then enriched. The guide is useful without the commerce API, so
+  // it must never wait on it — a guest looking for the Wi-Fi password should not
+  // pay for a shop they did not open.
   state.view = parseHash().view;
+  render();
+  onRoute();
+
+  await loadCatalogue();
   render();
   onRoute();
 }

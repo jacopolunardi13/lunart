@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Verifica Privilege Card — LunArt</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="assets/css/fonts.css">
+<link rel="stylesheet" href="assets/css/app.css">
+<style>
+  /*
+   * For whoever is standing behind a bar with one hand free. Big type, one answer,
+   * no login. The QR opens this page with the code already in the URL, so the
+   * usual path is: point the phone's own camera at the screen, read the result.
+   */
+  body { padding-bottom: 40px; }
+  .wrap { width: min(560px, calc(100vw - 32px)); margin: 0 auto; }
+  .masthead { padding: 22px 0 18px; display: flex; align-items: baseline; justify-content: space-between; }
+  .masthead__mark { font-family: var(--serif); letter-spacing: 0.3em; text-transform: uppercase; }
+  .verdict { padding: 26px 22px; border-radius: 16px; margin-bottom: 18px; }
+  .verdict[data-tone="good"] { background: #e2ece2; color: #23402a; }
+  .verdict[data-tone="bad"]  { background: #f6e8e8; color: #7d2a2a; }
+  .verdict[data-tone="idle"] { background: var(--paper-2); color: var(--ink-soft); }
+  .verdict__headline { font-family: var(--serif); font-size: 2rem; line-height: 1.05; margin-bottom: 6px; }
+  .verdict__detail { font-size: var(--step-0); line-height: 1.65; }
+  .facts-list { margin-top: 18px; display: flex; flex-direction: column; gap: 2px; }
+  .benefit {
+    margin-top: 14px; padding: 14px 16px; border-radius: 12px;
+    background: var(--ink); color: var(--paper);
+  }
+  .benefit__what { font-family: var(--serif); font-size: 1.25rem; }
+  .benefit__who { font-size: var(--micro); letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.65; }
+  .benefit__when { font-size: var(--small); opacity: 0.8; margin-top: 6px; }
+  .manual { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--ink-line); }
+  .manual input {
+    width: 100%; min-height: 52px; padding: 0 16px; margin-top: 8px;
+    border: 1px solid var(--ink-line); border-radius: 12px; background: #fff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.25rem; letter-spacing: 0.12em; text-transform: uppercase; text-align: center;
+  }
+  .scanner { margin-top: 18px; }
+  .scanner video { width: 100%; border-radius: 12px; background: #000; aspect-ratio: 4/3; object-fit: cover; }
+  .footnote { margin-top: 24px; font-size: var(--micro); color: var(--ink-quiet); line-height: 1.7; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="masthead">
+    <span class="masthead__mark">LunArt</span>
+    <span class="eyebrow">Privilege Card</span>
+  </header>
+
+  <section class="verdict" id="verdict" data-tone="idle" role="status" aria-live="polite">
+    <p class="verdict__headline" id="headline">Verifica una card</p>
+    <p class="verdict__detail" id="detail">Inquadra il QR con la fotocamera del telefono, oppure scrivi qui sotto il codice che ti detta l’ospite.</p>
+  </section>
+
+  <div id="result"></div>
+
+  <form class="manual" id="manual">
+    <label class="field__label" for="code">Codice dettato dall’ospite</label>
+    <input id="code" name="code" inputmode="latin" autocapitalize="characters" autocomplete="off"
+           spellcheck="false" placeholder="ABC123-XY4Z9" maxlength="16">
+    <div class="actions" style="margin-top:14px">
+      <button class="action action--primary" type="submit" style="flex:1;justify-content:center">Verifica</button>
+    </div>
+  </form>
+
+  <div class="scanner" id="scanner" hidden>
+    <video id="video" playsinline muted></video>
+    <div class="actions" style="margin-top:10px">
+      <button class="action" type="button" id="stop-scan">Chiudi la fotocamera</button>
+    </div>
+  </div>
+  <div class="actions" id="scan-actions" style="margin-top:14px" hidden>
+    <button class="action" type="button" id="start-scan">Usa la fotocamera</button>
+  </div>
+
+  <p class="footnote">
+    Ogni codice vale pochi istanti e una sola volta: se la verifica fallisce, chiedi
+    all’ospite di mostrare di nuovo la schermata aggiornata. La card vale per il titolare
+    e un accompagnatore. Non servono documenti.
+  </p>
+</main>
+
+<script type="module">
+  const verdict  = document.getElementById('verdict');
+  const headline = document.getElementById('headline');
+  const detail   = document.getElementById('detail');
+  const result   = document.getElementById('result');
+  const form     = document.getElementById('manual');
+  const input    = document.getElementById('code');
+
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /** A date someone reads at a bar, not an ISO string. */
+  const readableDate = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return value ?? '';
+    const [y, m, d] = value.split('-').map(Number);
+    return new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })
+      .format(new Date(Date.UTC(y, m - 1, d)));
+  };
+
+  const REASONS = {
+    'not-found': 'Codice non riconosciuto.',
+    'code-expired': 'Codice scaduto. Chiedi la schermata aggiornata.',
+    'code-already-used': 'Codice già usato. Chiedi la schermata aggiornata.',
+    expired: 'La card è scaduta.',
+    revoked: 'La card non è più valida.',
+    'not-started': 'La card non è ancora attiva.',
+    malformed: 'Codice incompleto.',
+  };
+
+  function show(payload) {
+    if (payload?.valid) {
+      verdict.dataset.tone = 'good';
+      headline.textContent = 'Valida';
+      detail.textContent = `${payload.card.holder} · fino a ${payload.card.max_people} persone`;
+      result.innerHTML = `
+        <div class="facts-list">
+          <div class="fact"><span class="fact__label">Intestata a</span>
+            <span class="fact__row"><span class="fact__value">${esc(payload.card.holder)}</span></span></div>
+          <div class="fact"><span class="fact__label">Valida fino al</span>
+            <span class="fact__row"><span class="fact__value">${esc(readableDate(payload.card.valid_until))}</span></span></div>
+          <div class="fact"><span class="fact__label">Persone</span>
+            <span class="fact__row"><span class="fact__value">massimo ${esc(payload.card.max_people)}</span></span></div>
+        </div>
+        ${(payload.benefits ?? []).map((benefit) => `
+          <div class="benefit">
+            <p class="benefit__who">${esc(benefit.partner)}</p>
+            <p class="benefit__what">${esc(benefit.label?.it ?? '')}</p>
+            ${benefit.conditions ? `<p class="benefit__when">${esc(benefit.conditions.it)}</p>` : ''}
+          </div>`).join('')}`;
+      return;
+    }
+    verdict.dataset.tone = 'bad';
+    headline.textContent = 'Non valida';
+    detail.textContent = REASONS[payload?.reason] ?? 'Non siamo riusciti a verificarla.';
+    result.innerHTML = '';
+  }
+
+  async function check(reference, code) {
+    verdict.dataset.tone = 'idle';
+    headline.textContent = 'Verifico…';
+    detail.textContent = '';
+    try {
+      const response = await fetch('/api/card/validate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reference, code }),
+      });
+      show(await response.json());
+    } catch {
+      verdict.dataset.tone = 'bad';
+      headline.textContent = 'Nessuna connessione';
+      detail.textContent = 'Riprova fra un momento.';
+    }
+  }
+
+  /** The QR carries the whole thing, so a scan with the phone's own camera lands here. */
+  const params = new URLSearchParams(location.search);
+  if (params.get('c') && params.get('k')) {
+    check(params.get('c'), params.get('k'));
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const [reference, code] = input.value.trim().toUpperCase().split(/[-\s]+/);
+    if (!reference || !code) {
+      verdict.dataset.tone = 'bad';
+      headline.textContent = 'Codice incompleto';
+      detail.textContent = 'Il codice ha due parti separate da un trattino.';
+      return;
+    }
+    check(reference, code);
+  });
+
+  /* Optional in-page scanner, where the browser has a barcode detector. Everywhere
+     else the phone's own camera app opens this page directly, which is simpler. */
+  if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
+    const actions = document.getElementById('scan-actions');
+    const scanner = document.getElementById('scanner');
+    const video = document.getElementById('video');
+    actions.hidden = false;
+    let stream = null;
+    let running = false;
+
+    const stop = () => {
+      running = false;
+      scanner.hidden = true;
+      actions.hidden = false;
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
+    };
+
+    document.getElementById('stop-scan').addEventListener('click', stop);
+    document.getElementById('start-scan').addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        await video.play();
+        scanner.hidden = false;
+        actions.hidden = true;
+        running = true;
+
+        const detector = new BarcodeDetector({ formats: ['qr_code'] });
+        const tick = async () => {
+          if (!running) return;
+          try {
+            const [found] = await detector.detect(video);
+            if (found?.rawValue) {
+              const url = new URL(found.rawValue, location.origin);
+              const c = url.searchParams.get('c');
+              const k = url.searchParams.get('k');
+              if (c && k) { stop(); check(c, k); return; }
+            }
+          } catch { /* a frame that did not decode is not an error */ }
+          requestAnimationFrame(tick);
+        };
+        tick();
+      } catch {
+        stop();
+        detail.textContent = 'Non riesco ad aprire la fotocamera. Usa il codice scritto.';
+      }
+    });
+  }
+</script>
+</body>
+</html>

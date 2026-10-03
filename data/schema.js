@@ -15,9 +15,9 @@
  * @property {boolean} [copy]  offer a copy-to-clipboard affordance
  *
  * @typedef {object} Action
- * @property {'tel'|'whatsapp'|'mailto'|'map'|'url'|'entry'} kind
+ * @property {'tel'|'whatsapp'|'mailto'|'map'|'url'|'entry'|'product'} kind
  * @property {L10n}   label
- * @property {string} value   phone number, URL, or another entry id for 'entry'
+ * @property {string} value   phone number, URL, an entry id, or a product id
  *
  * @typedef {object} Verify
  * @property {'blocker'|'confirm'|'volatile'} level
