@@ -9,7 +9,9 @@
     "serve": "node tools/serve.mjs",
     "images": "node tools/optimize-images.mjs",
     "qa": "node tools/qa.mjs",
-    "measure": "node tools/measure.mjs"
+    "measure": "node tools/measure.mjs",
+    "dev": "LUNART_DEV_PRICES=1 ALLOW_PLACEHOLDER_PRICES=1 node server/index.js",
+    "start": "node server/index.js"
   },
   "engines": {
     "node": ">=20"
