@@ -12,6 +12,13 @@
  *  - `cardSigningKey` is generated at boot when it is missing, which is fine for a
  *    preview and useless in production — every restart invalidates every card — so
  *    production logs a loud warning and refuses to pretend otherwise.
+ *
+ * And one more, for the shared preview: `LUNART_PREVIEW` is a one-way switch into
+ * demonstration mode. It does not merely default things to safe values — it ignores
+ * the dangerous ones outright. Paste a live Stripe key, a Gmail refresh token or a
+ * calendar service account into a preview host by mistake and none of them is read.
+ * A demo nobody can accidentally charge a card from is worth more than the
+ * flexibility of a demo that could.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -25,6 +32,16 @@ const bool = (value, fallback = false) => {
 const env = process.env;
 const mode = env.NODE_ENV === 'production' ? 'production' : 'development';
 
+/**
+ * Demonstration mode: real server, real flows, nothing that reaches anybody.
+ *
+ * Everything below reads `preview` rather than the environment directly wherever a
+ * credential could do something irreversible.
+ */
+const preview = bool(env.LUNART_PREVIEW, false);
+/** In preview, a credential is not merely unused — it is never read. */
+const unlessPreview = (value) => (preview ? '' : (value ?? ''));
+
 let cardSigningKey = env.CARD_SIGNING_KEY ?? '';
 let ephemeralCardKey = false;
 if (!cardSigningKey) {
@@ -36,12 +53,26 @@ export const config = {
   mode,
   port: Number(env.PORT ?? 4173),
   /** Where the guide is reachable; used to build Stripe return URLs. */
-  publicUrl: (env.PUBLIC_URL ?? `http://localhost:${Number(env.PORT ?? 4173)}`).replace(/\/$/, ''),
+  preview,
+  /**
+   * Where the guide answers.
+   *
+   * `RENDER_EXTERNAL_URL` is set by the host, so a preview service knows its own
+   * address without anybody typing it in — which matters because the personal guide
+   * links are built from it.
+   */
+  publicUrl: [env.PUBLIC_URL, env.RENDER_EXTERNAL_URL, `http://localhost:${Number(env.PORT ?? 4173)}`]
+    // An empty variable is a variable nobody set, whatever the host thinks.
+    .map((value) => String(value ?? '').trim())
+    .find(Boolean)
+    .replace(/\/$/, ''),
 
   stripe: {
-    secretKey: env.STRIPE_SECRET_KEY ?? '',
-    publishableKey: env.STRIPE_PUBLISHABLE_KEY ?? '',
-    webhookSecret: env.STRIPE_WEBHOOK_SECRET ?? '',
+    // Empty in preview whatever the host holds: no key, no charge, the built-in
+    // stand-in instead.
+    secretKey: unlessPreview(env.STRIPE_SECRET_KEY),
+    publishableKey: unlessPreview(env.STRIPE_PUBLISHABLE_KEY),
+    webhookSecret: unlessPreview(env.STRIPE_WEBHOOK_SECRET),
     apiVersion: env.STRIPE_API_VERSION ?? '2024-06-20',
     /** With no secret key the server runs its own checkout stand-in. */
     get enabled() { return Boolean(this.secretKey); },
@@ -49,9 +80,9 @@ export const config = {
   },
 
   /** Sell things whose price is a placeholder. Off unless explicitly enabled. */
-  allowPlaceholderPrices: bool(env.ALLOW_PLACEHOLDER_PRICES, false),
+  allowPlaceholderPrices: preview || bool(env.ALLOW_PLACEHOLDER_PRICES, false),
   /** Fill the unpriced products with obviously-fake values so the flow is walkable. */
-  useDevPrices: bool(env.LUNART_DEV_PRICES, false),
+  useDevPrices: preview || bool(env.LUNART_DEV_PRICES, false),
 
   cardSigningKey,
   ephemeralCardKey,
@@ -68,10 +99,12 @@ export const config = {
   /* ── Reservations ──────────────────────────────────────────────────────── */
 
   /** Which mailbox the QuoVai notifications are read from. Empty means none. */
-  mailboxSource: env.RESERVATION_MAILBOX ?? '',
-  gmailClientId: env.GMAIL_CLIENT_ID ?? '',
-  gmailClientSecret: env.GMAIL_CLIENT_SECRET ?? '',
-  gmailRefreshToken: env.GMAIL_REFRESH_TOKEN ?? '',
+  // A preview never reads a mailbox: no credentials, and the source is forced to
+  // the in-memory one so the Staff app's button has something harmless to do.
+  mailboxSource: preview ? 'memory' : (env.RESERVATION_MAILBOX ?? ''),
+  gmailClientId: unlessPreview(env.GMAIL_CLIENT_ID),
+  gmailClientSecret: unlessPreview(env.GMAIL_CLIENT_SECRET),
+  gmailRefreshToken: unlessPreview(env.GMAIL_REFRESH_TOKEN),
   gmailQuery: env.GMAIL_QUERY ?? '',
   /** Label applied to a notification once it has been ingested. Optional. */
   gmailProcessedLabelId: env.GMAIL_PROCESSED_LABEL_ID ?? '',
@@ -81,16 +114,18 @@ export const config = {
   mailboxPollMinutes: Number(env.RESERVATION_POLL_MINUTES ?? 0),
 
   /** QuoVai's API or webhook, if it ever exists. */
-  quovaiApiBase: env.QUOVAI_API_BASE ?? '',
-  quovaiApiKey: env.QUOVAI_API_KEY ?? '',
-  quovaiWebhookSecret: env.QUOVAI_WEBHOOK_SECRET ?? '',
+  quovaiApiBase: unlessPreview(env.QUOVAI_API_BASE),
+  quovaiApiKey: unlessPreview(env.QUOVAI_API_KEY),
+  quovaiWebhookSecret: unlessPreview(env.QUOVAI_WEBHOOK_SECRET),
 
   /** `303:https://…ics,305:https://…ics` or a bare list of URLs. */
-  icalFeeds: parseFeedConfig(env.QUOVAI_ICAL_FEEDS ?? ''),
+  icalFeeds: parseFeedConfig(unlessPreview(env.QUOVAI_ICAL_FEEDS)),
   icalPollMinutes: Number(env.ICAL_POLL_MINUTES ?? 0),
 
   /** How the guest email actually leaves. Empty means nothing is sent. */
-  mailProvider: env.MAIL_PROVIDER ?? '',
+  // Nothing leaves a preview: the mailer stays the simulated one, which renders the
+  // email and keeps the body.
+  mailProvider: unlessPreview(env.MAIL_PROVIDER),
   mailFrom: env.MAIL_FROM ?? 'lunartfirenze@gmail.com',
   mailReplyTo: env.MAIL_REPLY_TO ?? '',
   /** Zero turns the send loop off; the schedule is still written. */
@@ -98,17 +133,17 @@ export const config = {
 
   /* ── Staff notifications ───────────────────────────────────────────────── */
 
-  vapidPublicKey: env.VAPID_PUBLIC_KEY ?? '',
-  vapidPrivateKey: env.VAPID_PRIVATE_KEY ?? '',
-  vapidSubject: env.VAPID_SUBJECT ?? '',
+  vapidPublicKey: unlessPreview(env.VAPID_PUBLIC_KEY),
+  vapidPrivateKey: unlessPreview(env.VAPID_PRIVATE_KEY),
+  vapidSubject: unlessPreview(env.VAPID_SUBJECT),
 
   /* ── The hair professional's calendar ──────────────────────────────────── */
 
   providerCalendar: env.PROVIDER_CALENDAR ?? 'google-calendar',
-  googleCalendarId: env.GOOGLE_CALENDAR_ID ?? '',
-  googleCalendarWriteId: env.GOOGLE_CALENDAR_WRITE_ID ?? '',
-  googleServiceAccountEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? '',
-  googleServiceAccountKey: env.GOOGLE_SERVICE_ACCOUNT_KEY ?? '',
+  googleCalendarId: unlessPreview(env.GOOGLE_CALENDAR_ID),
+  googleCalendarWriteId: unlessPreview(env.GOOGLE_CALENDAR_WRITE_ID),
+  googleServiceAccountEmail: unlessPreview(env.GOOGLE_SERVICE_ACCOUNT_EMAIL),
+  googleServiceAccountKey: unlessPreview(env.GOOGLE_SERVICE_ACCOUNT_KEY),
   /** Only for a Workspace domain with delegation; empty for a shared calendar. */
   googleCalendarSubject: env.GOOGLE_CALENDAR_SUBJECT ?? '',
   /** How often finished stays are retired, in minutes. */
@@ -118,6 +153,13 @@ export const config = {
 /** Anything an operator needs to know before this is called live. */
 export function configWarnings() {
   const warnings = [];
+  if (config.preview) {
+    warnings.push('LUNART_PREVIEW is on: demonstration mode. Payments are the built-in stand-in, no email leaves, no mailbox is read, no calendar is written, and any credentials in the environment are ignored.');
+    if (!config.staffToken) {
+      warnings.push('A preview without STAFF_TOKEN leaves the Staff app open to anyone with the URL. Set one.');
+    }
+    return warnings;
+  }
   if (!config.stripe.enabled) {
     warnings.push('STRIPE_SECRET_KEY is not set: checkout runs against the built-in mock, no money moves.');
   } else if (!config.stripe.testMode && config.mode !== 'production') {

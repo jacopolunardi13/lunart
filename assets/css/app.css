@@ -830,6 +830,28 @@ fieldset.field { border: 0; padding: 0; }
 .chip--unavailable input { cursor: default; }
 
 /**
+ * The preview flag.
+ *
+ * Only ever injected by a server running in demonstration mode, so it cannot show
+ * up on the published site. Loud on purpose: somebody shown this on a phone should
+ * never go away thinking they saw the real thing.
+ */
+.preview-flag {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  padding: 6px 12px calc(6px + env(safe-area-inset-top));
+  background: #c9a227;
+  color: #16140f;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: center;
+  line-height: 1.5;
+}
+.preview-flag strong { letter-spacing: 0.14em; }
+
+/**
  * Last on purpose.
  *
  * The `hidden` attribute loses to any component rule that sets `display` at equal

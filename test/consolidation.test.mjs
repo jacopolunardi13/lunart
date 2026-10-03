@@ -386,3 +386,161 @@ test('every product renders in both languages, coming-soon ones included', async
     }
   }
 });
+
+/* ── Demonstration mode ──────────────────────────────────────────────────── */
+
+/**
+ * The preview has to be a real server and an impossible accident.
+ *
+ * These check the second half: with `LUNART_PREVIEW` on, a credential in the
+ * environment is not merely unused — it is never read. The whole value of a
+ * shareable demo is that nobody can charge a card or email a guest from it.
+ */
+
+const withEnv = async (vars, run) => {
+  const before = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, vars);
+  try {
+    // The config module reads the environment once, at import, so it is imported
+    // fresh here rather than reused.
+    const { config, configWarnings } = await import(`../server/config.js?preview=${Math.random()}`);
+    return await run({ config, configWarnings });
+  } finally {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+};
+
+test('preview mode refuses to read a credential, however it got there', async () => {
+  await withEnv({
+    LUNART_PREVIEW: '1',
+    STRIPE_SECRET_KEY: 'sk_live_this_would_take_real_money',
+    STRIPE_WEBHOOK_SECRET: 'whsec_real',
+    MAIL_PROVIDER: 'gmail',
+    GMAIL_CLIENT_ID: 'id', GMAIL_CLIENT_SECRET: 'secret', GMAIL_REFRESH_TOKEN: 'token',
+    VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv', VAPID_SUBJECT: 'mailto:x@y.z',
+    GOOGLE_CALENDAR_ID: 'cal', GOOGLE_SERVICE_ACCOUNT_EMAIL: 'sa@x', GOOGLE_SERVICE_ACCOUNT_KEY: 'key',
+    QUOVAI_ICAL_FEEDS: '303:https://feed.example/303.ics',
+    QUOVAI_WEBHOOK_SECRET: 'shhh',
+  }, ({ config }) => {
+    assert.equal(config.preview, true);
+    assert.equal(config.stripe.secretKey, '', 'no payment key is read');
+    assert.equal(config.stripe.enabled, false);
+    assert.equal(config.mailProvider, '', 'nothing can send mail');
+    assert.equal(config.gmailRefreshToken, '', 'no mailbox can be read');
+    assert.equal(config.vapidPrivateKey, '', 'nothing can be pushed');
+    assert.equal(config.googleServiceAccountKey, '', 'no calendar can be written');
+    assert.deepEqual(config.icalFeeds, [], 'no feed is fetched');
+    assert.equal(config.quovaiWebhookSecret, '');
+    assert.equal(config.mailboxSource, 'memory', 'the only mailbox is the in-process one');
+    assert.equal(config.useDevPrices, true, 'and the demo data is on, so everything is walkable');
+  });
+});
+
+test('outside preview mode the same environment is read normally', async () => {
+  await withEnv({
+    LUNART_PREVIEW: '',
+    STRIPE_SECRET_KEY: 'sk_test_ordinary',
+    MAIL_PROVIDER: 'gmail',
+    GMAIL_REFRESH_TOKEN: 'token',
+  }, ({ config }) => {
+    assert.equal(config.preview, false);
+    assert.equal(config.stripe.secretKey, 'sk_test_ordinary');
+    assert.equal(config.mailProvider, 'gmail');
+    assert.equal(config.gmailRefreshToken, 'token');
+  });
+});
+
+test('a preview says so, and says it loudly if the Staff app is left open', async () => {
+  await withEnv({ LUNART_PREVIEW: '1', STAFF_TOKEN: '' }, ({ configWarnings }) => {
+    const warnings = configWarnings();
+    assert.match(warnings[0], /demonstration mode/i);
+    assert.ok(warnings.some((warning) => /STAFF_TOKEN/.test(warning)), 'and asks for a token');
+  });
+
+  await withEnv({ LUNART_PREVIEW: '1', STAFF_TOKEN: 'a-long-generated-value' }, ({ configWarnings }) => {
+    const warnings = configWarnings();
+    assert.equal(warnings.length, 1, 'with a token, only the demonstration notice remains');
+  });
+});
+
+test('the host tells the preview its own address', async () => {
+  await withEnv({ LUNART_PREVIEW: '1', PUBLIC_URL: '', RENDER_EXTERNAL_URL: 'https://lunart-preview.onrender.com/' },
+    ({ config }) => {
+      assert.equal(config.publicUrl, 'https://lunart-preview.onrender.com', 'trailing slash trimmed');
+    });
+
+  await withEnv({ PUBLIC_URL: 'https://chosen.example', RENDER_EXTERNAL_URL: 'https://ignored.example' },
+    ({ config }) => {
+      assert.equal(config.publicUrl, 'https://chosen.example', 'an explicit value still wins');
+    });
+});
+
+test('the preview front door lists the demo links, and only exists in a preview', async () => {
+  const quiet = await fetch(`${base}/preview`);
+  assert.equal(quiet.status, 404, 'an ordinary server has no such page');
+
+  const db2 = createStore();
+  const previewApp = await createApp({
+    store: db2,
+    stripe: createMockStripe(),
+    preview: true,
+    useDevPrices: true,
+    allowPlaceholderPrices: true,
+    staffToken: 'preview-token',
+    mode: 'development',
+    publicUrl: 'https://lunart-preview.onrender.com',
+  });
+  const listener = previewApp.listen(0);
+  await new Promise((resolve) => listener.once('listening', resolve));
+  const previewBase = `http://127.0.0.1:${listener.address().port}`;
+
+  const page = await (await fetch(`${previewBase}/preview`)).text();
+  assert.match(page, /ANTEPRIMA|Anteprima/);
+  assert.match(page, /\/g\/[A-Za-z0-9_-]{20,}/, 'a personal link is listed');
+  assert.match(page, /\/staff/);
+  assert.match(page, /\/partner\/opera-caffe/);
+  assert.match(page, /nessun pagamento reale|Nessuna carta/i, 'and what is switched off');
+
+  // Every page a guest, a member of staff or a venue opens carries the flag.
+  for (const path of ['/', '/staff', '/recover', '/validate-card', '/partner/opera-caffe']) {
+    const html = await (await fetch(`${previewBase}${path}`)).text();
+    assert.match(html, /class="preview-flag"/, `${path} is marked`);
+  }
+
+  // Health is honest about why nothing is configured: a preview's credentials are
+  // refused, not missing, and an operator should not go looking for them.
+  const health = await (await fetch(`${previewBase}/api/health`)).json();
+  assert.equal(health.preview, true);
+  assert.equal(health.payments, 'mock');
+  for (const [name, integration] of Object.entries(health.integrations)) {
+    assert.equal(integration.state, 'disabled-in-preview', `${name} is off by design`);
+    assert.match(integration.note, /LUNART_PREVIEW/);
+  }
+
+  // The seeded reservations are reachable through their own links.
+  const [reservation] = await db2.reservations.list({ limit: 1 });
+  const guide = await fetch(`${previewBase}/g/${reservation.guide_token}`);
+  assert.equal(guide.status, 200);
+
+  // And the Staff API is still behind the token.
+  assert.equal((await fetch(`${previewBase}/api/staff/dashboard`)).status, 401);
+  assert.equal((await fetch(`${previewBase}/api/staff/dashboard`, {
+    headers: { authorization: 'Bearer preview-token' },
+  })).status, 200);
+
+  listener.close();
+});
+
+test('nothing but a preview ever carries the flag', async () => {
+  const html = await (await fetch(`${base}/`)).text();
+  assert.equal(html.includes('preview-flag'), false);
+  const health = await (await fetch(`${base}/api/health`)).json();
+  assert.equal(health.preview, false);
+  // And an ordinary server never explains itself away as a demonstration.
+  for (const integration of Object.values(health.integrations)) {
+    assert.notEqual(integration.state, 'disabled-in-preview');
+  }
+});

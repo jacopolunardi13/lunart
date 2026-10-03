@@ -32,6 +32,7 @@ import {
 import { publicProduct } from '../commerce/catalog.js';
 import { cardStartDates, cardVariantsForStay } from '../commerce/stay.js';
 import { renderMockCheckout } from './mock-checkout.js';
+import { renderPreviewIndex } from './preview-index.js';
 import { rateLimit, clientKey } from './rate-limit.js';
 
 import { staffView, completePastStays, stayOf, isLive } from './reservations.js';
@@ -608,6 +609,23 @@ export async function createApp(overrides = {}) {
   }
 
   /**
+   * A banner nobody can miss, on a server nobody should mistake for the real one.
+   *
+   * Injected rather than written into the files, so the static site GitHub Pages
+   * publishes is untouched and a preview cannot be confused with it.
+   */
+  const PREVIEW_BANNER = `<div class="preview-flag" role="status">
+    <strong>ANTEPRIMA</strong> · dati di prova · nessun pagamento reale · nessuna email agli ospiti
+  </div>`;
+
+  async function sendPage(res, file, { base = false } = {}) {
+    let html = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+    if (base) html = html.replace('<head>', '<head>\n<base href="/">');
+    if (settings.preview) html = html.replace('<body>', `<body>\n${PREVIEW_BANNER}`);
+    sendHtml(res, 200, html, { 'cache-control': 'no-cache' });
+  }
+
+  /**
    * The guide itself, served from a personal link.
    *
    * `index.html` references its assets relatively, because the static site is also
@@ -616,9 +634,32 @@ export async function createApp(overrides = {}) {
    * it. The file on disk is untouched: the static deployment keeps working exactly as
    * it does now.
    */
-  async function getGuidePage(req, res) {
-    const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-    sendHtml(res, 200, html.replace('<head>', '<head>\n<base href="/">'), { 'cache-control': 'no-cache' });
+  const getGuidePage = (req, res) => sendPage(res, 'index.html', { base: true });
+  const getIndexPage = (req, res) => sendPage(res, 'index.html');
+  const getStaffPage = (req, res) => sendPage(res, 'staff.html');
+
+  /**
+   * The preview's own front door.
+   *
+   * A demonstration server reseeds itself whenever the host puts it to sleep, so the
+   * personal links change. Rather than ask somebody to go and find them, this page
+   * reads the live ones — on a server that only ever holds invented reservations,
+   * and only when preview mode is on.
+   */
+  async function getPreviewIndex(req, res) {
+    if (!settings.preview) { sendText(res, 404, 'Not found'); return; }
+
+    const reservations = (await store.reservations.list({ limit: 10 }))
+      .filter((reservation) => reservation.status === 'active' || reservation.status === 'modified');
+
+    const links = reservations.map((reservation) => ({
+      guest: [reservation.first_name, reservation.last_name].filter(Boolean).join(' '),
+      room: reservation.room,
+      dates: `${reservation.check_in} → ${reservation.check_out}`,
+      url: `${origin}/g/${reservation.guide_token}`,
+    }));
+
+    sendHtml(res, 200, renderPreviewIndex({ origin, links, escapeHtml }), { 'cache-control': 'no-store' });
   }
 
   /**
@@ -1058,12 +1099,28 @@ export async function createApp(overrides = {}) {
     implemented = true, configured = false, enabled = true,
     lastError = null, lastSuccessAt = null, requires = [], note = null, extra = {},
   }) {
+    // A preview's credentials are not missing, they are refused: saying
+    // `credentials-missing` would send an operator looking for a value to add,
+    // when adding it would change nothing.
     const state = !implemented ? 'not-implemented'
-      : !configured ? 'credentials-missing'
-        : !enabled ? 'disabled'
-          : lastError ? 'unavailable'
-            : 'operational';
-    return { implemented, configured, enabled, state, requires, lastError, lastSuccessAt, note, ...extra };
+      : settings.preview && !configured ? 'disabled-in-preview'
+        : !configured ? 'credentials-missing'
+          : !enabled ? 'disabled'
+            : lastError ? 'unavailable'
+              : 'operational';
+    return {
+      implemented,
+      configured,
+      enabled,
+      state,
+      requires,
+      lastError,
+      lastSuccessAt,
+      note: state === 'disabled-in-preview'
+        ? 'LUNART_PREVIEW is on: this is switched off and its credentials are not read.'
+        : note,
+      ...extra,
+    };
   }
 
   async function getHealth(req, res) {
@@ -1075,6 +1132,7 @@ export async function createApp(overrides = {}) {
     sendJson(res, 200, {
       ok: true,
       mode: settings.mode,
+      preview: settings.preview,
       payments: stripe.mode,
       allowPlaceholderPrices: settings.allowPlaceholderPrices,
       pricingGaps: pricingGaps().length,
@@ -1200,13 +1258,14 @@ export async function createApp(overrides = {}) {
     ['GET',  '/api/availability/:id', getAvailability],
     ['GET',  '/api/partners/:id', getPartnerInfo],
     ['GET',  '/partner/:id/manifest.webmanifest', getPartnerManifest],
-    ['GET',  '/partner/:id', (req, res) => serveStatic(req, res, ROOT, '/partner.html')],
+    ['GET',  '/partner/:id', (req, res) => sendPage(res, 'partner.html')],
 
     /* The guest's own link. The page is the guide; the context comes from the API. */
     ['GET',  '/api/guide/:token', getGuideContext],
     ['POST', '/api/guide/recover', postGuideRecover],
     ['GET',  '/g/:token', getGuidePage],
-    ['GET',  '/recover', (req, res) => serveStatic(req, res, ROOT, '/recover.html')],
+    ['GET',  '/preview', getPreviewIndex],
+    ['GET',  '/recover', (req, res) => sendPage(res, 'recover.html')],
 
     /* Reservation ingestion. */
     ['POST', '/api/quovai/webhook', postQuovaiWebhook],
@@ -1228,10 +1287,10 @@ export async function createApp(overrides = {}) {
     ['POST', '/api/staff/push/subscribe', guard(postStaffSubscribe)],
     ['POST', '/api/staff/push/test', guard(postStaffNotifyTest)],
     ['GET',  '/staff/manifest.webmanifest', getStaffManifest],
-    ['GET',  '/staff', (req, res) => serveStatic(req, res, ROOT, '/staff.html')],
+    ['GET',  '/staff', getStaffPage],
     // The QR a guest shows points here, so it must resolve to the venue's page and
     // not fall through to the guide's catch-all.
-    ['GET',  '/validate-card', (req, res) => serveStatic(req, res, ROOT, '/validate-card.html')],
+    ['GET',  '/validate-card', (req, res) => sendPage(res, 'validate-card.html')],
   ];
 
   async function handle(req, res) {
@@ -1250,9 +1309,10 @@ export async function createApp(overrides = {}) {
     }
 
     if (req.method === 'GET' || req.method === 'HEAD') {
+      if (url.pathname === '/' || url.pathname === '/index.html') { await getIndexPage(req, res); return; }
       if (await serveStatic(req, res, ROOT, url.pathname)) return;
       // Hash routing means everything unknown is still the guide.
-      if (!url.pathname.startsWith('/api/') && await serveStatic(req, res, ROOT, '/index.html')) return;
+      if (!url.pathname.startsWith('/api/')) { await getIndexPage(req, res); return; }
     }
     sendText(res, 404, 'Not found');
   }
