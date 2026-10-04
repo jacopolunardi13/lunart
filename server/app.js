@@ -386,8 +386,44 @@ export async function createApp(overrides = {}) {
   /* ── Orders and cards, for the guest ─────────────────────────────────── */
 
   async function getOrder(req, res, { token }) {
-    const order = await store.orders.findByAccessToken(token);
+    let order = await store.orders.findByAccessToken(token);
     if (!order) { sendJson(res, 404, { error: 'not-found' }); return; }
+
+    /**
+     * Stripe webhooks are the durable source of truth, but the guest should not
+     * sit on "pending" merely because a webhook is delayed or misconfigured.
+     * When they return from Stripe, reconcile a still-pending order directly
+     * against the Checkout Session created with this server's own Stripe key.
+     *
+     * This is intentionally read-only from Stripe's point of view: it retrieves
+     * the session and feeds the same event handler the webhook uses. The event id
+     * is deterministic, so refreshing the order page is idempotent.
+     */
+    if (
+      order.status === PAYMENT_STATUS.pending
+      && order.stripe_session_id
+      && stripe.mode !== 'mock'
+    ) {
+      try {
+        const session = await stripe.retrieveSession(order.stripe_session_id);
+        let type = null;
+        if (session.status === 'complete') type = 'checkout.session.completed';
+        else if (session.status === 'expired') type = 'checkout.session.expired';
+
+        if (type) {
+          await handleStripeEvent({
+            id: `reconcile:${type}:${session.id}`,
+            type,
+            data: { object: session },
+          }, ctx);
+          order = await store.orders.get(order.id) ?? order;
+        }
+      } catch (error) {
+        // The order page must still load if Stripe is temporarily unreachable.
+        console.warn('[order] Stripe reconciliation failed:', error.message);
+      }
+    }
+
     const cards = [];
     for (const entitlement of order.entitlements ?? []) {
       const card = await store.cards.get(entitlement.id);
