@@ -21,7 +21,10 @@ import {
   WINES, getWine, leadTimeMinutesFor, curatedWines, leadMinutesForWineOrder, WINE_LEAD_TIME,
 } from '../commerce/wine.js';
 import { PRODUCTS } from '../commerce/catalog.js';
-import { PARTNERS, activePartners, benefitFor, guestBenefit, validationPath, BENEFIT_KINDS, PARTNER_CATEGORIES } from '../commerce/partners.js';
+import {
+  PARTNERS, activePartners, partnerView, validationPath,
+  BENEFIT_KINDS, PARTNER_CATEGORIES,
+} from '../commerce/partners.js';
 import { propertyTimeToInstant, propertyDate, addDays, lastDayOf } from '../commerce/time.js';
 import { COMMERCE_CATEGORIES } from '../commerce/schema.js';
 
@@ -594,35 +597,43 @@ test('the wine selection is a subset of the carta, and on sale', () => {
 });
 
 test('partner benefits are not assumed to be a house percentage', () => {
-  const kinds = new Set(PARTNERS.map((p) => p.benefit.kind));
+  const kinds = new Set(PARTNERS.flatMap((p) => p.benefits.map((b) => b.kind)));
   assert.ok(kinds.size >= 4, 'the model carries several shapes of benefit');
   const categories = new Set(Object.keys(PARTNER_CATEGORIES));
   for (const partner of PARTNERS) {
     assert.ok(partner.partner_id, 'every partner has an id');
     assert.ok(partner.name, `${partner.partner_id} has a name`);
     assert.ok(categories.has(partner.category), `${partner.partner_id} has a known category`);
-    assert.ok(BENEFIT_KINDS.includes(partner.benefit.kind), partner.partner_id);
-    assert.ok(partner.benefit.label?.it && partner.benefit.label?.en, `${partner.partner_id} label`);
+    assert.ok(partner.benefits?.length, `${partner.partner_id} gives at least one thing`);
+    for (const benefit of partner.benefits) {
+      assert.ok(BENEFIT_KINDS.includes(benefit.kind), `${partner.partner_id}/${benefit.benefit_id}`);
+      assert.ok(benefit.headline?.it && benefit.headline?.en, `${benefit.benefit_id} headline`);
+    }
   }
   for (const partner of activePartners()) {
     assert.notEqual(partner.example, true, 'an example must never be active');
   }
-  assert.equal(benefitFor('example-bar'), null, 'inactive partners give nothing');
+  assert.equal(partnerView('example-bar'), null, 'inactive partners give nothing');
 });
 
 test('every active partner has its own scanner page', () => {
   for (const partner of activePartners()) {
     assert.equal(validationPath(partner.partner_id), `/partner/${partner.partner_id}`);
-    const view = guestBenefit(partner.partner_id, 'https://guide.example');
+    const view = partnerView(partner.partner_id, 'https://guide.example');
     assert.equal(view.validation_url, `https://guide.example/partner/${partner.partner_id}`);
   }
 });
 
 test('internal partner notes never reach a guest or a venue', () => {
-  const view = guestBenefit('opera-caffe');
-  assert.equal('notes' in view, false);
-  assert.equal('verify' in view, false);
-  assert.equal('active' in view, false);
+  for (const partner of activePartners()) {
+    const view = partnerView(partner.partner_id);
+    assert.equal('notes' in view, false, partner.partner_id);
+    assert.equal('verify' in view, false, partner.partner_id);
+    assert.equal('active' in view, false, partner.partner_id);
+    assert.equal('example' in view, false, partner.partner_id);
+    assert.equal(JSON.stringify(view).includes('listino'), false,
+      'the house prices behind a negotiation are not a guest-facing price table');
+  }
 });
 
 test('price overrides replace the table and can be taken away again', () => {

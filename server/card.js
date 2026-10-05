@@ -26,7 +26,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomRef, opaqueToken } from './store.js';
 import { propertyDate, lastDayOf, endOfPropertyDay, propertyTimeToInstant, isValidDate } from '../commerce/time.js';
-import { allGuestBenefits, cardBenefits, guestBenefit } from '../commerce/partners.js';
+import { allGuestBenefits, cardBenefits, partnerView } from '../commerce/partners.js';
 
 export const CARD_STATUS = {
   active: 'active',
@@ -163,11 +163,16 @@ export async function validateCode({
   }
   if (!matched) return { valid: false, reason: 'invalid-code', card: publicView(card) };
 
-  const scoped = partnerId ? guestBenefit(partnerId) : null;
+  const scoped = partnerId ? partnerView(partnerId) : null;
   return {
     valid: true,
     card: publicView(card),
     partner: scoped,
+    /**
+     * Partners, each carrying its own `benefits` list. A door that gives two
+     * different things — Blue Velvet's capped entry and its table discount — has to
+     * see both, so this cannot be one line per venue.
+     */
     benefits: scoped ? [scoped] : allGuestBenefits(),
     validatedAt: now.toISOString(),
   };

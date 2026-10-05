@@ -172,7 +172,10 @@
   function show(payload) {
     if (payload?.valid) {
       const card = payload.card;
-      const benefit = payload.partner ?? payload.benefits?.[0] ?? null;
+      /* This venue, with everything it gives. A door that honours two different
+         things — a capped entry and a discount on tables — has to see both, so
+         this is a list and not the first line of one. */
+      const venue = payload.partner ?? payload.benefits?.[0] ?? null;
       verdict.dataset.tone = 'good';
       headline.textContent = 'CARD VALID';
       detail.textContent = 'LunArt Firenze';
@@ -184,12 +187,13 @@
             Dal ${esc(readableDate(card.valid_from))} al ${esc(readableDate(card.valid_until))}
           </p>
         </div>
-        ${benefit ? `
+        ${venue ? (venue.benefits ?? []).map((benefit, i) => `
           <div class="benefit">
-            <p class="benefit__who">${esc(benefit.partner)}</p>
-            <p class="benefit__what">${esc(benefit.label?.it ?? '')}</p>
-            ${benefit.conditions ? `<p class="benefit__terms">${esc(benefit.conditions.it)}</p>` : ''}
-          </div>` : ''}`;
+            ${i === 0 ? `<p class="benefit__who">${esc(venue.partner)}</p>` : ''}
+            <p class="benefit__what">${esc(benefit.headline?.it ?? benefit.emphasis ?? '')}</p>
+            ${benefit.description ? `<p class="benefit__terms">${esc(benefit.description.it)}</p>` : ''}
+            ${benefit.note ? `<p class="benefit__terms">${esc(benefit.note.it)}</p>` : ''}
+          </div>`).join('') : ''}`;
       return;
     }
     verdict.dataset.tone = 'bad';

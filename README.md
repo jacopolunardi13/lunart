@@ -64,7 +64,7 @@ commerce/               what LunArt sells — shared by the browser and the serv
   stay.js                 what a stay allows: the days, and what fits in them
   schedule.js             the hair professional's hours ← empty on purpose
   availability.js         adapters, real and not-yet-connected
-  partners.js             who honours the card, and what comes with the stay
+  partners.js             who honours the Pass, what each gives, and who may use it
 server/
   app.js                  the API and the static site, one origin
   reservations.js         the canonical reservation ← the spine
@@ -693,13 +693,21 @@ offers the 2-day card starting on the 10th, 11th or 12th, and does not offer the
 5- or 8-day ones at all. The server decides this from the reservation behind the
 guest's link; the form is only shown what will be accepted.
 
-**It is not on sale while it is empty.** The card is worth exactly what its partners
-give, and the Opera Caffè 30% is *not* one of them — that comes with the stay, for
-everyone on the reservation, and selling a card to get it would be selling a guest
-something they already have. Until a venue has a benefit reserved for the card,
-`isPurchasable` returns false and the card renders without a buy button. It comes
-back by itself the moment a partner is activated. The preview activates one
-obviously-fake venue so the flow can be walked.
+**It is not on sale while it is empty.** The upgrade is worth exactly what its
+partners give, and the Opera Caffè 30% is *not* one of them — that comes with the
+stay, for everyone on the reservation, and selling a card to get it would be
+selling a guest something they already have. Until a venue has a benefit reserved
+for the card, `isPurchasable` returns false and the product renders without a buy
+button; it comes back by itself the moment one is.
+
+That rail is still live and it is now satisfied: **Le Firme** (10% off, Via Il
+Prato 49R) and **Blue Velvet** (guest-list entry at no more than €15 per person
+with a drink, and 20% off tables, Via del Castello d'Altafronte 14R–16R) are real
+venues with benefits reserved for Privilege, so the product is purchasable in
+production with nothing else relaxed — the prices are still `confirmed`, and a
+server whose register lost them would withhold it again. The obviously-fake
+preview partner that used to make the flow walkable has been retired with it: the
+register is the same in every environment.
 
 **What the guest sees.** The LunArt mark, LUNART PRIVILEGE CARD, their name,
 *valid for 2 guests*, the dates, the QR, Active or Expired, and a *your
@@ -735,13 +743,45 @@ to use the phone's own camera — the QR is a URL — and there is a typed
 `REF-CODE` fallback for a dead camera. No login, and the guest is never asked for
 a document.
 
-`commerce/partners.js` is the register: `partner_id`, `name`, `category`
-(restaurants, bars, nightlife, spa, beauty, experiences, other), `active`, the
-benefit in IT and EN, its kind (percentage, amount, special price, included item,
-guest list, other) and internal `notes` that stay on the server. Benefits differ
-per partner; nothing assumes a house discount. Only Opera Caffè is live — 30% off
-the table — and the rest of the file is inactive shapes marked `example: true`, to
-be filled in as agreements are signed.
+`commerce/partners.js` is the register, and it is data: adding partner number
+twenty is adding a record, not writing a component. A partner carries
+`partner_id`, `name`, `category` (restaurants, bars, nightlife, **shopping**, spa,
+beauty, experiences, other), `active`, an `address` and an opt-in `directions`
+flag, an `eligibility` rule, a list of `benefits`, and internal `notes` that stay
+on the server. A benefit carries `benefit_id`, `kind` (percentage, amount, special
+price, included item, guest list, other), a `headline` and `subline` in IT and EN,
+an optional `description`, `note`, `cap` and short `emphasis` token. Benefits
+differ per partner; nothing assumes a house discount.
+
+**One partner, many benefits.** Blue Velvet is the proof: the capped entry and the
+table discount are two things a guest claims on two different nights, so they are
+two records and a venue's scanner is shown both.
+
+**Eligibility is structured, not prose.** A rule is
+`{ passState, entitlementsAll }`, and a guest may use a benefit when the Pass is in
+that state *and* the reservation carries every entitlement named. Both halves
+matter: a live Pass with nothing bought gets the stay's benefits and finds the
+Privilege ones locked, and an upgrade bought a month before the stay claims
+nothing until the stay starts. The time half comes from `passState()` in
+`server/pass.js` — the one place in the codebase that knows what day it is in
+Florence — and the entitlement half from `entitlementsOf(card)`. `inclusion`
+(`stay` vs `card`) is *derived* from the rule rather than written beside it, so the
+two cannot drift.
+
+**A guest without the upgrade still sees it.** `#/pass` lists the Privilege
+partners for everybody: unlocked for a guest who bought it, dimmed and marked
+*Disponibile con LunArt Privilege* for a guest who has not, with the ordinary
+product sheet as the way to get it. A benefit nobody can discover sells nothing.
+
+**The Shopping add-on is modelled and not sold.** `ENTITLEMENTS.shopping` exists so
+that moving a future retail partner behind a paid add-on is one line of data —
+`entitlementsAll: ['privilege', 'shopping']` — and `card.add_ons` is the seam for
+buying it on the same card. Nothing writes it: no product, no SKU, no price, no
+checkout path, and no partner is behind it. Le Firme is a plain `privilege`
+partner and stays one until that decision is actually taken.
+
+The rest of the file is inactive shapes marked `example: true`, to be filled in as
+agreements are signed.
 
 ### Private Hair Service
 

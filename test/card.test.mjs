@@ -291,8 +291,22 @@ test('a venue asking from its own page is told its own benefit', async () => {
   });
   assert.equal(scoped.valid, true);
   assert.equal(scoped.partner.partner, 'Opera Caffè');
-  assert.equal(scoped.partner.label.it, '30% sul menù al tavolo');
-  assert.equal(scoped.benefits.length, 1, 'one benefit, not a list to choose from');
+  assert.equal(scoped.partner.benefits[0].headline.it, '30% sul menù al tavolo');
+  assert.equal(scoped.benefits.length, 1, 'one venue, not a list to choose from');
+});
+
+test('a door that gives two things is shown both of them', async () => {
+  const { store, card } = await freshCard();
+  const { code } = currentCode(card, { signingKey: KEY, periodSeconds: PERIOD, now: during });
+
+  const scoped = await validateCode({
+    reference: card.public_ref, code, store, signingKey: KEY, periodSeconds: PERIOD,
+    now: during, partnerId: 'blue-velvet',
+  });
+  assert.equal(scoped.valid, true);
+  assert.equal(scoped.benefits.length, 1, 'still one venue');
+  assert.equal(scoped.partner.benefits.length, 2,
+    'the capped entry and the table discount are two separate things to honour');
 });
 
 test('a venue asking from the shared page is shown every benefit', async () => {

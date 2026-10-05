@@ -22,7 +22,8 @@ import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
 import { guestPass } from '../../guest.js';
 import { openCustomSheet } from '../../ui/sheet.js';
-import { stayBenefits } from '../api.js';
+import { stayBenefits, cardBenefits } from '../api.js';
+import { privilegeSection, stayBenefitsSection } from './partners.js';
 import { longDate } from './format.js';
 
 /**
@@ -216,13 +217,24 @@ export function passFace(pass, lang, { size = 'preview' } = {}) {
   </article>`;
 }
 
-/** One benefit, as a row. The partner's name leads, because that is what is looked for. */
-const benefitRow = (benefit, lang, extra = '') => `
+/**
+ * One line of the preview on the home: what you get, and where.
+ *
+ * The benefit leads and the venue follows, which is the reverse of how this used to
+ * read. A guest scanning their own home screen is not checking which restaurants
+ * LunArt works with; they are checking what they have. The full list, with the
+ * addresses and the directions, is one tap away in the sheet.
+ */
+const previewRow = (view, lang, extra = '') => {
+  const benefit = view.benefits?.[0];
+  if (!benefit) return '';
+  const what = benefit.headline?.[lang] ?? benefit.headline?.it ?? benefit.emphasis ?? '';
+  return `
   <li class="pass__benefit${extra}">
-    <span class="pass__benefit-partner">${esc(benefit.partner)}</span>
-    <span class="pass__benefit-what">${esc(benefit.label?.[lang] ?? benefit.label?.it ?? '')}</span>
-    ${benefit.conditions ? `<span class="pass__benefit-when">${esc(benefit.conditions[lang] ?? benefit.conditions.it)}</span>` : ''}
+    <span class="pass__benefit-what">${esc(what)}</span>
+    <span class="pass__benefit-partner">${esc(view.partner)}</span>
   </li>`;
+};
 
 /**
  * The Pass block for the home.
@@ -242,8 +254,21 @@ export function passBlock(lang) {
   if (!pass) return '';
 
   const privilege = pass.tier === 'privilege';
-  // Two is enough to say what kind of thing is in there; the rest is one tap away.
-  const preview = [...(pass.privileges ?? []), ...(pass.included ?? [])].slice(0, 2);
+  /**
+   * Two rows, one of each kind where the guest has both.
+   *
+   * Two is enough to say what sort of thing is in there and the rest is one tap
+   * away — but two Privilege venues in a row would say the Pass is a partner list,
+   * and with twenty partners it would never again mention the breakfast. So the
+   * glimpse takes the first thing the upgrade added and then what the stay
+   * includes, which is the honest summary of a Pass that has both.
+   */
+  const bought = pass.privileges ?? [];
+  const included = pass.included ?? [];
+  // Marked, so a benefit that was paid for never reads as one that comes free.
+  const preview = (bought.length
+    ? [{ view: bought[0], paid: true }, ...included.map((view) => ({ view, paid: false }))]
+    : included.map((view) => ({ view, paid: false }))).slice(0, 2);
 
   return `<section class="section" aria-labelledby="h-pass">
     <div class="section__head">
@@ -257,7 +282,7 @@ export function passBlock(lang) {
     </button>
 
     ${preview.length ? `<ul class="pass__benefits">
-      ${preview.map((benefit) => benefitRow(benefit, lang)).join('')}
+      ${preview.map(({ view, paid }) => previewRow(view, lang, paid ? ' pass__benefit--privilege' : '')).join('')}
     </ul>` : ''}
 
     <button class="action action--wide" type="button" data-open-pass>
@@ -290,6 +315,17 @@ export function openPassSheet({ lang }) {
   const privilege = pass.tier === 'privilege';
   const stay = pass.included?.length ? pass.included : stayBenefits();
 
+  /**
+   * The Privilege partners, from the published register rather than from the Pass.
+   *
+   * `pass.privileges` is deliberately empty for a guest who has not upgraded — the
+   * server will not tell a standard Pass that it has privileges — but that is the
+   * guest who most needs to see what the upgrade is. So the list comes from the
+   * catalogue, and `benefitAccess` decides for each benefit whether this particular
+   * Pass can use it, lock it, or neither.
+   */
+  const privilegePartners = pass.privileges?.length ? pass.privileges : cardBenefits();
+
   const validity = [
     pass.check_in ? longDate(pass.check_in, lang) : '',
     pass.check_out ? longDate(pass.check_out, lang) : '',
@@ -317,17 +353,19 @@ export function openPassSheet({ lang }) {
           </div>`).join('')}
       </dl>
 
-      ${privilege && pass.privileges?.length ? `
-        <p class="pass__label">${esc(UI[lang].privilegeIncludes)}</p>
-        <ul class="pass__benefits">
-          ${pass.privileges.map((benefit) => benefitRow(benefit, lang, ' pass__benefit--privilege')).join('')}
-        </ul>` : ''}
-
-      ${stay.length ? `
-        <p class="pass__label">${esc(UI[lang].includedWithStay)}</p>
-        <ul class="pass__benefits">
-          ${stay.map((benefit) => benefitRow(benefit, lang)).join('')}
-        </ul>` : ''}
+      ${/**
+        * Order by what this guest owns.
+        *
+        * A guest who bought Privilege opens their Pass to use it, so it comes
+        * first. A guest who has not opens it to use the stay, so what the stay
+        * includes comes first and the Privilege section sits under it as something
+        * to discover — not as a pitch standing between them and their breakfast.
+        */''}
+      ${privilege
+        ? `${privilegeSection(privilegePartners, pass, lang)}
+           ${stayBenefitsSection(stay, pass, lang)}`
+        : `${stayBenefitsSection(stay, pass, lang)}
+           ${privilegeSection(privilegePartners, pass, lang)}`}
 
       ${privilege && pass.card
         ? `<button class="action action--wide action--primary" type="button"

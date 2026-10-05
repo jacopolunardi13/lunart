@@ -26,7 +26,7 @@
 
 import { propertyDate, isValidDate, endOfPropertyDay, propertyTimeToInstant } from '../commerce/time.js';
 import { stayDates } from '../commerce/stay.js';
-import { stayBenefits, cardBenefits } from '../commerce/partners.js';
+import { stayBenefits, cardBenefits, ENTITLEMENTS } from '../commerce/partners.js';
 import { RESERVATION_STATUS } from './reservations.js';
 
 /** The two tiers one Pass can be in. There is no third, and no second card. */
@@ -74,6 +74,27 @@ export const passIsLive = (reservation, now = new Date()) =>
   passState(reservation, now) === PASS_STATE.active;
 
 /**
+ * What a reservation is entitled to, by name.
+ *
+ * This is the other half of eligibility, and it is deliberately not the same
+ * question as `passState`. A Pass can be perfectly live and entitled to nothing —
+ * that is every guest who has not upgraded — and a revoked card entitles a guest to
+ * nothing however live their stay is. Partner benefits ask for both, through
+ * `benefitAccess` in `commerce/partners.js`, so neither half can be mistaken for
+ * the whole answer.
+ *
+ * `card.add_ons` is the seam for an add-on bought on top of Privilege, on the same
+ * card — the Shopping add-on, when it exists. Nothing writes it today: no product,
+ * no SKU, no checkout path. It is read here so that activating one later is a
+ * commercial decision rather than a refactor.
+ */
+export function entitlementsOf(card) {
+  if (!card || card.status === 'revoked') return [];
+  const addOns = Array.isArray(card.add_ons) ? card.add_ons.filter(Boolean) : [];
+  return [...new Set([ENTITLEMENTS.privilege, ...addOns])];
+}
+
+/**
  * A short reference a guest can read down the phone.
  *
  * The staff reference the reservation already carries, not a new identifier: one
@@ -97,7 +118,8 @@ export function passFor(reservation, { card = null, now = new Date() } = {}) {
   if (!reservation) return null;
 
   const state = passState(reservation, now);
-  const upgraded = Boolean(card && card.status !== 'revoked');
+  const entitlements = entitlementsOf(card);
+  const upgraded = entitlements.length > 0;
   const nights = Math.max(0, stayDates(reservation).length - 1);
 
   return {
@@ -106,6 +128,14 @@ export function passFor(reservation, { card = null, now = new Date() } = {}) {
     state,
     /** True exactly when a paper voucher presented today is backed by this Pass. */
     live: state === PASS_STATE.active,
+
+    /**
+     * What this reservation has bought, by name, for the screens that decide what
+     * a guest may use. Empty on a Pass that was never upgraded — which is not the
+     * same as hiding what the upgrade would unlock: see the Privilege section in
+     * `src/commerce/ui/pass.js`, where the locked benefits are still shown.
+     */
+    entitlements,
 
     holder: upgraded && card.holder_name ? card.holder_name : (reservation.first_name ?? ''),
     room: reservation.room || null,
@@ -123,7 +153,13 @@ export function passFor(reservation, { card = null, now = new Date() } = {}) {
      * something they already have is the fastest way to stop being believed.
      */
     included: stayBenefits(),
-    /** What the upgrade adds, and only once it has actually been bought. */
+    /**
+     * What the upgrade adds, and only once it has actually been bought.
+     *
+     * Still gated here, so nothing downstream can mistake a standard Pass for an
+     * upgraded one. The guide discovers the locked ones from the published partner
+     * register instead, which is a different question with a different answer.
+     */
     privileges: upgraded ? cardBenefits() : [],
 
     /** Present only on an upgraded Pass, so the QR screen can be opened. */

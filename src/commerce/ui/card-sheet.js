@@ -20,6 +20,7 @@ import { longDate, shortDate } from './format.js';
 import { PASS_MARK } from './pass.js';
 import { qrSvg } from '../qr.js';
 import { fetchCard, stayBenefits, cardBenefits } from '../api.js';
+import { partnerList } from './partners.js';
 
 const STORAGE_KEY = 'lunart.cards.v1';
 
@@ -79,26 +80,41 @@ function cardFace(card, lang) {
   </div>`;
 }
 
-function privileges(card, lang) {
-  const list = (card.benefits ?? []).map((benefit) => `
-    <li class="privilege">
-      <div class="privilege__body">
-        <p class="privilege__partner">${esc(benefit.partner)}</p>
-        <p class="privilege__benefit">${esc(benefit.label[lang] ?? benefit.label.it)}</p>
-        ${benefit.conditions ? `<p class="privilege__conditions">${esc(benefit.conditions[lang] ?? benefit.conditions.it)}</p>` : ''}
-      </div>
-      ${benefit.maps ? `<a class="privilege__map" href="${esc(benefit.maps)}" target="_blank" rel="noopener"
-         aria-label="${esc(benefit.partner)} — ${esc(UI[lang].openMaps)}">${icon('map', 18)}</a>` : ''}
-    </li>`).join('');
+/**
+ * The card's own lifecycle, in the vocabulary eligibility speaks.
+ *
+ * A card is not a Pass — it has its own start date, its own end date and its own
+ * revocation — but the question a benefit asks is the same one: is this live. The
+ * map is explicit rather than implied so that a card state nobody has thought about
+ * resolves to `unknown` and locks, instead of defaulting open.
+ */
+const CARD_AS_PASS = {
+  active: 'active',
+  'not-started': 'not-started',
+  expired: 'expired',
+  revoked: 'cancelled',
+};
 
-  if (!list) return '';
+/**
+ * What this card gets its holder.
+ *
+ * Holding the card is the entitlement — the order that issued it is what bought
+ * Privilege — so the only open question on this screen is whether the card is live
+ * today, and the benefits dim with it rather than being listed as usable on a card
+ * that would be turned away.
+ */
+function privileges(card, lang) {
+  const views = card.benefits ?? [];
+  if (views.length === 0) return '';
+
+  const pass = { state: CARD_AS_PASS[card.state] ?? 'unknown', entitlements: ['privilege'] };
 
   return `<details class="privileges" open>
     <summary class="privileges__summary">
       <span>${esc(UI[lang].viewPrivileges)}</span>
       ${icon('chevron', 16)}
     </summary>
-    <ul class="privileges__list">${list}</ul>
+    ${partnerList(views, pass, lang)}
   </details>`;
 }
 
@@ -209,24 +225,20 @@ export function stayBenefitsBlock(lang) {
   const included = stayBenefits();
   if (included.length === 0) return '';
 
+  /**
+   * No Pass is passed in, deliberately.
+   *
+   * This block is on the public guide, where there is no reservation to assess.
+   * What a LunArt stay includes is information here, not an entitlement, and
+   * greying it out as "not available" would be answering a question nobody asked.
+   */
   return `<section class="section" aria-labelledby="h-included">
     <div class="section__head">
       <span style="color:var(--accent)">${icon('gift', 20)}</span>
       <h2 id="h-included">${esc(UI[lang].includedWithStay)}</h2>
     </div>
     <p class="section__blurb">${esc(UI[lang].includedWithStayBlurb)}</p>
-    <ul class="privileges__list">
-      ${included.map((benefit) => `
-        <li class="privilege">
-          <div class="privilege__body">
-            <p class="privilege__partner">${esc(benefit.partner)}</p>
-            <p class="privilege__benefit">${esc(benefit.label[lang] ?? benefit.label.it)}</p>
-            ${benefit.conditions ? `<p class="privilege__conditions">${esc(benefit.conditions[lang] ?? benefit.conditions.it)}</p>` : ''}
-          </div>
-          ${benefit.maps ? `<a class="privilege__map" href="${esc(benefit.maps)}" target="_blank" rel="noopener"
-             aria-label="${esc(benefit.partner)} — ${esc(UI[lang].openMaps)}">${icon('map', 18)}</a>` : ''}
-        </li>`).join('')}
-    </ul>
+    ${partnerList(included, null, lang)}
   </section>`;
 }
 

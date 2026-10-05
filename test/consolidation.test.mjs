@@ -18,8 +18,10 @@ import { ingestEvent } from '../server/ingest/index.js';
 import { createMemoryMailbox } from '../server/ingest/mailbox.js';
 import { buildReservation } from '../server/reservations.js';
 import { applyPriceOverrides } from '../commerce/prices.js';
-import { applyPartners, PARTNERS, cardPartners, stayPartners, stayBenefits, cardBenefits, guestBenefit } from '../commerce/partners.js';
-import { devPartners } from '../commerce/partners.dev.js';
+import {
+  applyPartners, PARTNERS, cardPartners, stayPartners, stayBenefits, cardBenefits,
+  partnerView, inclusionOf,
+} from '../commerce/partners.js';
 import { DEV_PRICES } from '../commerce/prices.dev.js';
 import { PRODUCTS, visibleVariants, publicProduct } from '../commerce/catalog.js';
 import { SERVICE_MINUTES, serviceMinutes } from '../commerce/schedule.js';
@@ -36,7 +38,7 @@ let db;
 
 before(async () => {
   applyPriceOverrides(DEV_PRICES);
-  applyPartners(devPartners());
+  applyPartners(PARTNERS);
   db = createStore();
   app = await createApp({
     store: db,
@@ -265,34 +267,68 @@ test('the staff app and its manifest are served', async () => {
 
 test('the Opera Caffè benefit comes with the stay, not with the card', async () => {
   const opera = PARTNERS.find((partner) => partner.partner_id === 'opera-caffe');
-  assert.equal(opera.inclusion, 'stay');
+  assert.equal(inclusionOf(opera), 'stay');
   assert.equal(opera.applies_to, 'all-guests', 'everyone on the reservation, not two people');
+  assert.deepEqual(opera.eligibility.entitlementsAll, [],
+    'an active Pass and nothing bought');
 
   assert.ok(stayPartners().some((partner) => partner.partner_id === 'opera-caffe'));
   assert.equal(cardPartners().some((partner) => partner.partner_id === 'opera-caffe'), false,
-    'buying a card must not be the way to get something that is already included');
+    'buying an upgrade must not be the way to get something that is already included');
 
   const { body } = await api('/api/catalog');
   assert.ok(body.stayBenefits.some((benefit) => benefit.partner_id === 'opera-caffe'));
   assert.equal(body.cardBenefits.some((benefit) => benefit.partner_id === 'opera-caffe'), false);
-  assert.equal(guestBenefit('opera-caffe').applies_to, 'all-guests');
+  assert.equal(partnerView('opera-caffe').applies_to, 'all-guests');
 });
 
 test('a card issued to a guest lists only what the card itself gets them', async () => {
-  const benefits = cardBenefits();
-  assert.ok(benefits.length >= 1, 'the preview has one example partner');
-  assert.equal(benefits.some((benefit) => benefit.partner_id === 'opera-caffe'), false);
-  assert.ok(benefits.every((benefit) => benefit.inclusion === 'card'));
+  const views = cardBenefits();
+  assert.ok(views.length >= 2, 'Le Firme and Blue Velvet');
+  assert.equal(views.some((view) => view.partner_id === 'opera-caffe'), false);
+  assert.ok(views.every((view) => view.inclusion === 'card'));
+  assert.ok(views.every((view) => view.entitlements_required.includes('privilege')));
 });
 
-test('with no card partner at all, the card is not sold', () => {
-  applyPartners(PARTNERS);   // production: only Opera, which is a stay benefit
-  assert.equal(cardPartners().length, 0);
+test('with no card partner at all, the upgrade is not sold', () => {
   const card = PRODUCTS.find((product) => product.id === 'privilege-card');
+  // The rail reads the register. Take the card partners away and it refuses again.
+  applyPartners(PARTNERS.filter((partner) => partner.partner_id === 'opera-caffe'));
+  assert.equal(cardPartners().length, 0);
   assert.equal(isPurchasable(card, { allowPlaceholders: true }), false,
-    'a card with nothing behind it is not a product');
-  applyPartners(devPartners());
-  assert.equal(isPurchasable(card, { allowPlaceholders: true }), true, 'and it comes back by itself');
+    'an upgrade with nothing behind it is not a product');
+
+  applyPartners(PARTNERS);
+  assert.equal(cardPartners().length, 2);
+  assert.equal(isPurchasable(card, { allowPlaceholders: true }), true,
+    'and it comes back by itself the moment a real partner is in the register');
+});
+
+test('LunArt Privilege is on sale on a server with no development settings at all', async () => {
+  const plain = await createApp({
+    store: createStore(),
+    stripe: createMockStripe(),
+    seed: false,
+    cardSigningKey: 'plain-test',
+    staffToken: '',
+    publicUrl: 'http://127.0.0.1',
+  });
+  const plainServer = plain.listen(0);
+  await new Promise((resolve) => plainServer.once('listening', resolve));
+  try {
+    const port = plainServer.address().port;
+    const catalog = await (await fetch(`http://127.0.0.1:${port}/api/catalog`)).json();
+    const card = catalog.products.find((product) => product.id === 'privilege-card');
+    assert.equal(card.purchasable, true,
+      'no placeholder prices, no dev partners: the real product, really buyable');
+    assert.equal(catalog.allowPlaceholderPrices, false, 'and nothing else was relaxed to get there');
+
+    const health = await (await fetch(`http://127.0.0.1:${port}/api/health`)).json();
+    assert.equal(health.cardPartners, 2);
+    assert.equal(health.cardOnSale, true);
+  } finally {
+    plainServer.close();
+  }
 });
 
 /* ── The hair service, as the guest sees it ──────────────────────────────── */

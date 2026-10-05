@@ -26,7 +26,7 @@ import {
 } from '../commerce/index.js';
 import { applySchedule, scheduleInForce, slotsFor, daysWithSlots } from '../commerce/schedule.js';
 import {
-  PARTNERS, activePartners, getPartner, guestBenefit, applyPartners, cardPartners,
+  activePartners, getPartner, partnerView, cardPartners,
   cardBenefits, stayBenefits,
 } from '../commerce/partners.js';
 import { publicProduct } from '../commerce/catalog.js';
@@ -76,10 +76,17 @@ export async function createApp(overrides = {}) {
     // flow can be walked through. Production has neither.
     const { devSchedule } = await import('../commerce/schedule.dev.js');
     applySchedule(devSchedule());
-    // And one obviously-fake card partner, so the Privilege Card can be bought and
-    // the whole flow walked. Production has none, which is why it is not on sale.
-    const { devPartners } = await import('../commerce/partners.dev.js');
-    applyPartners(devPartners());
+    /**
+     * There used to be a third override here: one obviously-fake card partner, so
+     * the Privilege Card could be bought in the preview at all. Production shipped
+     * with no card partner, so `requiresPartners` kept the upgrade off sale, and
+     * the fixture was the only way to walk the flow end to end.
+     *
+     * Le Firme and Blue Velvet retired it. Real venues now reserve real benefits
+     * for Privilege, the preview and production show the same register, and a demo
+     * venue standing next to them would only be a way to mislead whoever is
+     * testing. The partner register is no longer environment-dependent.
+     */
   }
 
   const stripe = overrides.stripe
@@ -625,7 +632,7 @@ export async function createApp(overrides = {}) {
   async function getPartnerInfo(req, res, { id }) {
     const partner = getPartner(id);
     if (!partner?.active) { sendJson(res, 404, { error: 'not-found' }); return; }
-    sendJson(res, 200, guestBenefit(partner.partner_id, settings.publicUrl));
+    sendJson(res, 200, partnerView(partner.partner_id, settings.publicUrl));
   }
 
   /**

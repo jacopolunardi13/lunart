@@ -902,22 +902,11 @@ fieldset.field { border: 0; padding: 0; }
 .privileges__summary svg { flex: none; color: var(--ink-quiet); transition: transform 0.2s var(--ease); }
 .privileges[open] .privileges__summary svg { transform: rotate(90deg); }
 
-.privilege {
-  display: flex; align-items: flex-start; gap: 12px;
-  padding: 14px 2px; border-top: 1px solid var(--ink-faint);
-}
-.privilege__body { min-width: 0; }
-.privilege__partner {
-  font-size: var(--micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-quiet);
-}
-.privilege__benefit { font-family: var(--serif); font-size: var(--step-1); line-height: 1.25; margin-top: 3px; }
-.privilege__conditions { font-size: var(--small); color: var(--ink-soft); line-height: 1.6; margin-top: 5px; }
-.privilege__map {
-  flex: none; display: grid; place-items: center;
-  width: var(--tap); height: var(--tap); margin-left: auto;
-  border-radius: 50%; color: var(--ink-quiet);
-}
-.privilege__map:hover { background: var(--ink-faint); color: var(--ink); }
+/* A partner inside the disclosure is drawn by `.partner` like everywhere else.
+   There used to be a second set of rules here — `.privilege`, `.privilege__map` —
+   for the same thing in a different place, which is how a benefit ended up looking
+   like two different components depending on which screen you opened. */
+.privileges .partners { padding-bottom: 4px; }
 
 /* ---------------------------------------------------------------------------
    Last, on purpose.
@@ -1411,22 +1400,90 @@ fieldset.field { border: 0; padding: 0; }
   padding: 10px 0;
   border-top: 1px solid var(--ink-faint);
 }
-.pass__benefit-partner {
-  display: block;
-  font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-quiet);
-}
+/* The benefit first and the venue under it: the preview answers "what do I have",
+   not "which places does LunArt work with". */
 .pass__benefit-what {
-  display: block; margin-top: 3px;
+  display: block;
   font-family: var(--serif); font-size: var(--step-1); line-height: 1.3;
 }
-.pass__benefit-when {
-  display: block; margin-top: 4px;
-  font-size: var(--micro); color: var(--ink-quiet); line-height: 1.5;
+.pass__benefit-partner {
+  display: block; margin-top: 3px;
+  font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-quiet);
 }
 /* What the Privilege adds, marked so a bought benefit never reads as a free one. */
 .pass__benefit--privilege { border-left: 2px solid var(--accent); padding-left: 12px; }
 .pass__benefit--privilege .pass__benefit-what { color: var(--accent); }
 .pass__note { margin-top: 12px; font-size: var(--small); line-height: 1.65; color: var(--ink-soft); }
+
+/* --- Partners ------------------------------------------------------------
+   One list, whatever is in it.
+
+   Two venues today; the architecture is for a retail network. So there is no
+   rule here that names a partner, no variant per category, and nothing that
+   would have to be written again for the twentieth shop — a partner is a
+   record and this is how a record looks.
+
+   The benefit leads. The eye should land on "10% di sconto" or
+   "€15 MAX + DRINK", not on the name of a club: a guest standing outside a
+   shop knows which shop it is and is checking what they get. So the headline
+   is the serif line and the venue, the category and the address are the quiet
+   row above it.
+   ------------------------------------------------------------------------- */
+.pass__lead { margin: 0 0 10px; font-size: var(--small); line-height: 1.6; color: var(--ink-soft); }
+
+.partners { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+
+.partner {
+  padding: 14px 16px;
+  border: 1px solid var(--ink-line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+}
+
+.partner__name {
+  font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-quiet);
+}
+.partner__meta { margin-top: 2px; font-size: var(--small); line-height: 1.5; color: var(--ink-quiet); }
+
+.partner__benefits { margin: 10px 0 0; padding: 0; list-style: none; }
+/* A partner with two benefits reads as two things, not as one long sentence. */
+.partner__benefits .benefit + .benefit { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ink-faint); }
+
+.benefit__headline {
+  font-family: var(--serif); font-size: var(--step-2); line-height: 1.15; color: var(--ink);
+}
+.benefit__subline { margin-top: 2px; font-size: var(--small); line-height: 1.5; color: var(--ink-soft); }
+.benefit__detail { margin-top: 6px; font-size: var(--small); line-height: 1.6; color: var(--ink-soft); }
+.benefit__note { margin-top: 6px; font-size: var(--micro); line-height: 1.6; color: var(--ink-quiet); }
+
+.partner__note { margin-top: 10px; font-size: var(--micro); line-height: 1.6; color: var(--ink-quiet); }
+
+/* One row where the words fit, two where they do not — rather than a sibling
+   margin that leaves the second one indented after it wraps. */
+.partner__actions {
+  display: flex; flex-wrap: wrap; align-items: center; column-gap: 18px; margin-top: 8px;
+}
+.partner__lock,
+.partner__directions {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: var(--tap); font-size: var(--small);
+}
+.partner__lock { color: var(--accent); }
+.partner__lock svg, .partner__directions svg { flex: none; }
+.partner__directions { color: var(--ink-soft); text-decoration: none; }
+.partner__directions:hover { color: var(--ink); text-decoration: underline; }
+
+/* Unlocked, and paid for: the gold edge says which of these came with money. */
+.partner[data-access="available"] { border-color: color-mix(in srgb, var(--accent-soft) 60%, var(--ink-line)); }
+
+/* Real, not theirs yet. Dimmed rather than removed, so it can be discovered. */
+.partner[data-access="locked"] { background: color-mix(in srgb, var(--paper-2) 55%, var(--paper)); }
+.partner[data-access="locked"] .benefit__headline { color: var(--ink-soft); }
+
+/* The Pass is not live — not started, over, or called off. Nothing here is
+   claimable today, by anybody, so nothing pretends otherwise. */
+.partner[data-access="unavailable"] { background: color-mix(in srgb, var(--paper-2) 55%, var(--paper)); }
+.partner[data-access="unavailable"] .benefit__headline { color: var(--ink-soft); }
 
 /* --- I miei acquisti ------------------------------------------------------
    What a guest checks here is "did it go through" — so the state is a pill they

@@ -132,12 +132,13 @@
           <div class="fact"><span class="fact__label">Persone</span>
             <span class="fact__row"><span class="fact__value">massimo ${esc(payload.card.max_people)}</span></span></div>
         </div>
-        ${(payload.benefits ?? []).map((benefit) => `
+        ${(payload.benefits ?? []).map((venue) => (venue.benefits ?? []).map((benefit, i) => `
           <div class="benefit">
-            <p class="benefit__who">${esc(benefit.partner)}</p>
-            <p class="benefit__what">${esc(benefit.label?.it ?? '')}</p>
-            ${benefit.conditions ? `<p class="benefit__when">${esc(benefit.conditions.it)}</p>` : ''}
-          </div>`).join('')}`;
+            ${i === 0 ? `<p class="benefit__who">${esc(venue.partner)}</p>` : ''}
+            <p class="benefit__what">${esc(benefit.headline?.it ?? benefit.emphasis ?? '')}</p>
+            ${benefit.description ? `<p class="benefit__when">${esc(benefit.description.it)}</p>` : ''}
+            ${benefit.note ? `<p class="benefit__when">${esc(benefit.note.it)}</p>` : ''}
+          </div>`).join('')).join('')}`;
       return;
     }
     verdict.dataset.tone = 'bad';

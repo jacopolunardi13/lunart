@@ -33,7 +33,6 @@ import { featuredProducts, momentOf, PRIORITY, FEATURED } from '../commerce/rank
 import { PRODUCTS } from '../commerce/catalog.js';
 import { isPurchasable } from '../commerce/index.js';
 import { applyPartners, PARTNERS, cardPartners, stayBenefits, cardBenefits } from '../commerce/partners.js';
-import { devPartners } from '../commerce/partners.dev.js';
 import { applyPriceOverrides } from '../commerce/prices.js';
 import { DEV_PRICES } from '../commerce/prices.dev.js';
 
@@ -230,37 +229,40 @@ test('an upgraded Pass still lists Opera under what the stay includes', async ()
 /**
  * Privilege is not on sale until there is something to sell.
  *
- * A card whose only benefit is one the stay already gives is not a product. The
- * catalogue refuses to sell it while no partner offers a card-only benefit, and
- * the demo partner that makes the flow walkable only exists where dev prices do.
+ * An upgrade whose only benefit is one the stay already gives is not a product, and
+ * the catalogue refuses to sell it while no partner reserves anything for it. That
+ * rail is still live — it reads the register on every call — it is simply satisfied
+ * now that Le Firme and Blue Velvet are in it.
  */
 test('Privilege cannot be sold while no partner offers a card benefit', () => {
   const saved = PARTNERS.map((p) => ({ ...p }));
+  const card = PRODUCTS.find((p) => p.id === 'privilege-card');
   try {
-    applyPartners(saved.map((p) => ({ ...p, inclusion: 'stay' })));
-    assert.equal(cardPartners().length, 0, 'nobody offers a card-only benefit');
-    const card = PRODUCTS.find((p) => p.id === 'privilege-card');
+    applyPartners(saved.map((p) => ({ ...p, eligibility: { passState: 'active', entitlementsAll: [] } })));
+    assert.equal(cardPartners().length, 0, 'nobody reserves anything for the upgrade');
     assert.equal(isPurchasable(card, { allowPlaceholders: true }), false, 'so it is not for sale');
   } finally {
     applyPartners(saved);
   }
+  assert.equal(isPurchasable(card, { allowPlaceholders: true }), true,
+    'and with the real partners back, it is');
 });
 
-test('the demo partner that makes Privilege sellable is a development fixture', async () => {
-  const saved = PARTNERS.map((p) => ({ ...p }));
-  try {
-    const demo = devPartners();
-    assert.ok(demo.some((p) => p.inclusion === 'card'), 'the fixture is what unlocks it');
-    // Every demo partner is marked as one, so none can be mistaken for real.
-    for (const partner of demo.filter((p) => !saved.some((s) => s.partner_id === p.partner_id))) {
-      assert.match(
-        `${partner.partner_id} ${partner.name}`.toLowerCase(),
-        /demo|test|esempio|example/,
-        `"${partner.partner_id}" must be obviously not a real venue`,
-      );
-    }
-  } finally {
-    applyPartners(saved);
+/**
+ * There is no longer a demo partner, and that is the point.
+ *
+ * A fake venue existed only because production had none; it made the flow walkable
+ * and nothing else. Real partners retired it, and a demo standing next to Le Firme
+ * would now be a way to mislead whoever is testing. The register is the same in
+ * every environment.
+ */
+test('no partner in the register is a stand-in', () => {
+  for (const partner of cardPartners()) {
+    assert.doesNotMatch(
+      `${partner.partner_id} ${partner.name}`.toLowerCase(),
+      /demo|esempio|example|placeholder|fittizio/,
+      `"${partner.partner_id}" reads as a stand-in`,
+    );
   }
 });
 

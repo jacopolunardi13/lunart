@@ -26,8 +26,12 @@ export {
 } from './stay.js';
 export {
   PARTNERS, PARTNER_CATEGORIES, BENEFIT_KINDS, activePartners, getPartner,
-  cardPartners, stayPartners, guestBenefit, cardBenefits, stayBenefits, allGuestBenefits,
-  applyPartners, partnersInForce, validationPath, validationUrl,
+  ENTITLEMENTS, ENTITLEMENT_NAMES, ENTITLEMENTS_ON_SALE, PASS_STATES, ACCESS,
+  STAY_ELIGIBILITY, PRIVILEGE_ELIGIBILITY,
+  eligibilityOf, entitlementsRequiredBy, inclusionOf, benefitAccess, partnerAccess,
+  cardPartners, stayPartners, partnersRequiring,
+  partnerView, cardBenefits, stayBenefits, allGuestBenefits, passContextOf,
+  applyPartners, partnersInForce, validationPath, validationUrl, directionsUrl,
 } from './partners.js';
 export {
   MANUAL_SCHEDULE, SERVICE_MINUTES, serviceMinutes, applySchedule, scheduleInForce,
@@ -76,9 +80,15 @@ export const sellableSkusOf = (product) => (
 /**
  * True when a guest can actually complete a purchase of this product.
  *
- * `requiresPartners` is the rail under the Privilege Card: a card with no venue
- * behind it is an empty promise, so it is not for sale until one exists. It comes
- * back by itself the moment a partner is activated.
+ * `requiresPartners` is the rail under LunArt Privilege: an upgrade with no venue
+ * behind it is an empty promise, so it is not for sale until one exists. It was
+ * never a switch to be flipped — it reads the register, and it comes back by itself
+ * the moment a real partner is reserved for the card. Le Firme and Blue Velvet are
+ * that moment, so the rail now passes in production with nothing here to change.
+ *
+ * Nothing else was relaxed. The prices still have to be `confirmed`, the product
+ * still has to be active, and a server with no partners would refuse to sell it
+ * again tomorrow.
  */
 export function isPurchasable(product, { allowPlaceholders = false } = {}) {
   if (!product?.active) return false;
