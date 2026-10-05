@@ -15,6 +15,8 @@ import { COMMERCE_CATEGORIES } from '../../../commerce/schema.js';
 import { PRODUCTS } from '../../../commerce/catalog.js';
 import { isPurchasable } from '../../../commerce/index.js';
 import { catalogueAvailable, catalogueProblem } from '../api.js';
+import { featuredForGuest } from '../../../commerce/ranking.js';
+import { guest } from '../../guest.js';
 
 /**
  * The offer that lives inside the guide, before a guest ever opens the shop.
@@ -27,16 +29,20 @@ import { catalogueAvailable, catalogueProblem } from '../api.js';
  */
 export function shopTeaser(lang) {
   if (!catalogueAvailable()) return '';
-  const featured = PRODUCTS
-    .filter((p) => p.active && p.featured && !p.comingSoon && p.status !== 'coming-soon')
-    .filter((p) => isPurchasable(p, { allowPlaceholders: true }) || p.purchaseMode === 'request-only')
-    .slice(0, 3);
+  /**
+   * Three, chosen for the moment the guest is in.
+   *
+   * Nothing is hidden by this — the whole catalogue is one tap on, and most LunArt
+   * stays are a night or two, which is exactly why hiding would be wrong. The
+   * order is in `commerce/ranking.js`, as a table somebody can argue with.
+   */
+  const featured = featuredForGuest(guest(), { products: PRODUCTS });
   if (featured.length === 0) return '';
 
   return `<section class="section" aria-labelledby="h-extras">
     <div class="section__head">
       <span style="color:var(--accent)">${icon('gift', 20)}</span>
-      <h2 id="h-extras">${esc(UI[lang].extras)}</h2>
+      <h2 id="h-extras">${esc(UI[lang].extrasHomeTitle)}</h2>
     </div>
     <p class="section__blurb">${esc(UI[lang].extrasHomeBlurb)}</p>
     <div class="offers">

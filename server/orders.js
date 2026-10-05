@@ -55,11 +55,20 @@ function orderLines(priced, lang = 'it') {
 }
 
 /** Only ever written from values the server derived. */
-export function buildOrder({ priced, customer, lang = 'it', paymentMode }) {
+export function buildOrder({ priced, customer, lang = 'it', paymentMode, reservationId = null }) {
   const needsProvider = priced.lines.some((l) => l.product.purchaseMode === 'authorize-then-capture');
   return {
     object: 'order',
     access_token: opaqueToken(24),
+    /**
+     * Which stay this belongs to, when the guest bought it from their own link.
+     *
+     * Resolved on the server from the guide token and never from anything the
+     * browser sent, because it is what decides whose purchases these are. Null for
+     * a sale made from the public guide, which belongs to a person rather than to
+     * a booking and is only findable through its own access token.
+     */
+    reservation_id: reservationId,
     status: PAYMENT_STATUS.pending,
     fulfilment_status: needsProvider ? FULFILMENT_STATUS['awaiting-confirmation'] : FULFILMENT_STATUS['not-required'],
     payment_mode: paymentMode,
@@ -164,6 +173,9 @@ export async function fulfilOrder(order, { store, signingKey, providerCalendar =
     for (let copy = 0; copy < line.quantity; copy++) {
       const card = buildCard({
         orderId: order.id,
+        // The upgrade attaches to the stay, not to the browser that bought it:
+        // this is what lets the same Pass read as Privilege on another phone.
+        reservationId: order.reservation_id ?? null,
         holderName: line.fields?.holderName || order.customer.name,
         startDate: line.date,
         days,

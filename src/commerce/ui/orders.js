@@ -13,18 +13,37 @@ import { UI } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
 import { money, shortDate } from './format.js';
 import { fetchOrder } from '../api.js';
-import { clear as clearCart } from '../cart.js';
+import { guestPurchases } from '../../guest.js';
 
 const STORAGE_KEY = 'lunart.orders.v1';
 const PENDING_KEY = 'lunart.checkout-pending.v1';
 
-/** Noted when a guest leaves for the payment page, cleared when the order lands. */
-export function markCheckoutPending(token) {
-  try { localStorage.setItem(PENDING_KEY, token); } catch { /* ignore */ }
+/**
+ * Noted when a guest leaves for the payment page.
+ *
+ * Together with a fingerprint of the basket that produced it, which is the part
+ * that matters. A guest who pays for wine, comes back, and then puts a brunch in
+ * the basket before opening last night's order must not have the brunch thrown
+ * away: the order that committed emptied *its* basket, not whatever is in there
+ * now. So the basket is only cleared while it still looks like the one that was
+ * paid for.
+ */
+export function markCheckoutPending(token, fingerprint = '') {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify({ token, fingerprint }));
+  } catch { /* ignore */ }
 }
 
 const pendingCheckout = () => {
-  try { return localStorage.getItem(PENDING_KEY); } catch { return null; }
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    // Older clients stored the bare token; read both rather than lose a basket.
+    const parsed = raw.startsWith('{') ? JSON.parse(raw) : { token: raw, fingerprint: '' };
+    return parsed?.token ? parsed : null;
+  } catch {
+    return null;
+  }
 };
 
 const clearPending = () => {
@@ -33,6 +52,49 @@ const clearPending = () => {
 
 /** States that mean the guest is committed: the basket's work is done. */
 const WENT_THROUGH = new Set(['authorized', 'confirmed', 'paid']);
+/** And the ones that mean it is over without a sale. The basket stays as it was. */
+const FINISHED_WITHOUT = new Set(['cancelled', 'failed', 'refunded']);
+
+/**
+ * Settle the basket against the order the guest just went to pay for.
+ *
+ * Called on every start, not only on the return from Stripe, because the return is
+ * the one journey that cannot be relied on: a guest closes the tab on the payment
+ * page, pays on another device, or comes back through a bookmark. Whatever the
+ * route, the next time this app starts it asks the server what happened to that
+ * order and acts on the answer.
+ *
+ * Fetching the order is also what triggers the server's own reconciliation against
+ * Stripe, so this doubles as the nudge that moves a stranded `pending` order to
+ * `paid` when the webhook has not arrived.
+ */
+export async function settleCheckout({ cart }) {
+  const pending = pendingCheckout();
+  if (!pending) return { settled: false };
+
+  let order;
+  try {
+    order = await fetchOrder(pending.token);
+  } catch {
+    // Offline, or the server is having a moment. Keep the marker and try later.
+    return { settled: false, reason: 'unreachable' };
+  }
+
+  if (WENT_THROUGH.has(order.status)) {
+    // Only this basket. A different one belongs to a different intention.
+    if (!pending.fingerprint || pending.fingerprint === cart.fingerprint()) cart.clear();
+    clearPending();
+    return { settled: true, status: order.status, token: pending.token, cleared: true };
+  }
+
+  if (FINISHED_WITHOUT.has(order.status)) {
+    // Nothing was bought, so nothing is taken away: the guest may want to retry.
+    clearPending();
+    return { settled: true, status: order.status, token: pending.token, cleared: false };
+  }
+
+  return { settled: false, status: order.status, token: pending.token };
+}
 
 export function rememberedOrders() {
   try {
@@ -162,29 +224,68 @@ export function openOrderSheet(accessToken, { lang, onCard }) {
 }
 
 /** The list, for the guide. Empty when this browser has bought nothing. */
+/**
+ * Everything this guest has bought.
+ *
+ * On a personal link the server answers, because the server is the only place that
+ * knows: it has the orders filed against this reservation, so a guest who ordered
+ * on the laptop and opened the link on their phone sees the same list, and a guest
+ * who cleared their browser has lost nothing. What this browser remembers is a
+ * cache and a fallback — it is what the public guide has instead, where a sale
+ * belongs to a person rather than to a booking.
+ *
+ * Both paths are merged by access token, so an order that is in the stay *and* in
+ * this browser is one row, not two.
+ */
+async function ordersToShow() {
+  const fromStay = guestPurchases().map((order) => ({ ...order, token: order.access_token }));
+  const known = new Set(fromStay.map((order) => order.token));
+
+  const extra = (await Promise.all(
+    rememberedOrders()
+      .filter((token) => !known.has(token))
+      .map((token) => fetchOrder(token).then((order) => ({ ...order, token })).catch(() => null)),
+  )).filter(Boolean);
+
+  return [...fromStay, ...extra];
+}
+
+/**
+ * One purchase, as a row.
+ *
+ * What a guest wants from this list is "did it go through, what was it, when, how
+ * much" — in that order, because the first is the one they came to check.
+ */
+function purchaseRow(order, lang) {
+  const when = order.lines
+    .map((line) => [line.date ? shortDate(line.date, lang) : '', line.time ?? ''].filter(Boolean).join(' '))
+    .filter(Boolean)[0] ?? '';
+  const what = order.lines
+    .map((line) => (line.quantity > 1 ? `${line.title} ×${line.quantity}` : line.title))
+    .join(' · ');
+
+  return `<button class="purchase" type="button" data-order="${esc(order.token)}">
+    <span class="purchase__head">
+      <span class="purchase__what">${esc(what)}</span>
+      <span class="purchase__amount">${esc(money(order.amount, { lang, currency: order.currency }))}</span>
+    </span>
+    <span class="purchase__meta">
+      <span class="status-pill" data-tone="${esc(TONE[order.status] ?? 'muted')}">${esc(statusText(order.status, lang))}</span>
+      ${when ? `<span class="purchase__when">${esc(when)}</span>` : ''}
+      ${order.reference ? `<span class="purchase__ref mono">${esc(order.reference)}</span>` : ''}
+    </span>
+  </button>`;
+}
+
 export async function purchasesBlock(lang) {
-  const tokens = rememberedOrders();
-  if (tokens.length === 0) return '';
-
-  const orders = (await Promise.all(tokens.map((token) =>
-    fetchOrder(token).then((order) => ({ ...order, token })).catch(() => null)))).filter(Boolean);
+  const orders = await ordersToShow();
   if (orders.length === 0) return '';
-
-  const cards = orders.map((order) => `
-    <button class="card" type="button" data-order="${esc(order.token)}">
-      <span class="card__icon">${icon('receipt', 22)}</span>
-      <span class="card__body">
-        <span class="card__title">${esc(order.lines.map((l) => l.title).join(', '))}</span>
-        <span class="card__summary">${esc(statusText(order.status, lang))} · ${esc(money(order.amount, { lang, currency: order.currency }))}</span>
-      </span>
-      <span class="card__chevron">${icon('chevron', 16)}</span>
-    </button>`).join('');
 
   return `<section class="section" aria-labelledby="h-purchases">
     <div class="section__head">
       <span style="color:var(--accent)">${icon('receipt', 20)}</span>
       <h2 id="h-purchases">${esc(UI[lang].myPurchases)}</h2>
     </div>
-    <div class="cards">${cards}</div>
+    <div class="purchases">${orders.map((order) => purchaseRow(order, lang)).join('')}</div>
   </section>`;
 }

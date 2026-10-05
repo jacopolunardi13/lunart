@@ -47,6 +47,10 @@
      `.stay` its border and surface outright — an invalid var() takes the whole
      declaration with it. */
   --radius-md: 14px;
+  /* The Pass's printed face, when LunArt's artwork has been added. Set inline on
+     the card itself once the file exists; `none` until then, and the card draws
+     its own. */
+  --pass-artwork: none;
   --rule: rgba(26, 26, 26, 0.14);
   --surface-raised: #fff;
   --tap: 44px;           /* minimum comfortable touch target */
@@ -947,6 +951,117 @@ fieldset.field { border: 0; padding: 0; }
   margin-bottom: 10px; font-size: var(--small); line-height: 1.7; color: var(--ink-soft);
 }
 .fold__body .room + .room { margin-top: 10px; }
+
+/* --- The LunArt Pass ------------------------------------------------------
+   A card somebody handed you, not a status panel. The artwork is a hook: set
+   --pass-artwork and it becomes the face, otherwise the card draws its own in
+   the guide's ink and gold. Privilege is the same card with the gold turned up.
+   ------------------------------------------------------------------------- */
+.pass {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, #241f17 0%, #16140f 58%, #1d1a13 100%);
+  color: var(--paper);
+  box-shadow: var(--shadow);
+  aspect-ratio: 85.6 / 54;          /* the proportions of a real card */
+  max-height: 230px;
+}
+/* The printed artwork, when one has been added. */
+.pass[style*="--pass-artwork"]::before {
+  content: "";
+  position: absolute; inset: 0;
+  background-image: var(--pass-artwork);
+  background-size: cover; background-position: center;
+  opacity: .9;
+}
+/* A quiet sheen, so the face is not a flat rectangle. */
+.pass::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(120% 90% at 85% 0%, rgba(201, 168, 109, .22) 0%, transparent 58%);
+  pointer-events: none;
+}
+.pass__face {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; height: 100%;
+  padding: 18px 20px;
+}
+.pass__brand {
+  font-family: var(--serif);
+  font-size: var(--step-1);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--accent-soft);
+}
+.pass__tier {
+  display: inline-block;
+  margin-left: 6px; padding: 2px 8px;
+  border: 1px solid var(--accent-soft); border-radius: 999px;
+  font-size: var(--micro); letter-spacing: .16em;
+}
+.pass__holder {
+  margin-top: auto;
+  font-family: var(--serif);
+  font-size: 1.55rem; line-height: 1.1;
+}
+.pass__line { margin-top: 6px; font-size: var(--small); color: rgba(250, 249, 247, .82); }
+.pass__state {
+  margin-top: 10px;
+  font-size: var(--micro); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent-soft);
+}
+/* The one state that carries a consequence: a voucher from this stay is done. */
+.pass[data-state="expired"] .pass__state,
+.pass[data-state="cancelled"] .pass__state { color: #e0a39a; }
+.pass[data-state="expired"] { filter: saturate(.55); }
+
+.pass--privilege { border: 1px solid var(--accent-soft); }
+.pass--privilege::after {
+  background: radial-gradient(130% 100% at 85% 0%, rgba(201, 168, 109, .4) 0%, transparent 62%);
+}
+
+.pass__label {
+  margin: 18px 0 6px;
+  font-size: var(--micro); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-quiet);
+}
+.pass__benefits { margin: 0; padding: 0; list-style: none; }
+.pass__benefit {
+  padding: 10px 0;
+  border-top: 1px solid var(--ink-faint);
+}
+.pass__benefit-partner {
+  display: block;
+  font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-quiet);
+}
+.pass__benefit-what {
+  display: block; margin-top: 3px;
+  font-family: var(--serif); font-size: var(--step-1); line-height: 1.3;
+}
+.pass__benefit--privilege .pass__benefit-what { color: var(--accent); }
+.pass__note { margin-top: 12px; font-size: var(--small); line-height: 1.65; color: var(--ink-soft); }
+
+/* --- I miei acquisti ------------------------------------------------------
+   What a guest checks here is "did it go through" — so the state is a pill they
+   can see without reading, and the rest follows it.
+   ------------------------------------------------------------------------- */
+.purchases { display: flex; flex-direction: column; gap: 8px; }
+.purchase {
+  display: block; width: 100%;
+  padding: 14px;
+  background: #fff; border: 1px solid var(--ink-faint); border-radius: var(--radius);
+  text-align: left;
+  transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+}
+.purchase:hover { border-color: var(--ink-line); box-shadow: var(--shadow); }
+.purchase__head { display: flex; align-items: baseline; gap: 12px; }
+.purchase__what {
+  flex: 1; min-width: 0;
+  font-family: var(--serif); font-size: var(--step-1); line-height: 1.3;
+}
+.purchase__amount { flex: none; font-variant-numeric: tabular-nums; font-size: var(--small); }
+.purchase__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.purchase__when, .purchase__ref { font-size: var(--micro); color: var(--ink-quiet); }
 
 /* A variant that exists but is not on sale yet: visible, legible, not choosable. */
 .chip--unavailable { opacity: 0.5; cursor: default; }

@@ -59,6 +59,15 @@ function keyOf(line) {
 
 export const getLines = () => lines.map((line) => ({ ...line }));
 
+/**
+ * What this basket is, as one string.
+ *
+ * Taken when the guest leaves to pay and compared when they come back, so the
+ * basket that was paid for is emptied and a basket filled since is not. Order is
+ * sorted out of it: adding two things in the other order is the same basket.
+ */
+export const fingerprint = () => lines.map(keyOf).sort().join(';');
+
 export const count = () => lines.reduce((sum, line) => sum + line.quantity, 0);
 
 export function add(line) {

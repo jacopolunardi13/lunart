@@ -161,12 +161,22 @@ const overflow = await page.evaluate(() => ({ doc: document.documentElement.scro
 note(overflow.doc <= overflow.win + 1, `no horizontal overflow (${overflow.doc} vs ${overflow.win})`);
 await page.screenshot({ path: `${OUT}/personal-390.png` });
 
-// What comes with the stay is listed without anything being bought.
+/* The Pass: free with the stay, on the home, before anything has been bought. */
 await page.screenshot({ path: `${OUT}/personal-top-390.png` });
-const included = await page.locator('.privileges__list .privilege').count();
-note(included >= 1, `what the stay includes is listed (${included})`);
-const includedText = await page.textContent('[data-guest-blocks]');
-note(/Opera Caff/.test(includedText), 'the Opera Caffè benefit is one of them');
+note(await page.isVisible('[data-pass]'), 'a LunArt Pass is on the home without anything being bought');
+const pass = await page.evaluate(() => ({
+  tier: document.querySelector('[data-pass]')?.className ?? '',
+  state: document.querySelector('[data-pass]')?.dataset.state ?? '',
+  text: document.querySelector('[data-pass]')?.innerText ?? '',
+  benefits: document.querySelectorAll('.pass__benefit').length,
+  section: document.querySelector('[data-pass-block]')?.innerText ?? '',
+}));
+note(!/privilege/.test(pass.tier), `and it is the free tier, not Privilege (${pass.tier.trim()})`);
+note(['active', 'not-started'].includes(pass.state), `with a state the stay decides (${pass.state})`);
+note(pass.text.includes(chosen.room), 'it carries the room');
+note(pass.benefits >= 1, `what the stay includes is listed on it (${pass.benefits})`);
+note(/opera caff/i.test(pass.section), 'the Opera Caffè benefit is one of them');
+note(!/privilege/i.test(pass.section.split(/opera/i)[0] ?? ''), 'and it is not sold as a Privilege benefit');
 
 /* ── 2. The card, inside the stay ─────────────────────────────────────── */
 console.log('\n── the card inside the stay ──');

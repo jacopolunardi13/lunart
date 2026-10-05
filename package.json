@@ -15,7 +15,8 @@
     "qa:commerce": "node tools/qa-commerce.mjs",
     "qa:reservations": "node tools/qa-reservations.mjs",
     "preview:shots": "node tools/preview-shots.mjs",
-    "qa:shots": "node tools/guest-shots.mjs"
+    "qa:shots": "node tools/guest-shots.mjs",
+    "qa:pass": "node tools/qa-pass.mjs"
   },
   "engines": {
     "node": ">=20"

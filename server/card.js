@@ -66,7 +66,7 @@ const sameCode = (a, b) => {
  * Issue a card against a paid order line.
  * `days` is inclusive: a 2-day card bought for the 5th runs to the end of the 6th.
  */
-export function buildCard({ orderId, holderName, startDate, days, variantId, signingKey }) {
+export function buildCard({ orderId, reservationId = null, holderName, startDate, days, variantId, signingKey }) {
   if (!isValidDate(startDate)) throw new Error('card needs a valid start date');
   if (!Number.isInteger(days) || days < 1) throw new Error('card needs a whole number of days');
 
@@ -79,6 +79,8 @@ export function buildCard({ orderId, holderName, startDate, days, variantId, sig
     public_ref: randomRef(6),
     access_token: opaqueToken(24),
     order_id: orderId,
+    /** The stay this upgrade belongs to, so the Pass can find it. */
+    reservation_id: reservationId,
     variant_id: variantId ?? null,
     holder_name: String(holderName ?? '').trim().slice(0, 80),
     start_date: startDate,

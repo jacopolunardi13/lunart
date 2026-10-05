@@ -181,7 +181,8 @@ note(/Privilege Card/i.test(cardText), 'and names the product');
 note(/Jacopo Lunardi/.test(cardText), 'it shows the holder');
 note(/2 (persone|guests)/i.test(cardText), 'it says it is valid for two');
 note(await page.isVisible('.card-qr__frame svg'), 'a QR is drawn');
-note(/Attiva|Active/.test(await page.textContent('.status-pill')), 'it shows the status');
+note((await page.locator('.sheet .status-pill').allTextContents()).some((t) => /Attiva|Active/.test(t)),
+  'it shows the status');
 note(await page.isVisible('.privileges'), 'privileges are listed');
 // Whatever card partner the preview has, with its benefit — and never the Opera
 // Caffè 30%, which comes with the stay and is listed in the guide instead.

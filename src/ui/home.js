@@ -226,9 +226,6 @@ function duringTheStay(lang, phase) {
       <h2 id="h-during">${esc(UI[lang].sectionDuring)}</h2>
     </div>
     <div class="brief">${list.map((e) => briefRow(e, lang)).join('')}</div>
-
-    <!-- Filled in after the first paint with whatever this guest already holds. -->
-    <div data-guest-blocks></div>
   </section>`;
 }
 
@@ -354,6 +351,20 @@ export function homeView(lang, phase) {
     ${welcome(lang)}
     ${primaryActions(lang, phase)}
     ${phases}
+
+    <!--
+      The Pass, and anything this guest has bought.
+
+      Drawn after the first paint, because both come from the server and the guide
+      must not wait on either — but given their own place in the page rather than
+      appended to the end of another section, which is where they were and where
+      nobody found them. The Pass comes with the stay and belongs near the top of
+      it; a purchase a guest made two minutes ago is the thing they are most likely
+      to have opened the guide to check.
+    -->
+    <div data-pass-block></div>
+    <div data-purchases-block></div>
+
     ${yourStay(lang, phase)}
     ${duringTheStay(lang, phase)}
     ${renderShopTeaser(lang)}

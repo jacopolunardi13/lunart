@@ -21,7 +21,7 @@ import { openSheet, closeSheet } from './ui/sheet.js';
 let commerce = null;
 import { openSearch, closeSearch, isSearchOpen } from './ui/search.js';
 import * as concierge from './concierge/ui.js';
-import { loadGuest, tokenFromPath, guest } from './guest.js';
+import { loadGuest, refreshGuest, tokenFromPath, guest, isPersonal } from './guest.js';
 import { PHASES, getEntry } from '../data/index.js';
 
 const PHASE_KEY = 'lunart.phase';
@@ -176,18 +176,34 @@ function updateCartBadge() {
 }
 
 /**
- * The card and the purchases a guest already holds. Fetched after the first paint
- * so the guide never waits on the API to draw, and simply absent when there is
- * nothing — or when there is no server behind this copy of the guide.
+ * The Pass, and whatever this guest has bought.
+ *
+ * Filled in after the first paint, so the guide never waits on the API to draw.
+ * Each lands in its own slot rather than in one block at the bottom of a section:
+ * a Pass that comes with the stay and an order placed five minutes ago are two
+ * different things a guest looks for, and neither was findable where they were.
+ *
+ * On a copy of the guide with no server behind it — the static site — both are
+ * simply absent, which is correct: there is no stay and there are no orders.
  */
 async function fillGuestBlocks() {
-  const slot = $('[data-guest-blocks]');
-  if (!slot || !commerce?.catalogueAvailable()) return;
-  const [cards, purchases] = await Promise.all([commerce.cardBlock(state.lang), commerce.purchasesBlock(state.lang)]);
-  if (!document.body.contains(slot)) return;
-  // What comes with the stay is not something the guest has to have bought, so it
-  // goes first — above the card and above anything they ordered.
-  slot.innerHTML = commerce.stayBenefitsBlock(state.lang) + cards + purchases;
+  const passSlot = $('[data-pass-block]');
+  const purchasesSlot = $('[data-purchases-block]');
+  if (!commerce?.catalogueAvailable()) return;
+
+  if (passSlot) {
+    // Synchronous: the Pass arrived with the guest context, so there is nothing
+    // to wait for and no reason to make the guest watch it appear.
+    passSlot.innerHTML = commerce.passBlock(state.lang)
+      // Without a personal link there is no Pass, but the stay benefits are still
+      // worth stating — they are what the public guide can honestly promise.
+      || (isPersonal() ? '' : commerce.stayBenefitsBlock(state.lang));
+  }
+
+  if (purchasesSlot) {
+    const purchases = await commerce.purchasesBlock(state.lang);
+    if (document.body.contains(purchasesSlot)) purchasesSlot.innerHTML = purchases;
+  }
 }
 
 function buildChrome() {
@@ -334,6 +350,24 @@ async function start() {
 
   render();
   onRoute();
+
+  /**
+   * Settle whatever the guest went away to pay for.
+   *
+   * Last, because it needs both the shop and the guest context, and because
+   * everything above it is what the guide is for. Asking the server about that
+   * order is also what prompts it to reconcile a payment whose webhook has not
+   * landed — so a guest coming back from Stripe sees "paid" rather than "waiting",
+   * their basket empties, and the Pass they just upgraded reads as Privilege.
+   */
+  const settled = await commerce.settle();
+  if (settled.settled) {
+    updateCartBadge();
+    // The order moved, so the stay's view of itself is out of date.
+    if (tokenFromPath()) await refreshGuest();
+    render();
+    onRoute();
+  }
 }
 
 if (document.readyState === 'loading') {

@@ -310,6 +310,14 @@ export function guestContext(reservation, { now = new Date() } = {}) {
     cancelled: reservation.status === RESERVATION_STATUS.cancelled,
     /** Which part of the stay they are in, so the guide can order itself. */
     phase: phaseOf(reservation, today),
+    /**
+     * Today, in Florence.
+     *
+     * So the browser never has to work out which day it is for a property in
+     * another time zone, and so "arrives today" means the same thing on the phone
+     * as it does at the desk.
+     */
+    today,
     /** The days anything sold inside the stay may fall on. */
     stay_days: dates,
   };

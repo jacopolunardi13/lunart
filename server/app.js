@@ -37,6 +37,7 @@ import { rateLimit, clientKey } from './rate-limit.js';
 
 import { staffView, completePastStays, stayOf, isLive } from './reservations.js';
 import { resolveGuideLink, guideContextView, recoverGuideLink } from './guide-link.js';
+import { passForReservation } from './pass.js';
 import {
   createMailer, scheduleGuideEmail, sendDueGuideEmails, renderGuideEmail,
   mailProviders, guideUrl, DELIVERY_STATUS,
@@ -301,6 +302,11 @@ export async function createApp(overrides = {}) {
       return;
     }
 
+    /** Where the guest should come back to: their own link, when they have one. */
+    const home = reservation?.guide_token
+      ? `${settings.publicUrl}/g/${reservation.guide_token}`
+      : `${settings.publicUrl}/`;
+
     const order = await store.orders.create({
       ...built.order,
       /** Which stay this belongs to, when the guest came in by their own link. */
@@ -327,8 +333,17 @@ export async function createApp(overrides = {}) {
           metadata: { order_id: order.id },
           description: `LunArt · ${order.lines.map((l) => l.title).join(', ')}`.slice(0, 200),
         },
-        success_url: `${settings.publicUrl}/#/order/${order.access_token}`,
-        cancel_url: `${settings.publicUrl}/#/cart?cancelled=1`,
+        /**
+         * Back to the guide they came from, not to the generic one.
+         *
+         * A guest who bought from their personal link has to land back on it:
+         * returning to `/` gives them a guide that does not know their name, has
+         * no Pass on it and cannot show them the purchase they just made. The
+         * token is already ours — it came in with the checkout — so the only way
+         * to lose it here is to forget to put it back.
+         */
+        success_url: `${home}#/order/${order.access_token}`,
+        cancel_url: `${home}#/cart?cancelled=1`,
         locale: lang === 'it' ? 'it' : 'en',
       }, { idempotencyKey: `checkout:${order.id}` });
     } catch (error) {
@@ -399,11 +414,7 @@ export async function createApp(overrides = {}) {
      * the session and feeds the same event handler the webhook uses. The event id
      * is deterministic, so refreshing the order page is idempotent.
      */
-    if (
-      order.status === PAYMENT_STATUS.pending
-      && order.stripe_session_id
-      && stripe.mode !== 'mock'
-    ) {
+    if (order.status === PAYMENT_STATUS.pending && order.stripe_session_id && stripe.retrieveSession) {
       try {
         const session = await stripe.retrieveSession(order.stripe_session_id);
         let type = null;
@@ -637,12 +648,55 @@ export async function createApp(overrides = {}) {
     const variants = resolved.stay ? cardVariantsForStay(card?.variants ?? [], resolved.stay) : [];
     sendJson(res, 200, {
       ...view,
+      /**
+       * The Pass. Every reservation has one and nobody bought it, so it is part of
+       * the context rather than something the browser has to go and fetch.
+       */
+      pass: await passForReservation({ store, reservation: resolved.reservation }),
+      /**
+       * And what this stay has bought, from the server rather than from whatever
+       * this particular browser happens to remember.
+       */
+      purchases: await purchasesForReservation({ store, reservation: resolved.reservation }),
       cardOptions: variants.map((variant) => ({
         variantId: variant.id,
         days: variant.meta?.days ?? null,
         startDates: cardStartDates(resolved.stay, variant.meta?.days ?? 0),
       })),
     });
+  }
+
+  /**
+   * The orders belonging to one stay.
+   *
+   * Scoped by `reservation_id` and nothing else, so one guest's link can only ever
+   * surface that guest's purchases. The access token travels with each row because
+   * whoever holds the guide token *is* this guest — it is the credential the
+   * personal link is built on — and without it the order sheet could not open.
+   * Nothing else about the order is widened: the summary is the same shape the
+   * order endpoint already returns.
+   */
+  async function purchasesForReservation({ store: db, reservation }) {
+    if (!reservation?.id) return [];
+    const orders = await db.orders.filter((order) => order.reservation_id === reservation.id);
+    return orders
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
+      .map((order) => ({
+        access_token: order.access_token,
+        reference: order.id.slice(-8).toUpperCase(),
+        status: order.status,
+        fulfilment_status: order.fulfilment_status,
+        amount: order.amount,
+        currency: order.currency,
+        created_at: order.created_at ?? null,
+        lines: order.lines.map((line) => ({
+          title: line.title,
+          variant_title: line.variant_title ?? null,
+          quantity: line.quantity,
+          date: line.date ?? null,
+          time: line.time ?? null,
+        })),
+      }));
   }
 
   /**
@@ -1478,6 +1532,23 @@ export async function handleStripeEvent(event, { store, stripe, settings, push =
   const move = async (status, patch = {}, note = '') => {
     if (!canTransition(order.status, status)) {
       return { skipped: true, from: order.status, to: status };
+    }
+    /**
+     * Already there.
+     *
+     * The webhook is the durable path and the reconciliation on the guest's return
+     * is the impatient one, and they carry different event ids, so the same
+     * payment legitimately arrives here twice. The second time must change
+     * nothing a person would notice: the patch is still applied, because one of
+     * the two may carry the payment intent id the other lacked, but the status
+     * line is not written into the history again. An order's event log is read by
+     * staff deciding what happened; "paid" twice is a question, not a record.
+     */
+    if (order.status === status) {
+      const already = Object.entries(patch)
+        .filter(([field, value]) => value !== undefined && value !== null && String(order[field] ?? '') !== String(value));
+      if (already.length > 0) order = await store.orders.update(order.id, Object.fromEntries(already));
+      return { status, repeated: true };
     }
     const next = appendEvent({ ...order, ...patch, status }, `status:${status}`, note);
     order = await store.orders.update(order.id, { ...patch, status, events: next.events });

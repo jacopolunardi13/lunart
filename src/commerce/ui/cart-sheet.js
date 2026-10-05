@@ -150,7 +150,7 @@ function mount(container, lang, { onShop }) {
       // order is known to have gone through: a guest who backs out at the payment
       // page should find it exactly as they left it.
       rememberOrder(result.accessToken);
-      markCheckoutPending(result.accessToken);
+      markCheckoutPending(result.accessToken, cart.fingerprint());
       location.href = result.checkoutUrl;
     } catch (error) {
       button.disabled = false;

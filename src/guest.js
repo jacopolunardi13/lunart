@@ -47,6 +47,35 @@ export const guestStay = () => (
 export const cardOptions = () => state.context?.cardOptions ?? [];
 
 /**
+ * The LunArt Pass for this stay.
+ *
+ * Comes with the context because every reservation has one — there is nothing to
+ * fetch and nothing to buy. Null on the public guide, where there is no stay for a
+ * Pass to describe.
+ */
+export const guestPass = () => state.context?.pass ?? null;
+
+/**
+ * What this stay has bought, as the server knows it.
+ *
+ * The server is the source of truth here, not the browser: a guest who ordered
+ * wine on the laptop in the room and then opens their link on a phone must find
+ * that order, and a phone that has never seen this stay before knows nothing.
+ */
+export const guestPurchases = () => state.context?.purchases ?? [];
+
+/**
+ * Pull the context again, after something has changed it.
+ *
+ * Used when a guest comes back from paying: the order has just moved, and what the
+ * page is holding was true a minute ago.
+ */
+export async function refreshGuest() {
+  if (!state.token) return null;
+  return loadGuest(state.token);
+}
+
+/**
  * Resolve the link.
  *
  * A failure is not an error the guest should see: an expired or mistyped link just
