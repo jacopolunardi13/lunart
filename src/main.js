@@ -20,6 +20,7 @@ import { openSheet, closeSheet } from './ui/sheet.js';
  */
 let commerce = null;
 import { openSearch, closeSearch, isSearchOpen } from './ui/search.js';
+import { loadBrandMark } from './ui/brand.js';
 import * as concierge from './concierge/ui.js';
 import { loadGuest, refreshGuest, tokenFromPath, guest, isPersonal } from './guest.js';
 import { PHASES, getEntry } from '../data/index.js';
@@ -65,6 +66,7 @@ function parseHash() {
   if (head === 'order' && tail) return { view: state.view, order: decodeURIComponent(tail) };
   if (head === 'card' && tail) return { view: state.view, card: decodeURIComponent(tail) };
   if (head === 'cart') return { view: state.view, cart: true };
+  if (head === 'pass') return { view: state.view, pass: true };
   if (knownView(head)) return { view: head, entry: null };
   return { view: 'guide', entry: null };
 }
@@ -94,11 +96,12 @@ const openProduct = (productId) => { pushedEntry = true; location.hash = `#/prod
 const openCart    = () => { pushedEntry = true; location.hash = '#/cart'; };
 const openOrder   = (token) => { pushedEntry = true; location.hash = `#/order/${encodeURIComponent(token)}`; };
 const openCard    = (token) => { pushedEntry = true; location.hash = `#/card/${encodeURIComponent(token)}`; };
+const openPass    = () => { pushedEntry = true; location.hash = '#/pass'; };
 
 /** Any sheet closing comes back here, so the URL and the screen stay in step. */
 function dismissSheet() {
   const route = parseHash();
-  if (!route.entry && !route.product && !route.order && !route.card && !route.cart) return;
+  if (!route.entry && !route.product && !route.order && !route.card && !route.cart && !route.pass) return;
   if (pushedEntry) {
     pushedEntry = false;
     history.back();
@@ -130,6 +133,10 @@ function onRoute() {
     commerce?.openOrderSheet(route.order, { lang: state.lang, onCard: openCard });
   } else if (route.card) {
     commerce?.openCardSheet(route.card, { lang: state.lang });
+  } else if (route.pass) {
+    // No Pass on this page means no personal link: fall back to the view rather
+    // than leaving a hash pointing at a sheet that will not open.
+    if (!commerce?.openPassSheet({ lang: state.lang })) go(state.view);
   } else {
     closeSheet();
   }
@@ -273,6 +280,8 @@ function buildChrome() {
     const cardTrigger = event.target.closest('[data-card]');
     if (cardTrigger) { event.preventDefault(); openCard(cardTrigger.dataset.card); return; }
 
+    if (event.target.closest('[data-open-pass]')) { event.preventDefault(); openPass(); return; }
+
     // A card that leads to a whole view — Florence, Help — rather than to one
     // entry. The tabbar has its own listener; this is for the ones in the page.
     const goTrigger = event.target.closest('[data-goto]');
@@ -312,6 +321,9 @@ function buildChrome() {
 
 async function start() {
   buildChrome();
+  // The wordmark becomes the artwork if the artwork is there. Nothing waits on it:
+  // the header is already correct, and this can only improve it.
+  loadBrandMark();
 
   // Drawn first, then enriched. The shop is a third of the JavaScript and none of
   // it belongs in the critical path: a guest looking for the Wi-Fi password should

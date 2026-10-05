@@ -66,6 +66,37 @@ for (const width of [360, 390, 430]) {
   }));
   note(overflow.doc <= overflow.win + 1, `no horizontal overflow (doc ${overflow.doc} vs win ${overflow.win}) ${overflow.wide.join(', ')}`);
 
+  /**
+   * The mark in the header, in whichever state it is in.
+   *
+   * The artwork has not been handed over, so the shipped state is the typographic
+   * wordmark and `src/ui/brand.js` swaps in `assets/img/brand/lunart-wordmark.svg`
+   * if it ever appears. Either state has to be legible and has to leave the icons
+   * alone — so this checks what is actually there rather than asserting one of them.
+   */
+  const mark = await page.evaluate(() => {
+    const el = document.getElementById('header-mark');
+    if (!el) return null;
+    const img = el.querySelector('img');
+    const m = el.getBoundingClientRect();
+    const tools = document.querySelector('.header__tools').getBoundingClientRect();
+    return {
+      kind: el.dataset.logo === 'true' ? 'artwork' : 'type',
+      text: el.textContent.trim(),
+      imgOk: img ? img.naturalWidth > 0 : null,
+      height: Math.round(m.height),
+      left: Math.round(m.left),
+      clearOfTools: m.right <= tools.left + 1,
+      centred: Math.abs((m.top + m.bottom) / 2 - (tools.top + tools.bottom) / 2) < 2,
+    };
+  });
+  note(Boolean(mark), 'the header carries a mark');
+  note(mark?.kind === 'artwork' ? mark.imgOk === true : mark?.text === 'LunArt',
+    `the mark is ${mark?.kind} (${mark?.kind === 'artwork' ? 'image decoded' : mark?.text})`);
+  note(mark?.clearOfTools === true, 'it does not run into search / gift / EN');
+  note(mark?.centred === true, 'and sits on the same centre line as them');
+  note(mark?.left === 20 || mark?.left === 16, `aligned to the gutter (${mark?.left}px)`);
+
   const nav = await page.evaluate(() => {
     const r = document.querySelector('#tabbar').getBoundingClientRect();
     return { left: r.left, right: r.right, win: window.innerWidth, visible: r.width > 0 };

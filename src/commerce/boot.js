@@ -12,7 +12,7 @@ import { shopView, shopTeaser } from './ui/shop.js';
 import { openProductSheet } from './ui/product-sheet.js';
 import { openCartSheet } from './ui/cart-sheet.js';
 import { openOrderSheet, purchasesBlock, settleCheckout } from './ui/orders.js';
-import { passBlock, loadPassArtwork } from './ui/pass.js';
+import { passBlock, openPassSheet, loadPassArtwork } from './ui/pass.js';
 import { featuredForGuest, momentOf } from '../../commerce/ranking.js';
 import { openCardSheet, cardBlock, stayBenefitsBlock } from './ui/card-sheet.js';
 import * as cart from './cart.js';
@@ -42,6 +42,6 @@ export async function settle() {
 export {
   shopView, shopTeaser, openProductSheet, openCartSheet,
   openOrderSheet, purchasesBlock, openCardSheet, cardBlock, stayBenefitsBlock,
-  passBlock, featuredForGuest, momentOf,
+  passBlock, openPassSheet, featuredForGuest, momentOf,
   cart, catalogueAvailable,
 };

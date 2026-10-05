@@ -353,15 +353,54 @@ function purchaseRow(order, lang) {
   </button>`;
 }
 
+/**
+ * What the guest actually bought, as against what they started and abandoned.
+ *
+ * A checkout that was begun and never finished leaves a `pending` order behind, and
+ * a card that was declined leaves a `failed` one. Both are real and both are worth
+ * keeping — a guest who thinks they paid needs to be able to find out that they did
+ * not — but neither is a purchase, and on a stay with a few false starts they were
+ * crowding out the brunch that is actually coming tomorrow morning.
+ *
+ * So the list is in two parts rather than one, and nothing is thrown away.
+ */
+const WENT_THROUGH_ORDER = new Set(['paid', 'confirmed', 'authorized', 'refunded']);
+const didNotGoThrough = (order) => !WENT_THROUGH_ORDER.has(order.status);
+
 export async function purchasesBlock(lang) {
   const orders = await ordersToShow();
   if (orders.length === 0) return '';
+
+  /**
+   * Newest first within each part, and the real purchases first overall.
+   *
+   * `created_at` is the server's, so two devices agree on the order; a browser-only
+   * order has none, and sorts last among its own kind rather than jumping the queue.
+   */
+  const byDate = (a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
+  const real = orders.filter((order) => !didNotGoThrough(order)).sort(byDate);
+  const unfinished = orders.filter(didNotGoThrough).sort(byDate);
 
   return `<section class="section" aria-labelledby="h-purchases">
     <div class="section__head">
       <span style="color:var(--accent)">${icon('receipt', 20)}</span>
       <h2 id="h-purchases">${esc(UI[lang].myPurchases)}</h2>
     </div>
-    <div class="purchases">${orders.map((order) => purchaseRow(order, lang)).join('')}</div>
+
+    ${real.length
+    ? `<div class="purchases">${real.map((order) => purchaseRow(order, lang)).join('')}</div>`
+    : ''}
+
+    ${unfinished.length ? `
+      <details class="purchases-aside">
+        <summary class="purchases-aside__summary">
+          <span>${esc(UI[lang].unfinishedCheckouts)} (${unfinished.length})</span>
+          ${icon('chevron', 16)}
+        </summary>
+        <p class="purchases-aside__note">${esc(UI[lang].unfinishedCheckoutsNote)}</p>
+        <div class="purchases purchases--muted">
+          ${unfinished.map((order) => purchaseRow(order, lang)).join('')}
+        </div>
+      </details>` : ''}
   </section>`;
 }

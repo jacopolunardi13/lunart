@@ -139,10 +139,35 @@ h3 { font-size: var(--step-1); }
 }
 .header[data-scrolled="true"] { border-bottom-color: var(--ink-line); }
 
+/*
+ * The mark.
+ *
+ * Two states, and the markup is the same in both. By default it is the wordmark set
+ * in the house serif — LunArt's identity is typographic, so this is a rendering of
+ * the mark and not a stand-in for one. When `assets/img/brand/lunart-wordmark.svg`
+ * exists, `src/ui/brand.js` replaces the text with it and sets `data-logo`; see the
+ * README in that folder for what the file has to be.
+ *
+ * The box is the same height either way, so swapping one for the other moves
+ * nothing else in the header.
+ */
 .header__mark {
   font-family: var(--serif);
-  font-size: 1.1rem; letter-spacing: 0.3em; text-transform: uppercase;
+  font-size: 1.1rem; letter-spacing: 0.26em; text-transform: uppercase;
   padding: 8px 0; min-height: var(--tap); display: flex; align-items: center;
+  /* The tracking is on the right of the last letter too; pull it back so the mark
+     optically aligns with the gutter rather than sitting a few pixels inside it. */
+  margin-right: -0.26em;
+}
+.header__mark[data-logo] { letter-spacing: normal; margin-right: 0; }
+.header__logo {
+  display: block;
+  height: 22px; width: auto; max-width: 160px;
+  /* A mark wider than the slot is fitted, never squashed: `max-width` alone would
+     compress a long lock-up horizontally and quietly distort somebody's logotype. */
+  object-fit: contain; object-position: left center;
+  /* Drawn in whatever ink the header is using, so one file serves any theme. */
+  color: var(--ink-strong);
 }
 .header__tools { display: flex; align-items: center; gap: 4px; }
 
@@ -990,6 +1015,20 @@ fieldset.field { border: 0; padding: 0; }
    --pass-artwork and it becomes the face, otherwise the card draws its own in
    the guide's ink and gold. Privilege is the same card with the gold turned up.
    ------------------------------------------------------------------------- */
+/**
+ * The LunArt Pass, drawn as a card rather than as a panel.
+ *
+ * Three layers, and the order of them is the whole design:
+ *
+ *   base       a warm gradient. This is the genuine fallback — if the artwork does
+ *              not load, what is left is still a card, not a broken frame.
+ *   artwork    the printed plate, from `assets/img/pass/`. See `make-pass-plate.mjs`.
+ *   scrim      a gradient from the lower left, which is where the name and the
+ *              dates sit. Contrast is guaranteed here, by something testable, and
+ *              not by hoping a photograph is dark in the right corner.
+ *
+ * The 85.6 × 54 aspect ratio is a real card's, which is most of why it reads as one.
+ */
 .pass {
   position: relative;
   overflow: hidden;
@@ -1001,46 +1040,146 @@ fieldset.field { border: 0; padding: 0; }
   max-height: 230px;
 }
 /* The printed artwork, when one has been added. */
-.pass[style*="--pass-artwork"]::before {
+/*
+ * The plate, addressed from here rather than from an inline style.
+ *
+ * A relative url() inside a custom property resolves against the stylesheet that
+ * consumes it, not the element — so setting it inline on the card produced
+ * `/assets/css/assets/img/…`, which this server answers with HTML and a 200. The
+ * card drew an empty layer and nothing reported a problem. Written here, the same
+ * relative path is correct both on the server and on GitHub Pages under a subpath.
+ *
+ * Replace the artwork by dropping a file at `assets/img/_src/pass/lunart-pass.jpg`
+ * and running `node tools/optimize-images.mjs`. Nothing here changes.
+ */
+.pass::before {
   content: "";
   position: absolute; inset: 0;
-  background-image: var(--pass-artwork);
-  background-size: cover; background-position: center;
-  opacity: .9;
+  background-image: image-set(
+    url("../img/pass/lunart-pass-700.webp") 1x,
+    url("../img/pass/lunart-pass-1024.webp") 2x);
+  background-size: cover; background-position: 50% 62%;
 }
-/* A quiet sheen, so the face is not a flat rectangle. */
+.pass--privilege::before {
+  background-image: image-set(
+    url("../img/pass/lunart-pass-privilege-700.webp") 1x,
+    url("../img/pass/lunart-pass-privilege-1024.webp") 2x);
+}
+/*
+ * The scrim, and the sheen.
+ *
+ * The scrim is the load-bearing one: it darkens the lower left under the holder's
+ * name and the dates, so white type clears AA over any plate that might be dropped
+ * in later — including one nobody has seen yet. The gold at the top right is the
+ * decoration, and it is deliberately weak enough that it never reaches the type.
+ */
 .pass::after {
   content: "";
   position: absolute; inset: 0;
-  background: radial-gradient(120% 90% at 85% 0%, rgba(201, 168, 109, .22) 0%, transparent 58%);
+  background:
+    /* Under the name and the dates. The heaviest, because it carries the most type. */
+    linear-gradient(to top, rgba(10, 8, 5, .92) 0%, rgba(10, 8, 5, .7) 26%, rgba(10, 8, 5, .14) 54%, transparent 70%),
+    /* Under the brand mark: this frame has bright sky at the top, and gold on sky
+       measured 1.1:1 before this band existed. Weighted for the Privilege plate,
+       which is gold and therefore the harder of the two to read over. */
+    linear-gradient(to bottom, rgba(10, 8, 5, .82) 0%, rgba(10, 8, 5, .38) 34%, transparent 58%),
+    linear-gradient(100deg, rgba(10, 8, 5, .5) 0%, rgba(10, 8, 5, .14) 46%, transparent 74%),
+    radial-gradient(120% 90% at 85% 0%, rgba(201, 168, 109, .18) 0%, transparent 58%);
   pointer-events: none;
 }
+/*
+ * Two groups, pinned to the two ends.
+ *
+ * The content used to flow top-down with `margin-top: auto` on the name, which
+ * worked until it did not: the card has a fixed aspect ratio, and at 390 px the
+ * status line was being pushed past the bottom edge and clipped. Measured against
+ * the page behind it, that line scored 1.86:1. Pinning both groups means the card
+ * cannot overflow whatever the type does.
+ */
 .pass__face {
   position: relative; z-index: 1;
-  display: flex; flex-direction: column; height: 100%;
-  padding: 18px 20px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  height: 100%; padding: 16px 20px 15px;
 }
+.pass__foot { min-width: 0; }
+
+/*
+ * The card as a tap target.
+ *
+ * It used to be an inert <article>: the one element on the page that most looks
+ * like something you press, doing nothing. The button carries no styling of its
+ * own — it is the card that is visible — so it needs its own focus ring.
+ */
+.pass-open {
+  display: block; width: 100%; padding: 0;
+  background: none; border: 0; text-align: inherit;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: transform .18s var(--ease);
+}
+.pass-open:active { transform: scale(.988); }
+.pass-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* In the sheet the card is the subject, so it is allowed to be bigger. */
+.pass[data-size="full"] { max-height: 260px; }
+.pass[data-size="full"] .pass__holder { font-size: 1.75rem; }
+
+/* Whose it is, which room, until when — the four things worth checking at a till. */
+.pass-facts { margin: 18px 0 0; }
+.pass-facts__row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--ink-faint);
+}
+.pass-facts__row dt {
+  font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-quiet); flex: none;
+}
+.pass-facts__row dd { margin: 0; text-align: right; font-family: var(--serif); font-size: var(--step-1); }
+/*
+ * The mark, in paper rather than in gold.
+ *
+ * Gold on the plate measured 3.23:1 — under AA for type this size, and fragile in a
+ * way that matters: the artwork here is meant to be replaced, and a colour that only
+ * just works over this frame is a colour that fails over the next one. Paper-white
+ * clears AA against anything the scrim allows through.
+ *
+ * It also makes the gold mean something. The only gold on a standard Pass is now the
+ * state line; on a Privilege it is the tier chip as well, so the upgrade is legible
+ * at a glance rather than by reading the word.
+ */
 .pass__brand {
   font-family: var(--serif);
   font-size: var(--step-1);
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--accent-soft);
+  color: var(--paper);
 }
+/*
+ * The tier chip, filled rather than outlined.
+ *
+ * It was gold type inside a gold hairline, which on the standard plate was fine and
+ * on the Privilege plate — whose whole point is that it is gold — came out at barely
+ * above 1:1. Invisible, on the one element whose entire job is to say that this card
+ * is the upgraded one. Filled with the accent and set in the dark ink, it reads on
+ * any plate, including one nobody has seen yet.
+ */
 .pass__tier {
   display: inline-block;
-  margin-left: 6px; padding: 2px 8px;
-  border: 1px solid var(--accent-soft); border-radius: 999px;
-  font-size: var(--micro); letter-spacing: .16em;
+  margin-left: 8px; padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: #17120a;
+  font-size: var(--micro); font-weight: 600; letter-spacing: .16em;
 }
 .pass__holder {
-  margin-top: auto;
   font-family: var(--serif);
   font-size: 1.55rem; line-height: 1.1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pass__line { margin-top: 6px; font-size: var(--small); color: rgba(250, 249, 247, .82); }
 .pass__state {
-  margin-top: 10px;
+  margin-top: 8px;
   font-size: var(--micro); letter-spacing: .12em; text-transform: uppercase;
   color: var(--accent-soft);
 }
@@ -1050,8 +1189,24 @@ fieldset.field { border: 0; padding: 0; }
 .pass[data-state="expired"] { filter: saturate(.55); }
 
 .pass--privilege { border: 1px solid var(--accent-soft); }
+/*
+ * The gold is *added* to the scrim, not substituted for it.
+ *
+ * This rule used to set `background` outright, which replaced all four layers with
+ * one gold wash — so the Privilege card, the one that costs money, was the only one
+ * with no darkening under its type at all. Over a gold plate that put the brand mark
+ * at 4.06:1 and the status line at 3.65:1, both under AA, and it survived every
+ * check that read CSS colours rather than pixels.
+ *
+ * The three dark bands are repeated verbatim; only the gold is stronger. Keep them
+ * in step with `.pass::after` above.
+ */
 .pass--privilege::after {
-  background: radial-gradient(130% 100% at 85% 0%, rgba(201, 168, 109, .4) 0%, transparent 62%);
+  background:
+    linear-gradient(to top, rgba(10, 8, 5, .92) 0%, rgba(10, 8, 5, .7) 26%, rgba(10, 8, 5, .14) 54%, transparent 70%),
+    linear-gradient(to bottom, rgba(10, 8, 5, .82) 0%, rgba(10, 8, 5, .38) 34%, transparent 58%),
+    linear-gradient(100deg, rgba(10, 8, 5, .5) 0%, rgba(10, 8, 5, .14) 46%, transparent 74%),
+    radial-gradient(130% 100% at 85% 0%, rgba(201, 168, 109, .4) 0%, transparent 62%);
 }
 
 .pass__label {
@@ -1071,6 +1226,12 @@ fieldset.field { border: 0; padding: 0; }
   display: block; margin-top: 3px;
   font-family: var(--serif); font-size: var(--step-1); line-height: 1.3;
 }
+.pass__benefit-when {
+  display: block; margin-top: 4px;
+  font-size: var(--micro); color: var(--ink-quiet); line-height: 1.5;
+}
+/* What the Privilege adds, marked so a bought benefit never reads as a free one. */
+.pass__benefit--privilege { border-left: 2px solid var(--accent); padding-left: 12px; }
 .pass__benefit--privilege .pass__benefit-what { color: var(--accent); }
 .pass__note { margin-top: 12px; font-size: var(--small); line-height: 1.65; color: var(--ink-soft); }
 
@@ -1095,6 +1256,31 @@ fieldset.field { border: 0; padding: 0; }
 .purchase__amount { flex: none; font-variant-numeric: tabular-nums; font-size: var(--small); }
 .purchase__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 .purchase__when, .purchase__ref { font-size: var(--micro); color: var(--ink-quiet); }
+
+/*
+ * Checkouts that were started and never finished.
+ *
+ * Kept, because a guest who believes they paid has to be able to find out that they
+ * did not — and folded away, because on a stay with two or three false starts they
+ * were burying the brunch that is actually arriving tomorrow. Closed by default, and
+ * the count is in the summary so nothing is hidden, only quiet.
+ */
+.purchases-aside { margin-top: 14px; }
+.purchases-aside__summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: var(--tap); cursor: pointer;
+  font-size: var(--small); color: var(--ink-quiet);
+  list-style: none;
+}
+.purchases-aside__summary::-webkit-details-marker { display: none; }
+.purchases-aside__summary svg { flex: none; transition: transform .2s var(--ease); }
+.purchases-aside[open] .purchases-aside__summary svg { transform: rotate(90deg); }
+.purchases-aside__note {
+  margin: 2px 0 10px; font-size: var(--micro); color: var(--ink-quiet); line-height: 1.6;
+}
+/* Present, legible, and plainly not the main event. */
+.purchases--muted .purchase { background: transparent; border-style: dashed; }
+.purchases--muted .purchase__what { color: var(--ink-soft); }
 
 /* A variant that exists but is not on sale yet: visible, legible, not choosable. */
 .chip--unavailable { opacity: 0.5; cursor: default; }

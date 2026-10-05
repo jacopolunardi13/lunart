@@ -596,6 +596,46 @@ Webhooks are verified with a timing-safe compare and a timestamp tolerance, ever
 write carries an idempotency key, and each event id is processed once. Stripe
 retries; discovering that by issuing a second Privilege Card is not acceptable.
 
+### The Pass, and the artwork it wears
+
+Every reservation has a LunArt Pass, derived from the stay on every read and never
+stored. It is drawn at a real card's proportions — 85.6 × 54 — which is most of why
+it reads as a card rather than as a status panel, and it is a button: tapping it
+opens `#/pass`, a view of its own holding the card, the holder, the room, the
+validity, the state, and exactly what it is good for. Privilege is the same card
+with a gold plate, a filled badge and its own benefits listed above the stay's, in
+that order — a benefit somebody paid for must never be indistinguishable from one
+everybody gets.
+
+**The artwork is a file, and replacing it is a file.** `assets/img/pass/` holds one
+plate per tier, derived from LunArt's own view of the Arno by
+`tools/make-pass-plate.mjs` — near-greyscale, then mapped between two brand inks, so
+it is a duotone in the house colours rather than a photograph with a filter on it.
+To put the real artwork in: drop it at `assets/img/_src/pass/lunart-pass.jpg` (and
+`lunart-pass-privilege.jpg`), run `node tools/optimize-images.mjs`, and the card
+wears it. No code, no CSS, no build step — and do not run `make-pass-plate.mjs`
+again afterwards, or it will overwrite the real thing.
+
+**Contrast over an image cannot be checked from CSS**, so `npm run qa:pass` doesn't
+try. It hides the type, photographs the card as the browser actually painted it, and
+measures each line against the lightest pixel inside its own box — the worst case,
+which is the one a guest reads a letter against. Both tiers are measured, because the
+gold plate is the harder one. That check found three real defects that every
+colour-reading test had passed: the brand mark at 1.1:1 over bright sky, the status
+line being pushed off the bottom edge of the card, and `.pass--privilege::after`
+replacing the whole scrim with a gold wash — which left the one card that costs money
+as the only one with no darkening under its type at all.
+
+### The header mark
+
+LunArt's identity is typographic, so the wordmark set in Cormorant is a real
+rendering of it and not a placeholder. When there is a file, `src/ui/brand.js` swaps
+it in: see `assets/img/brand/README.md` for exactly what to provide and where. It is
+loaded off-document first and only put in the header once it has decoded, because
+this server answers `200 text/html` for any unknown path — a missing image does not
+arrive looking like a 404, it arrives looking like a web page, and an `<img>` in the
+markup would put that in the header of every guest's first paint.
+
 ### The Privilege Card
 
 €15 for two days, €25 for five, €35 for eight. One card covers the holder and one
