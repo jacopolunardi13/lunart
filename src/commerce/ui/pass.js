@@ -44,6 +44,15 @@ import { longDate } from './format.js';
  * `lunart-pass-privilege.jpg`), run `node tools/optimize-images.mjs`, and the card
  * wears it. No code change, no CSS change, no build step.
  */
+/**
+ * The mark drawn on the card.
+ *
+ * The same file the header uses — LunArt's own lock-up, traced from the artwork they
+ * supplied. Referenced from here rather than hard-coded in the markup so the card and
+ * the header can never end up wearing two different marks.
+ */
+export const PASS_MARK = 'assets/img/brand/lunart-wordmark.svg';
+
 export const PASS_ARTWORK = {
   standard: 'assets/img/pass/lunart-pass',
   privilege: 'assets/img/pass/lunart-pass-privilege',
@@ -162,7 +171,7 @@ export function passFace(pass, lang, { size = 'preview' } = {}) {
     <div class="pass__face">
       ${/**
         * The guest at the top, the state at the bottom, and the painting left alone
-        * in between.
+        * in between, with the mark top-right.
         *
         * The voucher's watercolour has its air at the top — a pale, even sky — and
         * its weight in the middle, where the LA mark and the Duomo are. So the name
@@ -174,11 +183,17 @@ export function passFace(pass, lang, { size = 'preview' } = {}) {
         * of the mark — exactly the thing worth keeping. Putting the name *and* the
         * dates in the sky left the dates crossing the top serif of the L.
         *
-        * Neither tier prints the word "LunArt": the mark is already the centre of
-        * the composition. A Privilege adds its chip at the foot, and nothing else.
+        * The mark is on the card because the painting does not contain one. When the
+        * card wore the breakfast voucher this was the opposite: the LA lock-up was
+        * the centre of that composition, so printing "LunArt" again was the card
+        * introducing itself twice. "Il movimento e la stratificazione di Firenze" is
+        * an abstract — deliberately not a view, not a monument, not a signature — so
+        * without the mark the card is a beautiful rectangle with a stranger's name
+        * on it. It goes top-right, opposite the name, small.
         */''}
       <div class="pass__head">
         <p class="pass__holder">${esc(pass.holder || UI[lang].passTitle)}</p>
+        <img class="pass__mark" src="${esc(PASS_MARK)}" alt="LunArt" decoding="async" width="40" height="24">
       </div>
       <div class="pass__foot">
         <div class="pass__detail">

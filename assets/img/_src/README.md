@@ -60,7 +60,19 @@ was not reachable from the machine this was built on. If it turns up, put the `.
 straight into `assets/img/brand/` and stop running the script — a real original
 always beats a trace of a raster.
 
-### `pass/lunart-voucher.jpg`
+### `pass/lunart-opera.jpg`
+
+A 1152 × 745 window on **"Il movimento e la stratificazione di Firenze nel tempo"**,
+the painting commissioned for LunArt. The full work as supplied is 1440 × 959; the
+crop is `1152x745+288+0`, chosen by scoring 295 candidates and then rendering the
+best four in the real card component. It keeps the diagonal — which the artist's note
+calls the subject, "un flusso, come l'Arno, come il tempo" — and leaves calm where
+the guest's name and details sit.
+
+**Unaltered.** No duotone, no desaturation, no recolouring. The card's framing, type
+and two soft washes are all applied in CSS. See `.pass` in `assets/css/app.css`.
+
+### `_archive/pass/lunart-voucher.jpg`
 
 The front of the printed breakfast voucher: a watercolour of Florence with the LA
 mark across it, 2048 × 1365. Extracted from
@@ -76,3 +88,11 @@ darkened to be legible would be the wrong card. See `.pass` in `assets/css/app.c
 The pale Arno duotone that preceded it (`lunart-pass.jpg`,
 `lunart-pass-privilege.jpg`, and `tools/make-pass-plate.mjs`) was always a stand-in
 for this file and was removed when it arrived.
+
+This is now the **fallback** rather than the artwork in use: the painting above
+replaced it on the card. It lives under `_archive/`, which `optimize-images.mjs`
+skips — a source worth keeping is not the same as four files worth shipping, and left
+in the sweep every run put its unused derivatives back into the deployed tree.
+
+To revert to it: move the file back to `pass/`, run `node tools/optimize-images.mjs`,
+and point the two `::before` rules in `app.css` at `lunart-voucher-*` instead.

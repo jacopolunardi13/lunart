@@ -599,58 +599,62 @@ retries; discovering that by issuing a second Privilege Card is not acceptable.
 ### The Pass, and the artwork it wears
 
 Every reservation has a LunArt Pass, derived from the stay on every read and never
-stored. It is the **breakfast voucher**, as a card on a phone — so it is built the
-same way round as the printed one.
+stored. It wears **"Il movimento e la stratificazione di Firenze nel tempo"** —
+LunArt's own commissioned painting, an abstract of the city as material, light and
+flow rather than as a view of it.
 
-LunArt prints a voucher at 8.5 × 5.5 cm: a soft watercolour of Florence, the Ponte
-Vecchio on one side and the Duomo on the other, with the LA mark across the middle.
-It is pale, warm and quiet. That painting is the card's ground, unaltered, and the
-type on it is **dark ink** — which is what the voucher itself does with its own logo.
-That inversion is the whole design: the card before this was a darkened photograph
-with white type, and reproducing this painting that way would have meant crushing a
-watercolour into a duotone to make room for text, destroying the one thing worth
-keeping.
-
-The painting's air is at the top and its weight is in the middle, so the guest's
-name takes the pale sky on its own, like a nameplate, and the room, the dates and the
-state sit in the mist along the bottom. Nothing covers the mark or the Duomo. The
-card carries a status *word*; the sentence explaining it is in the facts row
-underneath, where there is a column for it. 85 × 55 is the voucher's own proportion,
-not a credit card's 85.6 × 54 — the difference is under 3% and using the voucher's is
-simply true.
-
-**One artwork, two tiers.** Privilege is not a different card: it is the same
-painting with a gold edge doubled by an inner hairline, a warm breath of gold in the
-top corner at a few percent, and the tier chip — the only solid gold on it. Hold the
-two side by side and it is plainly the same object, one of them better. The same face
-is worn by the card a venue is shown, which until now was a dark card with its own
-CSS-drawn monogram: a second design for what the guest experiences as one tessera.
+The card is built the way the painting is: pale ground, **dark ink**, nothing covering
+the work. The guest's name takes the top-left, the room, dates and state the bottom,
+the mark the top-right, and the middle — the diagonal, the gold, the teal — is left
+alone.
 
 | | |
 |---|---|
-| **source** | `assets/img/_src/pass/lunart-voucher.jpg` — the voucher front, extracted from `LunArt_voucher_colazione_8.5x5.5cm_FONT_ELEGANTE_PIXART.pdf` at its native 2048 × 1365, unaltered |
-| **served** | `assets/img/pass/lunart-voucher-{400,700,1024}.webp` + `-800.jpg`, built by `node tools/optimize-images.mjs`. A phone takes the 1024, which is 32 KB |
-| **framing** | done in CSS, not in the file: `background-position: 50% 0%` anchors the sky band at its full depth |
+| **source** | `assets/img/_src/pass/lunart-opera.jpg` — a 1152 × 745 window on the painting, unaltered |
+| **served** | `assets/img/pass/lunart-opera-{700,1024}.webp`, built by `node tools/optimize-images.mjs`. A phone takes the 1024, which is 134 KB |
+| **framing** | `background-position: 50% 0%`, `cover` |
+| **fallback** | `assets/img/_src/_archive/pass/lunart-voucher.jpg` — the breakfast voucher the card wore before, kept as a source rather than as four unused files in every deployment |
 
-To replace it, drop a new file at the `_src` path and run `optimize-images`. No code,
-no CSS, no build step.
+**Why this crop.** 295 crops were scored on four things: how much scrim the type
+would need, how alive the crop is away from the type, whether the diagonal survives,
+and whether all three colour families (stone, water, gold — the three the artist's
+note names) are present. The purely numerical winners were tight crops of pale haze:
+legible and dead. The crop in use keeps the diagonal reading as flow, puts the orange
+burst and the gold drips right of centre, and leaves calm exactly where the name and
+the details sit. It was chosen by rendering four candidates in the real component and
+comparing, not by the score.
+
+**Why the mark is on the card.** The voucher's painting had the LA lock-up at its
+centre, so the card deliberately did not repeat it. This painting is an abstract and
+carries no mark — deliberately not a view, not a monument, not a signature — so
+without it the card is a beautiful rectangle with a stranger's name on it. It is the
+same file the header uses.
+
+**The washes.** No crop of this painting is legible bare: it runs from near-white to
+near-black inside a few hundred pixels, so every text zone contains both ends. Two
+gradients raise its value under the name and under the details and fade out before
+they reach the middle. They are declared once, in `:root`, with the card ink — both
+were written out three times, and raising them for this artwork fixed one copy,
+missed the second, and left the venue card thin. `test/assets.test.mjs` now fails if
+either is declared twice.
+
+**One artwork, three faces.** Privilege is not a different card: the same painting
+with a gold edge doubled by an inner hairline, a few percent of gold in the top
+corner, and the tier chip. The card a venue is shown wears it too.
 
 **Contrast over an image cannot be checked from CSS**, so `npm run qa:pass` doesn't
-try. It hides the type, photographs the card as the browser actually painted it, and
-measures each line against the **worst** pixel in its own box — computing the ratio
+try. It hides the type, photographs each card as the browser actually painted it, and
+measures every line against the **worst** pixel in its own box — computing the ratio
 against every pixel and keeping the lowest, which is correct whether the type is
-light on dark or dark on light and needs no flag saying which. Both tiers are
-measured. That check has now found five real defects that every colour-reading test
-had passed:
+light on dark or dark on light. All three faces are measured. The weakest line on any
+of them is 4.60:1.
 
-- the brand mark at 1.1:1 over bright sky;
-- the status line pushed off the bottom edge of the card;
-- `.pass--privilege::after` replacing the whole scrim with a gold wash, leaving the
-  one card that costs money as the only one with no darkening under its type;
-- a gold chip on a gold plate at barely above 1:1;
-- and, once the card became dark ink on a pale watercolour, the long Italian status
-  sentence wrapping to two lines, which pushed the room and the dates up off the mist
-  and onto the black foot of the LA mark — measured at 1:1.
+That check has now found seven real defects that every colour-reading test had passed:
+the brand mark at 1.1:1 over bright sky; the status line pushed off the bottom edge;
+`.pass--privilege::after` replacing the whole scrim with a gold wash; a gold chip on a
+gold plate; a long Italian status sentence wrapping and pushing the dates onto the
+black foot of the old mark; and, on this artwork, two of the three duplicated wash
+declarations going stale.
 
 ### The header mark
 

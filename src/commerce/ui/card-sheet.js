@@ -17,6 +17,7 @@ import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
 import { longDate, shortDate } from './format.js';
+import { PASS_MARK } from './pass.js';
 import { qrSvg } from '../qr.js';
 import { fetchCard, stayBenefits, cardBenefits } from '../api.js';
 
@@ -62,8 +63,11 @@ function cardFace(card, lang) {
   const dates = `${shortDate(card.start_date, lang)} – ${shortDate(card.end_date, lang)}`;
   return `<div class="privilege-card" data-state="${esc(card.state)}">
     <div class="privilege-card__head">
-      <p class="privilege-card__holder">${esc(card.holder)}</p>
-      <p class="privilege-card__guests">${esc(UI[lang].validForTwo)}</p>
+      <div class="privilege-card__who">
+        <p class="privilege-card__holder">${esc(card.holder)}</p>
+        <p class="privilege-card__guests">${esc(UI[lang].validForTwo)}</p>
+      </div>
+      <img class="pass__mark" src="${esc(PASS_MARK)}" alt="LunArt" decoding="async" width="40" height="24">
     </div>
     <div class="privilege-card__foot">
       <div class="privilege-card__detail">

@@ -18,6 +18,34 @@
      so the old 0.4 labels and 0.55 summaries did not pass. Hierarchy comes from
      size, case and letter-spacing instead, which costs nothing in legibility. */
   --ink-strong: rgba(26, 26, 26, 0.76);  /*  7.7:1  prose */
+
+  /*
+   * The ink the cards are set in — the Pass, the Privilege Pass and the card a venue
+   * is shown. Warm near-black rather than the page's grey: these sit on a painting
+   * of ochre, teal and gold, and a cool grey on it reads as dirt. The soft and quiet
+   * tones are the same colour thinned, never a different hue.
+   *
+   * Defined once here because they were defined twice — in `.pass` and again in
+   * `.privilege-card` — and deepening them for a new artwork changed one set and left
+   * the other at the old value, which measured as no change at all and looked for a
+   * while like the stylesheet was not reloading.
+   */
+  --pass-ink: #15120b;
+  --pass-ink-soft: #3a3425;
+  --pass-ink-quiet: #534628;
+
+  /*
+   * And the two washes the type sits on, for the same reason.
+   *
+   * The painting runs from near-white to near-black inside a few hundred pixels, so
+   * no crop of it is legible bare. These raise its value under the name and under the
+   * details and fade out before they reach the middle, which is where the work is.
+   * They were written out three times — `.pass::after`, `.pass--privilege::after` and
+   * `.privilege-card::after` — and raising them for this artwork fixed one, missed
+   * the second, and left the venue card thin.
+   */
+  --pass-wash-top: linear-gradient(to bottom, rgba(250, 247, 239, .62) 0%, rgba(250, 247, 239, .5) 30%, rgba(250, 247, 239, 0) 56%);
+  --pass-wash-bottom: linear-gradient(to top, rgba(250, 247, 239, .8) 0%, rgba(250, 247, 239, .68) 24%, rgba(250, 247, 239, 0) 40%);
   --ink-soft:   rgba(26, 26, 26, 0.68);  /*  5.8:1  summaries, secondary text */
   --ink-quiet:  rgba(26, 26, 26, 0.64);  /*  5.1:1  eyebrows, labels, inactive tabs */
   --ink-line:   rgba(26, 26, 26, 0.14);  /*  borders */
@@ -788,22 +816,17 @@ fieldset.field { border: 0; padding: 0; }
   color: var(--pass-ink, #15120b);
   border: 1px solid var(--accent-soft);
   box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, .5);
-  --pass-ink: #15120b;
-  --pass-ink-soft: #413a2b;
-  --pass-ink-quiet: #5a4d2d;
 }
 .privilege-card::before {
   content: ""; position: absolute; inset: 0;
   background-image: image-set(
-    url("../img/pass/lunart-voucher-700.webp") 1x,
-    url("../img/pass/lunart-voucher-1024.webp") 2x);
+    url("../img/pass/lunart-opera-700.webp") 1x,
+    url("../img/pass/lunart-opera-1024.webp") 2x);
   background-size: cover; background-position: 50% 0%;
 }
 .privilege-card::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background:
-    linear-gradient(to bottom, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .3) 34%, rgba(250, 247, 239, 0) 56%),
-    linear-gradient(to top, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .26) 22%, rgba(250, 247, 239, 0) 36%),
+  background: var(--pass-wash-top), var(--pass-wash-bottom),
     radial-gradient(90% 70% at 92% 4%, rgba(201, 168, 109, .2) 0%, transparent 62%);
 }
 .privilege-card > * { position: relative; z-index: 1; }
@@ -817,7 +840,7 @@ fieldset.field { border: 0; padding: 0; }
  * above the card's top edge and be clipped away, which is what the first attempt did.
  */
 .privilege-card__head::before {
-  content: ""; position: absolute; inset: 5px;
+  content: ""; position: absolute; inset: 5px; z-index: 1;
   border: 1px solid color-mix(in srgb, var(--accent-soft) 55%, transparent);
   border-radius: calc(var(--radius) - 6px);
   pointer-events: none;
@@ -825,7 +848,11 @@ fieldset.field { border: 0; padding: 0; }
 .privilege-card[data-state="expired"],
 .privilege-card[data-state="revoked"] { filter: saturate(.35) contrast(.95); }
 
-.privilege-card__head { position: static; min-width: 0; }
+.privilege-card__head {
+  position: static; min-width: 0;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+}
+.privilege-card__who { min-width: 0; }
 .privilege-card__holder {
   font-family: var(--serif); font-size: 1.45rem; line-height: 1.05;
   color: var(--pass-ink);
@@ -1102,20 +1129,6 @@ fieldset.field { border: 0; padding: 0; }
 }
 
 /*
- * The ink the card is set in.
- *
- * Warm near-black rather than the page's grey: it is the voucher's own logo black,
- * and over a cream watercolour a cool grey reads as dirt. The muted and quiet tones
- * are the same colour, thinned — never a different hue, which on a painting this
- * soft would look like a mistake.
- */
-.pass {
-  --pass-ink: #15120b;
-  --pass-ink-soft: #413a2b;
-  --pass-ink-quiet: #5a4d2d;
-}
-
-/*
  * The painting, addressed from here rather than from an inline style.
  *
  * A relative url() inside a custom property resolves against the stylesheet that
@@ -1132,8 +1145,8 @@ fieldset.field { border: 0; padding: 0; }
   content: "";
   position: absolute; inset: 0;
   background-image: image-set(
-    url("../img/pass/lunart-voucher-700.webp") 1x,
-    url("../img/pass/lunart-voucher-1024.webp") 2x);
+    url("../img/pass/lunart-opera-700.webp") 1x,
+    url("../img/pass/lunart-opera-1024.webp") 2x);
   /*
    * Anchored to the top edge, which is where the air is.
    *
@@ -1154,15 +1167,23 @@ fieldset.field { border: 0; padding: 0; }
  * pixel under each line, because dark type fails against the dark parts of a picture
  * exactly as light type fails against the light ones.
  */
+/*
+ * The two washes, named once.
+ *
+ * They used to be written out in `.pass::after` and again in
+ * `.pass--privilege::after`, because a CSS rule cannot append to a background list
+ * and Privilege has to add its gold on top. The comment said "keep them in step",
+ * which is the kind of instruction that gets ignored exactly once: raising the
+ * bottom wash for a new artwork fixed the standard card and left the Privilege one
+ * failing at 2.14:1. Named, they cannot drift.
+ *
+ * No `url()` goes in a custom property — that resolves against the stylesheet and is
+ * the bug `test/assets.test.mjs` guards. A gradient has nothing to resolve.
+ */
 .pass::after {
   content: "";
   position: absolute; inset: 0;
-  background:
-    /* Under the name, in the sky. Barely there: the sky is already pale and even,
-       and this exists so the card survives a different painting being dropped in. */
-    linear-gradient(to bottom, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .3) 34%, rgba(250, 247, 239, 0) 56%),
-    /* Under the state line, in the mist. Weaker still — one small line of type. */
-    linear-gradient(to top, rgba(250, 247, 239, .68) 0%, rgba(250, 247, 239, .22) 20%, rgba(250, 247, 239, 0) 34%);
+  background: var(--pass-wash-top), var(--pass-wash-bottom);
   pointer-events: none;
 }
 .pass__face {
@@ -1171,6 +1192,24 @@ fieldset.field { border: 0; padding: 0; }
   height: 100%; padding: 15px 20px 13px;
 }
 .pass__head, .pass__foot, .pass__detail { min-width: 0; }
+.pass__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+
+/*
+ * The mark, opposite the name.
+ *
+ * Small and quiet: it is there so the card identifies itself, not to compete with the
+ * painting or the guest. 24 px is the height at which the monogram reads; the width
+ * follows from the file's own viewBox, so nothing here knows its proportions.
+ *
+ * It renders in the file's own black, which against the card's `--pass-ink` is
+ * imperceptible — an `<img>` cannot inherit `currentColor`. If the card is ever
+ * themed, this becomes a `mask-image` and takes the ink properly.
+ */
+.pass__mark {
+  flex: none; height: 24px; width: auto;
+  opacity: .82;
+}
+.pass[data-size="full"] .pass__mark { height: 27px; }
 .pass__foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 
 /*
@@ -1359,9 +1398,7 @@ fieldset.field { border: 0; padding: 0; }
   pointer-events: none;
 }
 .pass--privilege::after {
-  background:
-    linear-gradient(to bottom, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .3) 34%, rgba(250, 247, 239, 0) 56%),
-    linear-gradient(to top, rgba(250, 247, 239, .68) 0%, rgba(250, 247, 239, .22) 20%, rgba(250, 247, 239, 0) 34%),
+  background: var(--pass-wash-top), var(--pass-wash-bottom),
     radial-gradient(90% 70% at 92% 4%, rgba(201, 168, 109, .2) 0%, transparent 62%);
 }
 

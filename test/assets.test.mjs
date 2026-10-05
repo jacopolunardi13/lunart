@@ -24,6 +24,17 @@ const exists = async (path) => { try { await access(path); return true; } catch 
 
 const STYLESHEETS = ['assets/css/app.css', 'assets/css/staff.css', 'assets/css/fonts.css'];
 
+/**
+ * A stylesheet with its comments taken out.
+ *
+ * These checks scan for CSS constructs, and a comment is not one. Without this, the
+ * custom-property rule below matched the sentence in `app.css` that *explains* the
+ * custom-property rule — prose containing the words `--pass-wash-top` and `url()`
+ * with no semicolon between them. The blanking keeps the line numbering, so a
+ * failure still points at the right line.
+ */
+const withoutComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '));
+
 /** Every `url(...)` in a stylesheet, with the line it was on. */
 function urlsIn(css) {
   const found = [];
@@ -37,7 +48,7 @@ function urlsIn(css) {
 
 test('every asset a stylesheet asks for is actually there', async () => {
   for (const sheet of STYLESHEETS) {
-    const css = await readFile(resolve(ROOT, sheet), 'utf8');
+    const css = withoutComments(await readFile(resolve(ROOT, sheet), 'utf8'));
     for (const { url, line } of urlsIn(css)) {
       if (/^(data:|https?:|#)/.test(url)) continue;
       // Resolved against the stylesheet's own folder, which is what a browser does.
@@ -60,7 +71,7 @@ test('no stylesheet asset is addressed through a custom property', async () => {
    * asset URLs live in the stylesheet, where the base is the stylesheet's own.
    */
   for (const sheet of STYLESHEETS) {
-    const css = await readFile(resolve(ROOT, sheet), 'utf8');
+    const css = withoutComments(await readFile(resolve(ROOT, sheet), 'utf8'));
     // `{` is excluded as well as `;` and `}`: without it the pattern walks out of a
     // selector like `.pass--privilege::before` and into the rule it opens.
     for (const [, name, value] of css.matchAll(/(--[\w-]+)\s*:\s*([^;{}]*url\([^;{}]*)/g)) {
@@ -69,39 +80,67 @@ test('no stylesheet asset is addressed through a custom property', async () => {
   }
 });
 
-test('the Pass wears the voucher, at both densities', async () => {
-  // The source, so the artwork can be rebuilt or replaced: the front of LunArt's
-  // printed breakfast voucher, extracted from the PDF at its native resolution.
-  assert.ok(await exists(resolve(ROOT, 'assets/img/_src/pass/lunart-voucher.jpg')), 'the voucher source is kept');
+test('the Pass wears the artwork, at both densities', async () => {
+  // The crop the card uses, so it can be rebuilt or re-framed: a 1152 × 745 window on
+  // "Il movimento e la stratificazione di Firenze nel tempo", LunArt's own painting.
+  assert.ok(await exists(resolve(ROOT, 'assets/img/_src/pass/lunart-opera.jpg')), 'the artwork source is kept');
+
+  // And the breakfast voucher it replaced, kept as the fallback it was asked to be —
+  // under `_archive`, which `optimize-images` skips, so it is a source we hold rather
+  // than four files in every deployment that nothing asks for.
+  assert.ok(await exists(resolve(ROOT, 'assets/img/_src/_archive/pass/lunart-voucher.jpg')), 'the voucher is kept too');
 
   // The two widths the card actually uses: 1x on a plain screen, 2x on a phone.
   for (const width of [700, 1024]) {
-    assert.ok(await exists(resolve(ROOT, `assets/img/pass/lunart-voucher-${width}.webp`)), `lunart-voucher-${width}.webp`);
+    assert.ok(await exists(resolve(ROOT, `assets/img/pass/lunart-opera-${width}.webp`)), `lunart-opera-${width}.webp`);
   }
 
   // Nothing heavy reaches a guest. The 1024 is what a dense phone takes.
-  const { size } = await stat(resolve(ROOT, 'assets/img/pass/lunart-voucher-1024.webp'));
-  assert.ok(size < 120 * 1024, `the served artwork stays small (${(size / 1024).toFixed(0)} KB)`);
+  const { size } = await stat(resolve(ROOT, 'assets/img/pass/lunart-opera-1024.webp'));
+  assert.ok(size < 160 * 1024, `the served artwork stays small (${(size / 1024).toFixed(0)} KB)`);
 });
 
-test('one artwork serves both tiers', async () => {
+test('only the artwork in use is served', async () => {
+  /**
+   * The voucher's own derivatives were deleted when the painting replaced it. They
+   * are one command away — `node tools/optimize-images.mjs` rebuilds them from the
+   * source that is still committed — and until something references them they are
+   * four files in every deployment that nothing asks for.
+   */
+  const { readdir } = await import('node:fs/promises');
+  const served = await readdir(resolve(ROOT, 'assets/img/pass'));
+  const stems = new Set(served.map((f) => f.replace(/-\d+\.(webp|jpg)$/, '')));
+  assert.deepEqual([...stems].sort(), ['lunart-opera'], 'one artwork in the served tree');
+});
+
+test('one artwork serves every card face', async () => {
   /**
    * Privilege used to have a plate of its own, which made it a different card rather
-   * than the same card upgraded. The brief was one graphic family, so the rule is now
-   * structural: every rule that paints a card face points at the same file, and the
-   * tier is carried by the edge and the chip.
+   * than the same card upgraded. The rule is structural: every rule that paints a
+   * card face points at the same file, and the tier is carried by the edge and the
+   * chip. The file is not named here — that is the point, so the artwork can change
+   * without this test needing an edit.
    */
   const css = await readFile(resolve(ROOT, 'assets/css/app.css'), 'utf8');
   const faces = [...css.matchAll(/\.(pass|privilege-card)::before\s*\{[^}]*\}/gs)].map((m) => m[0]);
   assert.equal(faces.length, 2, 'the Pass and the venue card are the two faces');
-  for (const face of faces) {
-    assert.match(face, /lunart-voucher-700\.webp/, 'at 1x');
-    assert.match(face, /lunart-voucher-1024\.webp/, 'and at 2x');
-  }
 
-  // And no rule anywhere still reaches for the Arno stand-in that preceded it.
-  assert.ok(!/lunart-pass(-privilege)?-\d+\.webp/.test(css), 'the stand-in plate is gone from the CSS');
-  assert.equal(await exists(resolve(ROOT, 'assets/img/pass/lunart-pass-700.webp')), false, 'and from the assets');
+  const artwork = faces.map((face) => [...face.matchAll(/([\w-]+)-\d+\.webp/g)].map((m) => m[1]));
+  assert.ok(artwork[0].length >= 2, 'each face names the artwork at 1x and 2x');
+  assert.deepEqual(new Set(artwork.flat()).size, 1, 'and both faces name the same artwork');
+});
+
+test('the card ink and the washes are each defined once', async () => {
+  /**
+   * Both were written out twice — in `.pass` and again in `.privilege-card`, and in
+   * `.pass::after` and `.pass--privilege::after`. Changing one copy for a new artwork
+   * left the other at the old value and measured as no change at all, twice.
+   */
+  const css = await readFile(resolve(ROOT, 'assets/css/app.css'), 'utf8');
+  for (const token of ['--pass-ink', '--pass-ink-soft', '--pass-ink-quiet', '--pass-wash-top', '--pass-wash-bottom']) {
+    const declarations = css.match(new RegExp(`^\\s*${token}\\s*:`, 'gm')) ?? [];
+    assert.equal(declarations.length, 1, `${token} is declared once, not ${declarations.length} times`);
+  }
 });
 
 test('the brand mark hook and its README agree on one path', async () => {
@@ -153,10 +192,14 @@ test('the custom-property rule would catch the bug it was written for', async ()
   // `.pass--privilege::before` and failed on it, which is the kind of false positive
   // that gets a test deleted rather than fixed.
   const { readFile: read } = await import('node:fs/promises');
-  const real = await read(resolve(ROOT, 'assets/css/app.css'), 'utf8');
+  const real = withoutComments(await read(resolve(ROOT, 'assets/css/app.css'), 'utf8'));
   const offending = /(--[\w-]+)\s*:\s*([^;{}]*url\([^;{}]*)/g;
 
   assert.equal(real.match(offending), null, 'the real stylesheet is clean');
+  assert.ok(
+    withoutComments('.a { /* --x: url(y.png) */ color: red; }').match(offending) === null,
+    'and a url() named inside a comment is prose, not a declaration',
+  );
   assert.ok(
     ".pass { --pass-artwork: url('../img/x.webp'); }".match(offending),
     'and the pattern still catches an asset hidden in a variable',

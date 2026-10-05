@@ -221,7 +221,14 @@ note(await page.isVisible('.privilege-card'), 'the card screen opens');
 // that the card is actually wearing that painting.
 const cardPlate = await page.evaluate(() => getComputedStyle(
   document.querySelector('.privilege-card'), '::before').backgroundImage);
-note(/lunart-voucher/.test(cardPlate), `it carries the LunArt artwork (${cardPlate.match(/[^/]+\.webp/)?.[0] ?? cardPlate.slice(0, 40)})`);
+// Not named: the artwork is allowed to change, and `qa:pass` is what checks that
+// every card face wears the *same* one. Here it only has to be wearing a real image.
+note(/\.webp/.test(cardPlate), `it carries the LunArt artwork (${cardPlate.match(/[^/]+\.webp/)?.[0] ?? cardPlate.slice(0, 40)})`);
+const cardMark = await page.evaluate(() => {
+  const img = document.querySelector('.privilege-card .pass__mark');
+  return img ? img.naturalWidth > 0 : false;
+});
+note(cardMark, 'and the LunArt mark, since the artwork no longer contains one');
 // Named on the screen, not necessarily on the card. The face used to repeat
 // "LunArt Privilege Card" under a mark that already said LunArt; the sheet's own
 // title carries the product name and the face carries the tier chip.

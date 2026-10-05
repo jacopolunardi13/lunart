@@ -95,6 +95,21 @@ const plate = await page.evaluate(async () => {
   return { url, status: res.status, type: res.headers.get('content-type'), w: bitmap?.width ?? 0 };
 });
 step('the Pass has a plate behind it', Boolean(plate.url), plate.url ?? 'no background-image');
+/**
+ * And it says whose card it is.
+ *
+ * The painting that preceded this one had the LA lock-up at its centre, so the card
+ * deliberately did not repeat it. "Il movimento e la stratificazione di Firenze" is
+ * an abstract and carries no mark, so without this the card is a beautiful rectangle
+ * with a stranger's name on it.
+ */
+const mark = await page.evaluate(() => {
+  const img = document.querySelector('[data-pass] .pass__mark');
+  return img ? { src: img.getAttribute('src'), decoded: img.naturalWidth > 0 } : null;
+});
+step('and the LunArt mark on it', mark?.decoded === true, mark?.src ?? 'absent');
+/** Whatever the artwork is, every other card face has to be wearing the same one. */
+const STANDARD_PLATE = plate.url?.match(/[^/]+\.webp/)?.[0] ?? '';
 step('and the plate is a real image, not the server’s fallback page',
   plate.w > 0 && /image\//.test(plate.type ?? ''), `${plate.status} ${plate.type} ${plate.w}px`);
 
@@ -133,11 +148,13 @@ await page.screenshot({path:'tools/.qa-screens/pass-sheet.png'});
  * gold, and the tier chip only exists there — which is exactly where a gold-on-gold
  * chip went unmeasured and came out invisible.
  */
-async function measureCard(target, tier) {
-  const colours = await target.evaluate(() => {
-    const root = document.querySelector('.sheet [data-pass]');
+async function measureCard(target, tier, selector = '.sheet [data-pass]') {
+  const colours = await target.evaluate((sel) => {
+    const root = document.querySelector(sel);
     const box = root.getBoundingClientRect();
-    return ['.pass__holder', '.pass__line', '.pass__state', '.pass__tier']
+    return ['.pass__holder', '.pass__line', '.pass__state', '.pass__tier',
+      '.privilege-card__holder', '.privilege-card__guests', '.privilege-card__dates',
+      '.privilege-card__number', '.privilege-card__kind']
       .map((sel) => {
         const el = root.querySelector(sel);
         if (!el) return null;
@@ -156,14 +173,16 @@ async function measureCard(target, tier) {
           x: r.left - box.left, y: r.top - box.top, w: r.width, h: r.height,
         };
       }).filter(Boolean);
-  });
+  }, selector);
 
-  const hidden = await target.addStyleTag({ content: '.pass__face * { visibility: hidden !important; }' });
+  const hidden = await target.addStyleTag({
+    content: `${selector} .pass__face *, ${selector} > * { visibility: hidden !important; }`,
+  });
   await target.waitForTimeout(250);
-  const shot = (await target.locator('.sheet [data-pass]').screenshot()).toString('base64');
+  const shot = (await target.locator(selector).screenshot()).toString('base64');
   await target.evaluate((el) => el.remove(), hidden);
 
-  const results = await target.evaluate(async ({ png, lines }) => {
+  const results = await target.evaluate(async ({ png, lines, sel }) => {
     const srgb = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
     const lum = ([r, g, b]) => 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b);
     const parse = (css) => css.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
@@ -176,7 +195,7 @@ async function measureCard(target, tier) {
     ctx2.drawImage(bitmap, 0, 0);
 
     // The screenshot is in device pixels; the rects were measured in CSS pixels.
-    const scale = bitmap.width / document.querySelector('.sheet [data-pass]').getBoundingClientRect().width;
+    const scale = bitmap.width / document.querySelector(sel).getBoundingClientRect().width;
 
     return lines.map(({ sel, color, own, x, y, w, h }) => {
       if (own) {
@@ -207,7 +226,7 @@ async function measureCard(target, tier) {
       }
       return { sel, ratio: +worst.toFixed(2), backdrop };
     });
-  }, { png: shot, lines: colours });
+  }, { png: shot, lines: colours, sel: selector });
 
   for (const { sel, ratio, backdrop, onOwnFill } of results) {
     // The holder's name is large type, which AA puts at 3:1; everything else is 4.5:1.
@@ -218,14 +237,14 @@ async function measureCard(target, tier) {
 
   /* And it has to fit: the status line used to be pushed past the card's bottom edge
      by a `margin-top: auto` layout on a box with a fixed aspect ratio. */
-  const fits = await target.evaluate(() => {
-    const box = document.querySelector('.sheet [data-pass]').getBoundingClientRect();
-    return [...document.querySelectorAll('.sheet .pass__face p, .sheet .pass__face span')]
+  const fits = await target.evaluate((sel) => {
+    const box = document.querySelector(sel).getBoundingClientRect();
+    return [...document.querySelectorAll(`${sel} p, ${sel} span`)]
       .every((el) => {
         const r = el.getBoundingClientRect();
         return r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
       });
-  });
+  }, selector);
   step(`${tier}: every line of it is inside the card`, fits);
 }
 
@@ -425,12 +444,12 @@ if (sellableCard) {
      * One artwork, two tiers.
      *
      * Privilege used to have a plate of its own, which made it a different card
-     * rather than the same card upgraded. It now shares the voucher's painting and
-     * is marked by the edge and the chip alone — so the check is that the plate is
-     * the *same*, not that it differs.
+     * rather than the same card upgraded. It now shares whatever the standard Pass
+     * wears and is marked by the edge and the chip alone — so the check compares the
+     * two rather than naming a file, and survives the artwork being changed.
      */
     step('Privilege shares the standard plate: one artwork, one family',
-      tier.plate === 'lunart-voucher-700.webp' || tier.plate === 'lunart-voucher-1024.webp', tier.plate);
+      tier.plate === STANDARD_PLATE, `${tier.plate} vs ${STANDARD_PLATE}`);
     step('and is marked by a gold edge rather than a different picture',
       /rgb\(20[0-9], 1[0-9]{2}, 1[0-9]{2}\)/.test(tier.border) || tier.ring === '1px',
       `border ${tier.border}, inner ring ${tier.ring}`);
@@ -475,12 +494,18 @@ if (sellableCard) {
         // correct; what would be wrong is neither.
         qr: document.querySelectorAll('.card-qr').length,
         notice: document.querySelectorAll('.sheet .notice').length,
+        mark: document.querySelectorAll('.privilege-card .pass__mark').length,
       };
     });
-    step('the venue card wears the same painting', Boolean(venue) && /lunart-voucher/.test(venue.plate), venue?.plate);
+    step('the venue card wears the same painting', venue?.plate === STANDARD_PLATE, `${venue?.plate} vs ${STANDARD_PLATE}`);
     step('in the same ink, with the same gold edge',
       venue?.ink === 'rgb(21, 18, 11)' && venue?.border === 'rgb(201, 168, 109)', `${venue?.ink} / ${venue?.border}`);
     step('and the same proportions as the Pass', Math.abs((venue?.ratio ?? 0) - 85 / 55) < 0.02, `${venue?.ratio}`);
+    step('the venue card carries the LunArt mark, since the artwork does not',
+      venue?.mark === 1, `${venue?.mark} mark(s)`);
+    // The venue card has its own type over the same painting, and its own wash — which
+    // is exactly the copy that was missed when the washes were raised.
+    await measureCard(up, 'Venue card', '.privilege-card');
     step('with either its code or the date it starts, never neither',
       (venue?.qr ?? 0) + (venue?.notice ?? 0) > 0, `qr ${venue?.qr}, notice ${venue?.notice}`);
     await up.screenshot({ path: 'tools/.qa-screens/pass-venue-card.png' });
