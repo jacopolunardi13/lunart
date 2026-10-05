@@ -42,3 +42,37 @@ same way, so a photograph is identified by what the owner says it is, not by wha
 it looks like. Re-attributing one means renaming it — which is why there is a test
 that no room reaches outside `rooms/`, and another that no gallery holds a
 photograph belonging to a different room.
+
+## Brand and Pass artwork
+
+Two folders here are not photographs of the property, and are not fed to the
+responsive pipeline in the same spirit as the rest.
+
+### `brand/lunart-logo.png`
+
+LunArt's own mark — the LA lock-up with "Lun Art" set across it — 1024 × 1024,
+transparent. It is the source for `assets/img/brand/lunart-wordmark.svg`, which
+`node tools/make-brand-mark.mjs` traces from it. The script checks its own work
+against this file and refuses to write a trace that differs by more than 0.1%.
+
+The vector original (`/LunArt B&B/UFFICIO/logo/logo GPT lunart_hd.pdf` in Dropbox)
+was not reachable from the machine this was built on. If it turns up, put the `.svg`
+straight into `assets/img/brand/` and stop running the script — a real original
+always beats a trace of a raster.
+
+### `pass/lunart-voucher.jpg`
+
+The front of the printed breakfast voucher: a watercolour of Florence with the LA
+mark across it, 2048 × 1365. Extracted from
+`LunArt_voucher_colazione_8.5x5.5cm_FONT_ELEGANTE_PIXART.pdf` with `pdfimages`, which
+takes the embedded image at its native resolution rather than re-rendering the page —
+so this is the artwork itself and not a screenshot of a PDF.
+
+**It is unaltered, and it should stay that way.** The LunArt Pass is built on it with
+the framing, the type and two soft washes all applied in CSS; nothing is baked in.
+That is deliberate: the painting is the identity, and a card that needed the painting
+darkened to be legible would be the wrong card. See `.pass` in `assets/css/app.css`.
+
+The pale Arno duotone that preceded it (`lunart-pass.jpg`,
+`lunart-pass-privilege.jpg`, and `tools/make-pass-plate.mjs`) was always a stand-in
+for this file and was removed when it arrived.

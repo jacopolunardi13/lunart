@@ -16,7 +16,7 @@ import { esc } from '../../ui/dom.js';
 import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
-import { longDate } from './format.js';
+import { longDate, shortDate } from './format.js';
 import { qrSvg } from '../qr.js';
 import { fetchCard, stayBenefits, cardBenefits } from '../api.js';
 
@@ -44,33 +44,33 @@ const STATE_TEXT = {
 };
 
 /**
- * The LunArt mark, set in the house serif rather than placed as an image.
+ * The face of the Privilege Card, in the same family as the Pass.
  *
- * The brand is typographic — the monogram and the wordmark in Cormorant, black on
- * warm white — and the guide already loads that face, so rendering it here keeps
- * it crisp at any size and in either theme. Drop the official artwork into
- * `assets/` and swap this for an <img> when there is a file to use.
+ * This used to be a dark card with a typographic mark drawn in CSS — a second,
+ * unrelated design for what is, to a guest, the same tessera they already have. It
+ * now wears the voucher's watercolour like the Pass does, with the same dark ink on
+ * the same pale ground and the same gold edge, so the card they open at a restaurant
+ * is recognisably the card on their home screen.
+ *
+ * The data it carries is its own: this one is a card with a holder, a validity and a
+ * number a venue can read back, and that is why it is a separate component rather
+ * than the Pass with different words in it.
  */
-const lunartMark = () => `
-  <span class="lunart-mark">
-    <span class="lunart-mark__monogram" aria-hidden="true">LA</span>
-    <span class="lunart-mark__word">LunArt<span class="lunart-mark__city">Firenze</span></span>
-  </span>`;
-
 function cardFace(card, lang) {
-  const dates = `${longDate(card.start_date, lang)} — ${longDate(card.end_date, lang)}`;
+  // Short dates on the face. The long form belongs under the card, where there is a
+  // column for it; at card width it truncated mid-word into an ellipsis.
+  const dates = `${shortDate(card.start_date, lang)} – ${shortDate(card.end_date, lang)}`;
   return `<div class="privilege-card" data-state="${esc(card.state)}">
     <div class="privilege-card__head">
-      ${lunartMark()}
-      <span class="privilege-card__kind">LunArt Privilege Card</span>
-    </div>
-    <div class="privilege-card__middle">
       <p class="privilege-card__holder">${esc(card.holder)}</p>
       <p class="privilege-card__guests">${esc(UI[lang].validForTwo)}</p>
     </div>
     <div class="privilege-card__foot">
-      <span class="privilege-card__dates">${esc(dates)}</span>
-      <span class="privilege-card__number">${esc(UI[lang].cardNumber)} ${esc(card.reference)}</span>
+      <div class="privilege-card__detail">
+        <span class="privilege-card__dates">${esc(dates)}</span>
+        <span class="privilege-card__number">${esc(UI[lang].cardNumber)} ${esc(card.reference)}</span>
+      </div>
+      <span class="privilege-card__kind">${esc(UI[lang].privilegeWord)}</span>
     </div>
   </div>`;
 }

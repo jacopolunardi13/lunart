@@ -95,6 +95,32 @@ function stayLine(pass, lang) {
  * carries a consequence: a breakfast voucher from this stay stops being honoured
  * when the Pass does.
  */
+/**
+ * The state as a word, for the card.
+ *
+ * The card carries a status; the sentence explaining it belongs in the facts row
+ * underneath, where there is a column for it. "Attiva dal giorno dell'arrivo" set at
+ * card width wrapped to two lines, which pushed the room and the dates up off the
+ * mist and onto the black foot of the LA mark — measured at 1:1, and it looked
+ * exactly as bad as that sounds.
+ */
+const STATE_WORD = {
+  it: {
+    'not-started': 'Non ancora attiva',
+    active: 'Attiva',
+    expired: 'Scaduta',
+    cancelled: 'Annullata',
+    unknown: 'Da confermare',
+  },
+  en: {
+    'not-started': 'Not yet active',
+    active: 'Active',
+    expired: 'Expired',
+    cancelled: 'Cancelled',
+    unknown: 'To be confirmed',
+  },
+};
+
 const STATE_TEXT = {
   it: {
     'not-started': 'Attiva dal giorno dell’arrivo',
@@ -129,18 +155,47 @@ const STATE_TEXT = {
 export function passFace(pass, lang, { size = 'preview' } = {}) {
   const privilege = pass.tier === 'privilege';
   const dates = stayLine(pass, lang);
-  const state = STATE_TEXT[lang]?.[pass.state] ?? STATE_TEXT.it[pass.state] ?? '';
+  const state = STATE_WORD[lang]?.[pass.state] ?? STATE_WORD.it[pass.state] ?? '';
 
   return `<article class="pass${privilege ? ' pass--privilege' : ''}" data-pass
     data-state="${esc(pass.state)}" data-size="${esc(size)}">
     <div class="pass__face">
-      <p class="pass__brand">LunArt${privilege ? ` <span class="pass__tier">${esc(UI[lang].privilegeWord)}</span>` : ''}</p>
-      <div class="pass__foot">
+      ${/**
+        * The guest at the top, the state at the bottom, and the painting left alone
+        * in between.
+        *
+        * The voucher's watercolour has its air at the top — a pale, even sky — and
+        * its weight in the middle, where the LA mark and the Duomo are. So the name
+        * takes the sky on its own, like a nameplate, and the room, the dates and the
+        * state go to the mist along the bottom. Nothing sits over the painting.
+        *
+        * Two earlier arrangements were wrong in instructive ways. Putting everything
+        * at the bottom needed a cream wash strong enough to dissolve the lower half
+        * of the mark — exactly the thing worth keeping. Putting the name *and* the
+        * dates in the sky left the dates crossing the top serif of the L.
+        *
+        * Neither tier prints the word "LunArt": the mark is already the centre of
+        * the composition. A Privilege adds its chip at the foot, and nothing else.
+        */''}
+      <div class="pass__head">
         <p class="pass__holder">${esc(pass.holder || UI[lang].passTitle)}</p>
-        <p class="pass__line">
-          ${pass.room ? `${esc(UI[lang].roomLabel)} ${esc(pass.room)}` : ''}${pass.room && dates ? ' · ' : ''}${esc(dates)}
-        </p>
-        <p class="pass__state" data-pass-state>${esc(state)}</p>
+      </div>
+      <div class="pass__foot">
+        <div class="pass__detail">
+          <p class="pass__line">
+            ${pass.room ? `${esc(UI[lang].roomLabel)} ${esc(pass.room)}` : ''}${pass.room && dates ? ' · ' : ''}${esc(dates)}
+          </p>
+          <p class="pass__state" data-pass-state>${esc(state)}</p>
+        </div>
+        ${/**
+          * The chip alone, without the word "LunArt" in front of it.
+          *
+          * The painting says LunArt in the middle of the card; a line at the foot
+          * saying it again is the card introducing itself twice. What the foot has
+          * to carry is the one thing the standard Pass does not: that this is the
+          * upgraded one.
+          */''}
+        ${privilege ? `<p class="pass__tier">${esc(UI[lang].privilegeWord)}</p>` : ''}
       </div>
     </div>
   </article>`;

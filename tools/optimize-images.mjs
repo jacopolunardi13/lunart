@@ -30,11 +30,22 @@ const IM = (() => {
 })();
 const run = (kind, args) => execFileSync(IM[kind][0], [...IM[kind].slice(1), ...args], { stdio: 'pipe' });
 
-function* sources(dir) {
+/**
+ * Folders under `_src` that are not photographs and do not want these derivatives.
+ *
+ * `brand/` holds the logo, whose source of record is a transparent PNG and whose
+ * output is a vector built by `tools/make-brand-mark.mjs`. Swept through here it
+ * produced four raster sizes nothing references, one of them flattened onto white —
+ * a logo with its transparency silently removed, sitting next to the real one.
+ */
+const NOT_PHOTOGRAPHS = new Set(['brand']);
+
+function* sources(dir, folder = '') {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, entry.name);
-    if (entry.isDirectory()) yield* sources(p);
-    else if (/\.(jpe?g|png)$/i.test(entry.name)) yield p;
+    if (entry.isDirectory()) {
+      if (!NOT_PHOTOGRAPHS.has(entry.name)) yield* sources(p, entry.name);
+    } else if (/\.(jpe?g|png)$/i.test(entry.name)) yield p;
   }
 }
 

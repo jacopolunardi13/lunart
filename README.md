@@ -599,44 +599,85 @@ retries; discovering that by issuing a second Privilege Card is not acceptable.
 ### The Pass, and the artwork it wears
 
 Every reservation has a LunArt Pass, derived from the stay on every read and never
-stored. It is drawn at a real card's proportions — 85.6 × 54 — which is most of why
-it reads as a card rather than as a status panel, and it is a button: tapping it
-opens `#/pass`, a view of its own holding the card, the holder, the room, the
-validity, the state, and exactly what it is good for. Privilege is the same card
-with a gold plate, a filled badge and its own benefits listed above the stay's, in
-that order — a benefit somebody paid for must never be indistinguishable from one
-everybody gets.
+stored. It is the **breakfast voucher**, as a card on a phone — so it is built the
+same way round as the printed one.
 
-**The artwork is a file, and replacing it is a file.** `assets/img/pass/` holds one
-plate per tier, derived from LunArt's own view of the Arno by
-`tools/make-pass-plate.mjs` — near-greyscale, then mapped between two brand inks, so
-it is a duotone in the house colours rather than a photograph with a filter on it.
-To put the real artwork in: drop it at `assets/img/_src/pass/lunart-pass.jpg` (and
-`lunart-pass-privilege.jpg`), run `node tools/optimize-images.mjs`, and the card
-wears it. No code, no CSS, no build step — and do not run `make-pass-plate.mjs`
-again afterwards, or it will overwrite the real thing.
+LunArt prints a voucher at 8.5 × 5.5 cm: a soft watercolour of Florence, the Ponte
+Vecchio on one side and the Duomo on the other, with the LA mark across the middle.
+It is pale, warm and quiet. That painting is the card's ground, unaltered, and the
+type on it is **dark ink** — which is what the voucher itself does with its own logo.
+That inversion is the whole design: the card before this was a darkened photograph
+with white type, and reproducing this painting that way would have meant crushing a
+watercolour into a duotone to make room for text, destroying the one thing worth
+keeping.
+
+The painting's air is at the top and its weight is in the middle, so the guest's
+name takes the pale sky on its own, like a nameplate, and the room, the dates and the
+state sit in the mist along the bottom. Nothing covers the mark or the Duomo. The
+card carries a status *word*; the sentence explaining it is in the facts row
+underneath, where there is a column for it. 85 × 55 is the voucher's own proportion,
+not a credit card's 85.6 × 54 — the difference is under 3% and using the voucher's is
+simply true.
+
+**One artwork, two tiers.** Privilege is not a different card: it is the same
+painting with a gold edge doubled by an inner hairline, a warm breath of gold in the
+top corner at a few percent, and the tier chip — the only solid gold on it. Hold the
+two side by side and it is plainly the same object, one of them better. The same face
+is worn by the card a venue is shown, which until now was a dark card with its own
+CSS-drawn monogram: a second design for what the guest experiences as one tessera.
+
+| | |
+|---|---|
+| **source** | `assets/img/_src/pass/lunart-voucher.jpg` — the voucher front, extracted from `LunArt_voucher_colazione_8.5x5.5cm_FONT_ELEGANTE_PIXART.pdf` at its native 2048 × 1365, unaltered |
+| **served** | `assets/img/pass/lunart-voucher-{400,700,1024}.webp` + `-800.jpg`, built by `node tools/optimize-images.mjs`. A phone takes the 1024, which is 32 KB |
+| **framing** | done in CSS, not in the file: `background-position: 50% 0%` anchors the sky band at its full depth |
+
+To replace it, drop a new file at the `_src` path and run `optimize-images`. No code,
+no CSS, no build step.
 
 **Contrast over an image cannot be checked from CSS**, so `npm run qa:pass` doesn't
 try. It hides the type, photographs the card as the browser actually painted it, and
-measures each line against the lightest pixel inside its own box — the worst case,
-which is the one a guest reads a letter against. Both tiers are measured, because the
-gold plate is the harder one. That check found three real defects that every
-colour-reading test had passed: the brand mark at 1.1:1 over bright sky, the status
-line being pushed off the bottom edge of the card, and `.pass--privilege::after`
-replacing the whole scrim with a gold wash — which left the one card that costs money
-as the only one with no darkening under its type at all.
+measures each line against the **worst** pixel in its own box — computing the ratio
+against every pixel and keeping the lowest, which is correct whether the type is
+light on dark or dark on light and needs no flag saying which. Both tiers are
+measured. That check has now found five real defects that every colour-reading test
+had passed:
+
+- the brand mark at 1.1:1 over bright sky;
+- the status line pushed off the bottom edge of the card;
+- `.pass--privilege::after` replacing the whole scrim with a gold wash, leaving the
+  one card that costs money as the only one with no darkening under its type;
+- a gold chip on a gold plate at barely above 1:1;
+- and, once the card became dark ink on a pale watercolour, the long Italian status
+  sentence wrapping to two lines, which pushed the room and the dates up off the mist
+  and onto the black foot of the LA mark — measured at 1:1.
 
 ### The header mark
 
-LunArt's identity is typographic, so the wordmark set in Cormorant is a real
-rendering of it and not a placeholder. When there is a file, `src/ui/brand.js` swaps
-it in: see `assets/img/brand/README.md` for exactly what to provide and where. It is
-loaded off-document first and only put in the header once it has decoded, because
-this server answers `200 text/html` for any unknown path — a missing image does not
-arrive looking like a 404, it arrives looking like a web page, and an `<img>` in the
-markup would put that in the header of every guest's first paint.
+`assets/img/brand/lunart-wordmark.svg` is LunArt's own mark, traced from the artwork
+LunArt supplied rather than redrawn. `tools/make-brand-mark.mjs` does the trace and
+**refuses to write the file** if its own output, rasterised back at the source's size,
+differs from the source by more than 0.1% of pixels — a mark that is nearly right is a
+different logo. The last build came in at 0.031%, which is the antialiasing on the
+edges. See `assets/img/brand/README.md` for the source, the build and what a
+replacement has to be.
 
-### The Privilege Card
+Rebuilding it needs two build-only tools, which are not in `package.json` for the
+same reason Playwright is not — they make an asset once and never run on a phone:
+
+```sh
+npm install --no-save potrace playwright
+node tools/make-brand-mark.mjs --force
+```
+
+`src/ui/brand.js` loads it off-document and only puts it in the header once it has
+decoded, because this server answers `200 text/html` for any unknown path: a missing
+image does not arrive looking like a 404, it arrives looking like a web page, and an
+`<img>` in the markup would put that in the header of every guest's first paint. If
+the file ever goes missing the typographic wordmark in `index.html` takes over and
+nothing breaks.
+
+### The Privilege Card### The Privilege Card
 
 €15 for two days, €25 for five, €35 for eight. One card covers the holder and one
 companion — `max_people` is 2 on the record, not a sentence in a description.

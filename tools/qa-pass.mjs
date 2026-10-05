@@ -137,7 +137,7 @@ async function measureCard(target, tier) {
   const colours = await target.evaluate(() => {
     const root = document.querySelector('.sheet [data-pass]');
     const box = root.getBoundingClientRect();
-    return ['.pass__brand', '.pass__tier', '.pass__holder', '.pass__line', '.pass__state']
+    return ['.pass__holder', '.pass__line', '.pass__state', '.pass__tier']
       .map((sel) => {
         const el = root.querySelector(sel);
         if (!el) return null;
@@ -187,14 +187,25 @@ async function measureCard(target, tier) {
         Math.max(0, Math.round(x * scale)), Math.max(0, Math.round(y * scale)),
         Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)),
       ).data;
-      let lightest = -1; let backdrop = [0, 0, 0];
+
+      /**
+       * The worst pixel, whichever direction the type runs.
+       *
+       * This used to take the lightest pixel, which is the worst case only for light
+       * type on a dark ground. The Pass is now dark ink on a pale watercolour, where
+       * the dangerous pixel is the darkest one — the Duomo's cupola, a cypress. So
+       * the contrast is computed against every pixel and the lowest answer kept,
+       * which is correct for either and needs no flag saying which this is.
+       */
+      const ink = lum(parse(color));
+      let worst = Infinity; let backdrop = [0, 0, 0];
       for (let i = 0; i < px.length; i += 4) {
         const rgb = [px[i], px[i + 1], px[i + 2]];
-        const l = lum(rgb);
-        if (l > lightest) { lightest = l; backdrop = rgb; }
+        const [hi, lo] = [ink, lum(rgb)].sort((a, b) => b - a);
+        const ratio = (hi + 0.05) / (lo + 0.05);
+        if (ratio < worst) { worst = ratio; backdrop = rgb; }
       }
-      const [hi, lo] = [lum(parse(color)), lightest].sort((a, b) => b - a);
-      return { sel, ratio: +((hi + 0.05) / (lo + 0.05)).toFixed(2), backdrop };
+      return { sel, ratio: +worst.toFixed(2), backdrop };
     });
   }, { png: shot, lines: colours });
 
@@ -227,7 +238,9 @@ async function measureCard(target, tier) {
    one a guest reads a letter against.
 
    It caught the brand mark at 1.1:1 over bright sky, the status line being pushed
-   past the bottom edge of the card, and the Privilege chip at gold-on-gold. */
+   past the bottom edge of the card, the Privilege chip at gold-on-gold, and — once
+   the card became dark ink on the voucher's pale watercolour — the fact that the
+   worst pixel is now the darkest one rather than the lightest. */
 await measureCard(page, 'Pass');
 
 /* Back out, so the screens that follow start from the home. */
@@ -401,15 +414,27 @@ if (sellableCard) {
     await up.waitForTimeout(400);
     const tier = await up.evaluate(() => {
       const el = document.querySelector('[data-pass]');
-      const plate = getComputedStyle(el, '::before').backgroundImage;
       return {
-        privilegePlate: /lunart-pass-privilege/.test(plate),
+        plate: getComputedStyle(el, '::before').backgroundImage.match(/[^/]+\.webp/)?.[0] ?? '',
         chip: document.querySelector('.pass__tier')?.textContent.trim() ?? '',
-        border: getComputedStyle(el).borderTopWidth,
+        border: getComputedStyle(el).borderTopColor,
+        ring: getComputedStyle(document.querySelector('.pass__face'), '::before').borderTopWidth,
       };
     });
-    step('Privilege wears its own plate, not the standard one', tier.privilegePlate);
-    step('and says so on the card itself', tier.chip.length > 0, tier.chip);
+    /**
+     * One artwork, two tiers.
+     *
+     * Privilege used to have a plate of its own, which made it a different card
+     * rather than the same card upgraded. It now shares the voucher's painting and
+     * is marked by the edge and the chip alone — so the check is that the plate is
+     * the *same*, not that it differs.
+     */
+    step('Privilege shares the standard plate: one artwork, one family',
+      tier.plate === 'lunart-voucher-700.webp' || tier.plate === 'lunart-voucher-1024.webp', tier.plate);
+    step('and is marked by a gold edge rather than a different picture',
+      /rgb\(20[0-9], 1[0-9]{2}, 1[0-9]{2}\)/.test(tier.border) || tier.ring === '1px',
+      `border ${tier.border}, inner ring ${tier.ring}`);
+    step('with the tier said on the card itself', tier.chip.length > 0, tier.chip);
     await up.screenshot({ path: 'tools/.qa-screens/pass-privilege.png' });
 
     await up.locator('[data-pass]').click();
@@ -430,6 +455,35 @@ if (sellableCard) {
     // The gold plate is the harder of the two to read over, and it carries the one
     // element that exists only here.
     await measureCard(up, 'Privilege');
+
+    /* ── The card a venue is shown ─────────────────────────────────────────
+       Same tessera, so it has to look like one. It used to be a dark card with a
+       CSS-drawn monogram: a second design for what the guest experiences as one
+       object. */
+    await up.locator('.sheet [data-card]').click();
+    await up.waitForTimeout(1800);
+    const venue = await up.evaluate(() => {
+      const el = document.querySelector('.privilege-card');
+      if (!el) return null;
+      const style = getComputedStyle(el);
+      return {
+        plate: getComputedStyle(el, '::before').backgroundImage.match(/[^/]+\.webp/)?.[0] ?? '',
+        ink: style.color,
+        border: style.borderTopColor,
+        ratio: +(el.getBoundingClientRect().width / el.getBoundingClientRect().height).toFixed(3),
+        // A card that has not started shows when it will instead of a code. Both are
+        // correct; what would be wrong is neither.
+        qr: document.querySelectorAll('.card-qr').length,
+        notice: document.querySelectorAll('.sheet .notice').length,
+      };
+    });
+    step('the venue card wears the same painting', Boolean(venue) && /lunart-voucher/.test(venue.plate), venue?.plate);
+    step('in the same ink, with the same gold edge',
+      venue?.ink === 'rgb(21, 18, 11)' && venue?.border === 'rgb(201, 168, 109)', `${venue?.ink} / ${venue?.border}`);
+    step('and the same proportions as the Pass', Math.abs((venue?.ratio ?? 0) - 85 / 55) < 0.02, `${venue?.ratio}`);
+    step('with either its code or the date it starts, never neither',
+      (venue?.qr ?? 0) + (venue?.notice ?? 0) > 0, `qr ${venue?.qr}, notice ${venue?.notice}`);
+    await up.screenshot({ path: 'tools/.qa-screens/pass-venue-card.png' });
     await upgradeCtx.close();
   }
 } else {

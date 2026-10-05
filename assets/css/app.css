@@ -160,14 +160,21 @@ h3 { font-size: var(--step-1); }
   margin-right: -0.26em;
 }
 .header__mark[data-logo] { letter-spacing: normal; margin-right: 0; }
+/*
+ * The mark is a stacked lock-up, not a long horizontal wordmark.
+ *
+ * The LA monogram with "Lun Art" set across it is 885 × 532 — about 1.66 : 1 — so it
+ * is sized by height and the width follows from the file's own viewBox. 30 px is the
+ * size at which the monogram reads and the inner words are still legible as words;
+ * at the 22 px a horizontal wordmark would have taken, "Lun Art" closes up into a
+ * grey bar. The header has about 40 px of room, so 30 sits in it without crowding.
+ */
 .header__logo {
   display: block;
-  height: 22px; width: auto; max-width: 160px;
+  height: 30px; width: auto; max-width: 150px;
   /* A mark wider than the slot is fitted, never squashed: `max-width` alone would
-     compress a long lock-up horizontally and quietly distort somebody's logotype. */
+     compress a lock-up horizontally and quietly distort somebody's logotype. */
   object-fit: contain; object-position: left center;
-  /* Drawn in whatever ink the header is using, so one file serves any theme. */
-  color: var(--ink-strong);
 }
 .header__tools { display: flex; align-items: center; gap: 4px; }
 
@@ -762,48 +769,86 @@ fieldset.field { border: 0; padding: 0; }
  * and the wordmark in the house serif, which stays crisp at any size and needs no
  * image. Swap in the official artwork when there is a file for it.
  */
-.lunart-mark { display: flex; align-items: center; gap: 10px; }
-.lunart-mark__monogram {
-  font-family: var(--serif); font-size: 1.5rem; font-weight: 500;
-  letter-spacing: 0.02em; line-height: 1;
-}
-.lunart-mark__word {
-  display: flex; flex-direction: column; gap: 2px;
-  font-family: var(--serif); font-size: 0.9375rem; letter-spacing: 0.26em;
-  text-transform: uppercase; line-height: 1;
-}
-.lunart-mark__city {
-  font-family: var(--sans); font-size: 0.5rem; letter-spacing: 0.3em; opacity: 0.6;
-}
-
+/*
+ * The Privilege Card, in the Pass's family.
+ *
+ * Same painting, same ink, same gold edge. It was a dark card with its own CSS-drawn
+ * monogram — a second design for what the guest experiences as one tessera — and the
+ * only thing that made it a separate component was its data: a holder, a validity,
+ * and a number a venue reads back. So the data stayed and the design joined.
+ *
+ * Kept in step with `.pass` above. If one changes, both change.
+ */
 .privilege-card {
   position: relative; overflow: hidden;
-  display: flex; flex-direction: column; justify-content: space-between; gap: 18px;
-  min-height: 210px; padding: 20px;
-  border-radius: 16px; background: var(--ink); color: var(--paper);
+  display: flex; flex-direction: column; justify-content: space-between; gap: 16px;
+  aspect-ratio: 85 / 55; min-height: 0; padding: 15px 20px 13px;
+  border-radius: var(--radius);
+  background: linear-gradient(160deg, #f3ede1 0%, #e9e0cf 60%, #efe7d8 100%);
+  color: var(--pass-ink, #15120b);
+  border: 1px solid var(--accent-soft);
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, .5);
+  --pass-ink: #15120b;
+  --pass-ink-soft: #413a2b;
+  --pass-ink-quiet: #5a4d2d;
+}
+.privilege-card::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: image-set(
+    url("../img/pass/lunart-voucher-700.webp") 1x,
+    url("../img/pass/lunart-voucher-1024.webp") 2x);
+  background-size: cover; background-position: 50% 0%;
 }
 .privilege-card::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(130% 100% at 88% 6%, rgba(201, 168, 109, 0.34), transparent 58%);
+  background:
+    linear-gradient(to bottom, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .3) 34%, rgba(250, 247, 239, 0) 56%),
+    linear-gradient(to top, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .26) 22%, rgba(250, 247, 239, 0) 36%),
+    radial-gradient(90% 70% at 92% 4%, rgba(201, 168, 109, .2) 0%, transparent 62%);
 }
 .privilege-card > * { position: relative; z-index: 1; }
+/*
+ * The inner hairline, the same finish the Privilege Pass carries.
+ *
+ * Hung off the head's pseudo-element because the card's own two are taken — the
+ * painting and the wash. The head is `position: static` on purpose, so this resolves
+ * against the card and not against the head: `inset: 5px` is five pixels inside the
+ * card's edge, which is what it has to be. Given the head's own box it would sit
+ * above the card's top edge and be clipped away, which is what the first attempt did.
+ */
+.privilege-card__head::before {
+  content: ""; position: absolute; inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--accent-soft) 55%, transparent);
+  border-radius: calc(var(--radius) - 6px);
+  pointer-events: none;
+}
 .privilege-card[data-state="expired"],
-.privilege-card[data-state="revoked"] { opacity: 0.5; }
+.privilege-card[data-state="revoked"] { filter: saturate(.35) contrast(.95); }
 
-/* Stacked rather than set opposite the mark: "LunArt Privilege Card" wrapped onto
-   three ragged lines when it had to share the top row. */
-.privilege-card__head { display: flex; flex-direction: column; gap: 10px; }
-.privilege-card__kind {
-  font-size: var(--micro); letter-spacing: 0.2em; text-transform: uppercase;
-  line-height: 1.4; opacity: 0.55;
+.privilege-card__head { position: static; min-width: 0; }
+.privilege-card__holder {
+  font-family: var(--serif); font-size: 1.45rem; line-height: 1.05;
+  color: var(--pass-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.privilege-card__holder { font-family: var(--serif); font-size: 1.5rem; line-height: 1.15; }
-.privilege-card__guests { margin-top: 4px; font-size: var(--small); opacity: 0.7; }
+.privilege-card__guests { margin-top: 3px; font-size: var(--small); color: var(--pass-ink-soft); }
 .privilege-card__foot {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-  font-size: var(--micro); opacity: 0.65;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
 }
-.privilege-card__number { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; }
+.privilege-card__detail { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.privilege-card__dates {
+  font-size: var(--small); color: var(--pass-ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.privilege-card__number {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--micro); letter-spacing: 0.08em; color: var(--pass-ink-quiet);
+}
+.privilege-card__kind {
+  flex: none; padding: 3px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: #17120a;
+  font-size: var(--micro); font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+}
 
 /*
  * The QR is simply the card's code as far as a guest is concerned. It is replaced
@@ -1016,92 +1061,117 @@ fieldset.field { border: 0; padding: 0; }
    the guide's ink and gold. Privilege is the same card with the gold turned up.
    ------------------------------------------------------------------------- */
 /**
- * The LunArt Pass, drawn as a card rather than as a panel.
+ * The LunArt Pass — the breakfast voucher, as a card on a phone.
  *
- * Three layers, and the order of them is the whole design:
+ * LunArt prints a voucher at 8.5 × 5.5 cm: a soft watercolour of Florence, the Ponte
+ * Vecchio on one side and the Duomo on the other, with the LA mark across the middle.
+ * It is pale, warm and quiet. The Pass is that object, so it is built the same way
+ * round: the painting is the ground, and the type is **dark ink on it** — which is
+ * what the voucher itself does with its logo.
  *
- *   base       a warm gradient. This is the genuine fallback — if the artwork does
- *              not load, what is left is still a card, not a broken frame.
- *   artwork    the printed plate, from `assets/img/pass/`. See `make-pass-plate.mjs`.
- *   scrim      a gradient from the lower left, which is where the name and the
- *              dates sit. Contrast is guaranteed here, by something testable, and
- *              not by hoping a photograph is dark in the right corner.
+ * That inversion is the whole design. The previous card was a darkened photograph
+ * with white type, and reproducing this painting that way would have meant crushing
+ * a watercolour into a duotone to make room for text — destroying the one thing
+ * worth keeping. Pale ground, dark ink, and the painting is untouched.
  *
- * The 85.6 × 54 aspect ratio is a real card's, which is most of why it reads as one.
+ * Three layers:
+ *
+ *   base      a warm cream. The real fallback: if the painting does not load, what
+ *             is left is still a card.
+ *   artwork   the voucher front, from `assets/img/pass/`, unaltered. The framing is
+ *             done here with `background-position`, which lifts the LA mark clear of
+ *             the text rather than cropping it away.
+ *   wash      a *light* gradient up from the bottom. It lifts the mist under the
+ *             name and the dates so dark type separates from the foliage. It is the
+ *             opposite of a scrim and it is deliberately weak: it conditions the
+ *             painting, it does not cover it.
+ *
+ * 85 × 55 is the voucher's own proportion, not a credit card's 85.6 × 54. The
+ * difference is under 3% and invisible; using the voucher's is simply true.
  */
 .pass {
   position: relative;
   overflow: hidden;
   border-radius: var(--radius);
-  background: linear-gradient(145deg, #241f17 0%, #16140f 58%, #1d1a13 100%);
-  color: var(--paper);
+  background: linear-gradient(160deg, #f3ede1 0%, #e9e0cf 60%, #efe7d8 100%);
+  color: var(--pass-ink);
   box-shadow: var(--shadow);
-  aspect-ratio: 85.6 / 54;          /* the proportions of a real card */
-  max-height: 230px;
+  aspect-ratio: 85 / 55;            /* the voucher's own proportions */
+  max-height: 232px;
+  border: 1px solid rgba(26, 22, 14, .1);
 }
-/* The printed artwork, when one has been added. */
+
 /*
- * The plate, addressed from here rather than from an inline style.
+ * The ink the card is set in.
+ *
+ * Warm near-black rather than the page's grey: it is the voucher's own logo black,
+ * and over a cream watercolour a cool grey reads as dirt. The muted and quiet tones
+ * are the same colour, thinned — never a different hue, which on a painting this
+ * soft would look like a mistake.
+ */
+.pass {
+  --pass-ink: #15120b;
+  --pass-ink-soft: #413a2b;
+  --pass-ink-quiet: #5a4d2d;
+}
+
+/*
+ * The painting, addressed from here rather than from an inline style.
  *
  * A relative url() inside a custom property resolves against the stylesheet that
  * consumes it, not the element — so setting it inline on the card produced
  * `/assets/css/assets/img/…`, which this server answers with HTML and a 200. The
- * card drew an empty layer and nothing reported a problem. Written here, the same
- * relative path is correct both on the server and on GitHub Pages under a subpath.
+ * card drew an empty layer and nothing reported a problem.
  *
- * Replace the artwork by dropping a file at `assets/img/_src/pass/lunart-pass.jpg`
- * and running `node tools/optimize-images.mjs`. Nothing here changes.
+ * `background-position` is the framing: 50% 26% lifts the LA mark into the upper
+ * half and opens the mist at the bottom for the guest's name. Replace the artwork by
+ * dropping a file at `assets/img/_src/pass/lunart-voucher.jpg` and running
+ * `node tools/optimize-images.mjs`; nothing here changes.
  */
 .pass::before {
   content: "";
   position: absolute; inset: 0;
   background-image: image-set(
-    url("../img/pass/lunart-pass-700.webp") 1x,
-    url("../img/pass/lunart-pass-1024.webp") 2x);
-  background-size: cover; background-position: 50% 62%;
+    url("../img/pass/lunart-voucher-700.webp") 1x,
+    url("../img/pass/lunart-voucher-1024.webp") 2x);
+  /*
+   * Anchored to the top edge, which is where the air is.
+   *
+   * The painting is 1.50 : 1 and the card is 1.545 : 1, so `cover` crops about seven
+   * pixels of height. Taking all of that off the bottom — foliage and mist — rather
+   * than sharing it top and bottom keeps the sky band at its full depth, and that
+   * band is what the guest's name is set in.
+   */
+  background-size: cover; background-position: 50% 0%;
 }
-.pass--privilege::before {
-  background-image: image-set(
-    url("../img/pass/lunart-pass-privilege-700.webp") 1x,
-    url("../img/pass/lunart-pass-privilege-1024.webp") 2x);
-}
+
 /*
- * The scrim, and the sheen.
+ * The wash under the type.
  *
- * The scrim is the load-bearing one: it darkens the lower left under the holder's
- * name and the dates, so white type clears AA over any plate that might be dropped
- * in later — including one nobody has seen yet. The gold at the top right is the
- * decoration, and it is deliberately weak enough that it never reaches the type.
+ * Cream, not black. It raises the painting's own value where the name sits so the
+ * ink has something to sit on, and fades out before it reaches the Duomo. Measured
+ * rather than guessed: `npm run qa:pass` photographs the card and reads the darkest
+ * pixel under each line, because dark type fails against the dark parts of a picture
+ * exactly as light type fails against the light ones.
  */
 .pass::after {
   content: "";
   position: absolute; inset: 0;
   background:
-    /* Under the name and the dates. The heaviest, because it carries the most type. */
-    linear-gradient(to top, rgba(10, 8, 5, .92) 0%, rgba(10, 8, 5, .7) 26%, rgba(10, 8, 5, .14) 54%, transparent 70%),
-    /* Under the brand mark: this frame has bright sky at the top, and gold on sky
-       measured 1.1:1 before this band existed. Weighted for the Privilege plate,
-       which is gold and therefore the harder of the two to read over. */
-    linear-gradient(to bottom, rgba(10, 8, 5, .82) 0%, rgba(10, 8, 5, .38) 34%, transparent 58%),
-    linear-gradient(100deg, rgba(10, 8, 5, .5) 0%, rgba(10, 8, 5, .14) 46%, transparent 74%),
-    radial-gradient(120% 90% at 85% 0%, rgba(201, 168, 109, .18) 0%, transparent 58%);
+    /* Under the name, in the sky. Barely there: the sky is already pale and even,
+       and this exists so the card survives a different painting being dropped in. */
+    linear-gradient(to bottom, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .3) 34%, rgba(250, 247, 239, 0) 56%),
+    /* Under the state line, in the mist. Weaker still — one small line of type. */
+    linear-gradient(to top, rgba(250, 247, 239, .68) 0%, rgba(250, 247, 239, .22) 20%, rgba(250, 247, 239, 0) 34%);
   pointer-events: none;
 }
-/*
- * Two groups, pinned to the two ends.
- *
- * The content used to flow top-down with `margin-top: auto` on the name, which
- * worked until it did not: the card has a fixed aspect ratio, and at 390 px the
- * status line was being pushed past the bottom edge and clipped. Measured against
- * the page behind it, that line scored 1.86:1. Pinning both groups means the card
- * cannot overflow whatever the type does.
- */
 .pass__face {
   position: relative; z-index: 1;
   display: flex; flex-direction: column; justify-content: space-between;
-  height: 100%; padding: 16px 20px 15px;
+  height: 100%; padding: 15px 20px 13px;
 }
-.pass__foot { min-width: 0; }
+.pass__head, .pass__foot, .pass__detail { min-width: 0; }
+.pass__foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 
 /*
  * The card as a tap target.
@@ -1122,7 +1192,7 @@ fieldset.field { border: 0; padding: 0; }
 
 /* In the sheet the card is the subject, so it is allowed to be bigger. */
 .pass[data-size="full"] { max-height: 260px; }
-.pass[data-size="full"] .pass__holder { font-size: 1.75rem; }
+.pass[data-size="full"] .pass__holder { font-size: 1.7rem; }
 
 /* Whose it is, which room, until when — the four things worth checking at a till. */
 .pass-facts { margin: 18px 0 0; }
@@ -1148,12 +1218,80 @@ fieldset.field { border: 0; padding: 0; }
  * state line; on a Privilege it is the tier chip as well, so the upgrade is legible
  * at a glance rather than by reading the word.
  */
+/*
+ * The brand line, which the standard Pass no longer draws.
+ *
+ * The painting already carries the LA mark — it is the centre of the voucher's own
+ * composition — so setting the word "LunArt" over it again was the card saying its
+ * own name twice. On a Privilege the line comes back, because it is what the tier
+ * chip hangs from, and it sits in the pale sky at the top where the mark is not.
+ */
 .pass__brand {
+  display: flex; align-items: center; gap: 7px; flex: none;
   font-family: var(--serif);
-  font-size: var(--step-1);
+  font-size: var(--small);
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--paper);
+  color: var(--pass-ink-soft);
+}
+/*
+ * The tier chip.
+ *
+ * Filled rather than outlined, and the one piece of gold on the card. Outlined gold
+ * type was tried and measured barely above 1 : 1 against a warm ground; filled with
+ * the accent and set in the card's own ink it reads on this painting and on whatever
+ * replaces it. Small, at the foot, on the side the painting is quietest.
+ */
+.pass__tier {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: #17120a;
+  font-size: var(--micro); font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+}
+
+.pass__holder { font-size: 1.7rem; }
+
+/* Whose it is, which room, until when — the four things worth checking at a till. */
+.pass-facts { margin: 18px 0 0; }
+.pass-facts__row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--ink-faint);
+}
+.pass-facts__row dt {
+  font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-quiet); flex: none;
+}
+.pass-facts__row dd { margin: 0; text-align: right; font-family: var(--serif); font-size: var(--step-1); }
+/*
+ * The mark, in paper rather than in gold.
+ *
+ * Gold on the plate measured 3.23:1 — under AA for type this size, and fragile in a
+ * way that matters: the artwork here is meant to be replaced, and a colour that only
+ * just works over this frame is a colour that fails over the next one. Paper-white
+ * clears AA against anything the scrim allows through.
+ *
+ * It also makes the gold mean something. The only gold on a standard Pass is now the
+ * state line; on a Privilege it is the tier chip as well, so the upgrade is legible
+ * at a glance rather than by reading the word.
+ */
+/*
+ * The brand line, which the standard Pass no longer draws.
+ *
+ * The painting already carries the LA mark — it is the centre of the voucher's own
+ * composition — so setting the word "LunArt" over it again was the card saying its
+ * own name twice. On a Privilege the line comes back, because it is what the tier
+ * chip hangs from, and it sits in the pale sky at the top where the mark is not.
+ */
+.pass__brand {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  font-family: var(--serif);
+  font-size: var(--small);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--pass-ink-soft);
 }
 /*
  * The tier chip, filled rather than outlined.
@@ -1174,39 +1312,57 @@ fieldset.field { border: 0; padding: 0; }
 }
 .pass__holder {
   font-family: var(--serif);
-  font-size: 1.55rem; line-height: 1.1;
+  font-size: 1.45rem; line-height: 1.05;
+  color: var(--pass-ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pass__line { margin-top: 6px; font-size: var(--small); color: rgba(250, 249, 247, .82); }
+.pass__line { font-size: var(--small); color: var(--pass-ink-soft); }
 .pass__state {
-  margin-top: 8px;
+  margin-top: 3px;
   font-size: var(--micro); letter-spacing: .12em; text-transform: uppercase;
-  color: var(--accent-soft);
+  color: var(--pass-ink-quiet);
+  /* Never two lines. A foot that grows climbs into the mark above it. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.pass__line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The one state that carries a consequence: a voucher from this stay is done. */
 .pass[data-state="expired"] .pass__state,
-.pass[data-state="cancelled"] .pass__state { color: #e0a39a; }
-.pass[data-state="expired"] { filter: saturate(.55); }
+.pass[data-state="cancelled"] .pass__state { color: #8c3324; }
+/* Drained of its warmth, which on a watercolour reads as "spent" without a banner. */
+.pass[data-state="expired"] { filter: saturate(.35) contrast(.95); }
 
-.pass--privilege { border: 1px solid var(--accent-soft); }
 /*
- * The gold is *added* to the scrim, not substituted for it.
+ * Privilege: the same tessera, turned up a little.
  *
- * This rule used to set `background` outright, which replaced all four layers with
- * one gold wash — so the Privilege card, the one that costs money, was the only one
- * with no darkening under its type at all. Over a gold plate that put the brand mark
- * at 4.06:1 and the status line at 3.65:1, both under AA, and it survived every
- * check that read CSS colours rather than pixels.
+ * Deliberately *not* a different card. The painting is the same file — one artwork,
+ * one family — and everything that marks the upgrade is a thin layer over it:
  *
- * The three dark bands are repeated verbatim; only the gold is stronger. Keep them
- * in step with `.pass::after` above.
+ *   a gold edge, doubled   the border plus an inset hairline, which is how a printed
+ *                          card is finished and reads as craft rather than as colour
+ *   a warm breath          a gold wash at a few percent in the top corner, under the
+ *                          sky where there is nothing to spoil. Not a gold card: at
+ *                          this strength it is felt and not seen
+ *   the chip               the only solid gold on the card
+ *
+ * Nothing darkens the watercolour and nothing is tinted across it. Hold the two
+ * cards side by side and it is plainly the same object, one of them better.
  */
+.pass--privilege {
+  border-color: var(--accent-soft);
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, .5);
+}
+.pass--privilege .pass__face::before {
+  content: "";
+  position: absolute; inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--accent-soft) 55%, transparent);
+  border-radius: calc(var(--radius) - 6px);
+  pointer-events: none;
+}
 .pass--privilege::after {
   background:
-    linear-gradient(to top, rgba(10, 8, 5, .92) 0%, rgba(10, 8, 5, .7) 26%, rgba(10, 8, 5, .14) 54%, transparent 70%),
-    linear-gradient(to bottom, rgba(10, 8, 5, .82) 0%, rgba(10, 8, 5, .38) 34%, transparent 58%),
-    linear-gradient(100deg, rgba(10, 8, 5, .5) 0%, rgba(10, 8, 5, .14) 46%, transparent 74%),
-    radial-gradient(130% 100% at 85% 0%, rgba(201, 168, 109, .4) 0%, transparent 62%);
+    linear-gradient(to bottom, rgba(250, 247, 239, .72) 0%, rgba(250, 247, 239, .3) 34%, rgba(250, 247, 239, 0) 56%),
+    linear-gradient(to top, rgba(250, 247, 239, .68) 0%, rgba(250, 247, 239, .22) 20%, rgba(250, 247, 239, 0) 34%),
+    radial-gradient(90% 70% at 92% 4%, rgba(201, 168, 109, .2) 0%, transparent 62%);
 }
 
 .pass__label {

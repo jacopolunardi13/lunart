@@ -216,8 +216,18 @@ await page.waitForTimeout(1300);
 
 const cardText = await page.textContent('.sheet__body');
 note(await page.isVisible('.privilege-card'), 'the card screen opens');
-note(/LunArt/.test(await page.textContent('.lunart-mark')), 'it carries the LunArt mark');
-note(/Privilege Card/i.test(cardText), 'and names the product');
+// The mark used to be drawn in CSS next to the title; it is now in the artwork —
+// the LA lock-up is the centre of the voucher's own painting — so what is checked is
+// that the card is actually wearing that painting.
+const cardPlate = await page.evaluate(() => getComputedStyle(
+  document.querySelector('.privilege-card'), '::before').backgroundImage);
+note(/lunart-voucher/.test(cardPlate), `it carries the LunArt artwork (${cardPlate.match(/[^/]+\.webp/)?.[0] ?? cardPlate.slice(0, 40)})`);
+// Named on the screen, not necessarily on the card. The face used to repeat
+// "LunArt Privilege Card" under a mark that already said LunArt; the sheet's own
+// title carries the product name and the face carries the tier chip.
+const cardScreen = await page.textContent('.sheet');
+note(/Privilege Card/i.test(cardScreen), 'and names the product');
+note(/privilege/i.test(await page.textContent('.privilege-card__kind')), 'with the tier on the card itself');
 note(/Jacopo Lunardi/.test(cardText), 'it shows the holder');
 note(/2 (persone|guests)/i.test(cardText), 'it says it is valid for two');
 note(await page.isVisible('.card-qr__frame svg'), 'a QR is drawn');
