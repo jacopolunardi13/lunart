@@ -71,6 +71,20 @@ export async function scheduleGuideEmail({ store, reservation, now = new Date(),
   if (!isLive(reservation)) return existing;
   if (staleStay(reservation, now)) return existing;
 
+  /**
+   * Occupancy is not a correspondent.
+   *
+   * A provisional reservation came from a calendar feed: it has dates and a room
+   * and no idea who the guest is. There is nothing to write to, and there is no
+   * address to guess at — so nothing is scheduled at all, not even as `unsendable`.
+   * The guarantee lives here rather than at each call site, because the whole point
+   * of the safety net is that a half-known stay can be created freely and the one
+   * irreversible act, writing to a guest, still cannot happen by accident. When the
+   * notification arrives and fills the record in, the adoption clears the flag and
+   * the email is scheduled by the ordinary path.
+   */
+  if (reservation.provisional === true) return existing;
+
   const sendAt = sendTimeFor(reservation, { now });
   if (!sendAt) return existing;
 

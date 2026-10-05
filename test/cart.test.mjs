@@ -67,7 +67,7 @@ test('adding the same thing twice counts it twice, not lists it twice', async ()
 test('the same bottle on a different evening is a different line', async () => {
   const cart = await loadCart(fakeStorage());
   cart.add(wine());
-  cart.add(wine({ slotId: 'w-2100' }));
+  cart.add(wine({ slotId: 'w-2000' }));
   assert.equal(cart.getLines().length, 2);
 });
 
@@ -76,7 +76,7 @@ test('different products and variants stay apart and add up', async () => {
   cart.add(wine());                                    // 89
   cart.add(wine({ variantId: 'vermentino' }));         // 43
   cart.add({ productId: 'brunch', variantId: 'opera', quantity: 1, date: soon(2),
-             slotId: 'b-0830', room: '303', options: { hotDrink: 'espresso' } });  // 69
+             slotId: 'b-0900', room: '303', options: { hotDrink: 'espresso' } });  // 69
   assert.equal(cart.getLines().length, 3);
   assert.equal(cart.review().total, BRUNELLO + VERMENTINO + BRUNCH);
 });
@@ -105,7 +105,7 @@ test('the cart is written to storage and read back', async () => {
   const storage = fakeStorage();
   const first = await loadCart(storage);
   first.add(wine());
-  first.add(wine({ variantId: 'dom-perignon', slotId: 'w-2100' }));
+  first.add(wine({ variantId: 'dom-perignon', slotId: 'w-2000' }));
   assert.ok(storage.raw, 'something was written');
 
   // A new module instance, as after a reload, reading the same storage.

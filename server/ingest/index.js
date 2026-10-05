@@ -44,7 +44,13 @@ export async function ingestEvent({ store, event, now = new Date() }) {
         now,
       });
       if (created.ok) await cancelReservation({ store, reservation: created.reservation, reason: 'cancellata alla ricezione', now });
-      result = { ok: true, action: 'cancelled-unknown', reservation: created.reservation ?? null };
+      // Unless the calendar had already told us the room was taken, in which case
+      // this is an ordinary cancellation of a stay we did know about.
+      result = {
+        ok: true,
+        action: created.action === 'completed' ? 'cancelled' : 'cancelled-unknown',
+        reservation: created.reservation ?? null,
+      };
     } else {
       const cancelled = await cancelReservation({ store, reservation: existing, reason: event.reason ?? '', now });
       await cancelGuideEmail({ store, reservation: cancelled });

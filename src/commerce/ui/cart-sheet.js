@@ -16,6 +16,7 @@ import { errorText, knownError } from './product-sheet.js';
 import * as cart from '../cart.js';
 import { startCheckout } from '../api.js';
 import { rememberOrder, markCheckoutPending } from './orders.js';
+import { looksLikeEmail } from '../../../commerce/ordering.js';
 
 function lineRow(entry, lang) {
   const { product, variant, line } = entry;
@@ -136,6 +137,13 @@ function mount(container, lang, { onShop }) {
     };
     if (!customer.name || !customer.email) {
       status.textContent = UI[lang].detailsMissing;
+      return;
+    }
+    // Checked here so the guest hears it immediately, and again on the server so
+    // this is a courtesy rather than the rule.
+    if (!looksLikeEmail(customer.email)) {
+      status.textContent = UI[lang].emailInvalid;
+      form.querySelector('[name="email"]')?.focus();
       return;
     }
 

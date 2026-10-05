@@ -11,7 +11,7 @@ import { esc, t, paragraphs } from '../../ui/dom.js';
 import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
 import { openCustomSheet } from '../../ui/sheet.js';
-import { money, longDate, noticeLabel, priceRange } from './format.js';
+import { money, longDate, noticeLabel, priceRange, policyText } from './format.js';
 import {
   getProduct, getVariant, skuFor, cutoffFor, leadMinutesFor, validateLine, needsTime,
 } from '../../../commerce/ordering.js';
@@ -20,6 +20,7 @@ import { propertyDate, addDays } from '../../../commerce/time.js';
 import { availableDays, fetchSlots } from '../api.js';
 import { WINE_KINDS } from '../../../commerce/wine.js';
 import { visibleVariants } from '../../../commerce/catalog.js';
+import { policyOf } from '../../../commerce/cancellation.js';
 import { cardStartDates, cardVariantsForStay } from '../../../commerce/stay.js';
 import { guestStay, guest } from '../../guest.js';
 import * as cart from '../cart.js';
@@ -52,6 +53,8 @@ const ERROR_TEXT = {
     'request-only': 'Si organizza parlando con noi.',
     'product-inactive': 'Non disponibile.',
     'unknown-product': 'Prodotto sconosciuto.',
+    'email-invalid': 'Controlla l’indirizzo email.',
+    'customer-incomplete': 'Servono nome ed email.',
   },
   en: {
     'variant-required': 'Pick an option.',
@@ -80,6 +83,8 @@ const ERROR_TEXT = {
     'request-only': 'Arranged by talking to us.',
     'product-inactive': 'Not available.',
     'unknown-product': 'Unknown product.',
+    'email-invalid': 'Check the email address.',
+    'customer-incomplete': 'We need a name and an email.',
   },
 };
 
@@ -297,6 +302,17 @@ function body(product, lang) {
         </div>
       </form>` : notPurchasable}
 
+    ${/**
+      * What happens if they change their mind, said before they decide.
+      *
+      * Derived from the product's own `cancellation` rule — the same one the server
+      * applies when the cancellation actually arrives — rather than left to the
+      * prose below it. The prose says it too, in context; this says it as a fact in
+      * the same words the order sheet will use, so nothing can drift.
+      */''}
+    <p class="terms terms--policy">
+      <strong>${esc(UI[lang].cancellationPolicy)}:</strong> ${esc(policyText(policyOf(product), lang))}
+    </p>
     ${product.terms ? `<p class="terms">${esc(t(product.terms, lang))}</p>` : ''}
     ${range?.anyPlaceholder && purchasable
       ? `<p class="terms terms--warn">${esc(UI[lang].provisionalPriceNote)}</p>` : ''}

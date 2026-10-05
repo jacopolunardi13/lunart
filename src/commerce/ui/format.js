@@ -1,6 +1,7 @@
 /** Formatting shared by every commerce screen. */
 
 import { resolvePrice } from '../../../commerce/prices.js';
+import { UI, fill } from '../../i18n.js';
 
 export function money(amount, { currency = 'EUR', lang = 'it' } = {}) {
   if (typeof amount !== 'number') return '';
@@ -55,6 +56,34 @@ export function priceRange(product) {
     max: Math.max(...values),
     anyPlaceholder: amounts.some((p) => p.status === 'placeholder'),
   };
+}
+
+/**
+ * The cancellation policy, as one sentence.
+ *
+ * Built from the policy data rather than from the product's prose, so the sentence
+ * the guest reads before buying and the rule the server applies afterwards are the
+ * same fact said twice. `policyOf` in `commerce/cancellation.js` produces the shape.
+ */
+export function policyText(policy, lang = 'it') {
+  const t = UI[lang] ?? UI.it;
+  if (!policy || policy.kind === 'none') return t.cancelNotPossible;
+  if (policy.kind === 'hoursBefore') return fill(t.cancelHoursBefore, { hours: policy.hours ?? 0 });
+  if (policy.kind === 'dayBefore') {
+    return fill(t.cancelDayBefore, { hour: String(policy.hour ?? 12).padStart(2, '0') });
+  }
+  return '';
+}
+
+/** "fino a giovedì alle 20:00" — a deadline in Florence, where the deadline is. */
+export function deadlineText(iso, lang = 'it') {
+  if (!iso) return '';
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return '';
+  return new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', {
+    weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Europe/Rome',
+  }).format(when);
 }
 
 export { resolvePrice };

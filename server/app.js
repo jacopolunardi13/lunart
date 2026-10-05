@@ -30,6 +30,7 @@ import {
   cardBenefits, stayBenefits,
 } from '../commerce/partners.js';
 import { publicProduct } from '../commerce/catalog.js';
+import { looksLikeEmail } from '../commerce/ordering.js';
 import { cardStartDates, cardVariantsForStay } from '../commerce/stay.js';
 import { renderMockCheckout } from './mock-checkout.js';
 import { renderPreviewIndex } from './preview-index.js';
@@ -45,8 +46,10 @@ import {
 import { ingestMessage, ingestMessages, ingestEvent, resolveAlert, raiseAlert } from './ingest/index.js';
 import { createMailbox, mailboxSources, pollMailbox, createMemoryMailbox } from './ingest/mailbox.js';
 import { createQuovaiApiAdapter, reservationSources } from './ingest/quovai-api.js';
-import { reconcileFeeds } from './ingest/ical.js';
+import { reconcileFeeds, inspectFeeds } from './ingest/ical.js';
 import { repairFromMailbox } from './ingest/repair.js';
+import { backfillFromMailbox, DEFAULT_BACKFILL_DAYS } from './ingest/backfill.js';
+import { cancelOrderLine, orderCancellation, ACTORS } from './cancellation.js';
 import { createPushAdapter, notifyStaff, registerSubscription } from './push.js';
 import { createProviderCalendar, providerCalendars } from './calendar/google.js';
 import { freeSlots, freeDays, slotIsFree, verifySlotForCheckout } from './calendar/index.js';
@@ -55,6 +58,7 @@ import {
   STAFF_QUEUES, queueOf, staffOrderView, orderQueues, dashboard, syncOverview,
   setFulfilment, requestSubstitution, assignOrder, cancelOrder, refundOrder,
   createManualReservation, editReservation, cancelReservationByStaff, guideLinkFor,
+  groupReservations, syncJobStates,
 } from './staff.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -211,6 +215,18 @@ export async function createApp(overrides = {}) {
 
     if (!customer.name || !customer.email) {
       sendJson(res, 400, { error: 'customer-incomplete', fields: ['name', 'email'] });
+      return;
+    }
+    /**
+     * A malformed address never reaches Stripe.
+     *
+     * Stripe refuses the session, which arrives here as a provider error and
+     * reads to the guest as "payment is down" — for a missing `@`. The guest is
+     * told what is actually wrong, and the payment provider is not asked a
+     * question whose answer we already know.
+     */
+    if (!looksLikeEmail(customer.email)) {
+      sendJson(res, 400, { error: 'email-invalid', fields: ['email'] });
       return;
     }
 
@@ -441,6 +457,67 @@ export async function createApp(overrides = {}) {
       if (card) cards.push(card);
     }
     sendJson(res, 200, orderView(order, { cards }));
+  }
+
+  /**
+   * The guest calls one line off themselves.
+   *
+   * Authenticated by the order's own access token, which is the credential the whole
+   * order sheet already runs on — the same thing that lets them read it lets them
+   * change their mind about it. Rate limited, because this one moves money.
+   *
+   * The body says which line and how many. Everything else — whether the policy
+   * allows it, whether the deadline has passed, how much comes back, whether that is
+   * a refund or a hold that shrinks — is recomputed from the stored order and the
+   * catalogue. A browser that sends an amount is sending something nobody reads.
+   */
+  async function postOrderCancel(req, res, { token }) {
+    const limited = rateLimit(`cancel:${clientKey(req)}`, { limit: 20, windowMs: 60_000 });
+    if (!limited.allowed) {
+      sendJson(res, 429, { error: 'too-many-requests' }, { 'retry-after': String(limited.retryAfterSeconds) });
+      return;
+    }
+
+    const order = await store.orders.findByAccessToken(token);
+    if (!order) { sendJson(res, 404, { error: 'not-found' }); return; }
+
+    const body = await readJson(req).catch(() => ({}));
+    const index = Number(body.line);
+    if (!Number.isInteger(index) || index < 0 || index >= order.lines.length) {
+      sendJson(res, 422, { error: 'no-such-line' });
+      return;
+    }
+
+    const result = await cancelOrderLine({
+      store,
+      stripe,
+      order,
+      index,
+      quantity: Number(body.quantity ?? 0),
+      actor: ACTORS.guest,
+      reason: String(body.reason ?? '').slice(0, 300),
+    });
+
+    if (!result.ok) {
+      // The reason is the policy's own word for it, which is what the screen needs
+      // to say why — "troppo tardi" and "non annullabile" are different sentences.
+      sendJson(res, 409, { error: result.reason, message: result.message ?? null });
+      return;
+    }
+
+    const cards = [];
+    for (const entitlement of result.order.entitlements ?? []) {
+      const card = await store.cards.get(entitlement.id);
+      if (card) cards.push(card);
+    }
+    sendJson(res, 200, {
+      ok: true,
+      /** What happened to the money, in words a guest can act on. */
+      outcome: result.outcome,
+      amount: result.amount,
+      quantity: result.quantity,
+      order: orderView(result.order, { cards }),
+    });
   }
 
   async function getCard(req, res, { token }) {
@@ -689,6 +766,9 @@ export async function createApp(overrides = {}) {
         amount: order.amount,
         currency: order.currency,
         created_at: order.created_at ?? null,
+        refunded_amount: Number(order.refunded_amount ?? 0),
+        /** So the home can mark a purchase the guest can still call off. */
+        can_cancel: orderCancellation(order).anyCancellable,
         lines: order.lines.map((line) => ({
           title: line.title,
           variant_title: line.variant_title ?? null,
@@ -929,6 +1009,14 @@ export async function createApp(overrides = {}) {
     });
   }
 
+  /**
+   * Every reservation, in the order a person works them.
+   *
+   * `reservations` stays exactly as it was — one flat list, soonest first — because
+   * other things read it. `groups` is the same records arranged by urgency: who is
+   * here, who arrives today, who arrives this week, everyone else, the ones missing
+   * their guest data, and history last. See `groupReservations`.
+   */
   async function getStaffReservations(req, res, _params, url) {
     const all = await store.reservations.list({ limit: 300 });
     const which = url.searchParams.get('status');
@@ -937,6 +1025,7 @@ export async function createApp(overrides = {}) {
       reservations: rows
         .sort((a, b) => String(a.check_in).localeCompare(String(b.check_in)))
         .map(staffView),
+      ...groupReservations(rows),
     });
   }
 
@@ -1034,15 +1123,42 @@ export async function createApp(overrides = {}) {
         lastSuccessAt: calendarState.lastSuccessAt ?? null,
         requires: providerCalendar.requires,
       },
+      /**
+       * The calendar safety net, and whether there is anything to reconcile against.
+       *
+       * Said plainly rather than left to be inferred from a count of zero: with no
+       * feed URL the whole mechanism is built and idle, and the thing that is
+       * missing is a URL from QuoVai, not a line of code.
+       */
+      ical: {
+        configured: settings.icalFeeds.length > 0,
+        enabled: settings.icalPollMinutes > 0,
+        feeds: settings.icalFeeds.length,
+        pollMinutes: settings.icalPollMinutes,
+        requires: ['QUOVAI_ICAL_FEEDS'],
+        provisional: (await store.reservations.provisional()).length,
+      },
       sources: reservationSources(settings),
       /** What runs on a timer, and how it is getting on. */
       schedule: scheduler.state(),
     });
   }
 
+  /**
+   * Remember what a synchronisation job just did.
+   *
+   * One line at each of the three call sites rather than inside the jobs: the jobs
+   * are pure and testable without a store between them, and this is the only place
+   * that cares whether anybody will want to read it afterwards.
+   */
+  const recordRun = async (job, result) => {
+    try { await store.syncRuns.record(job, result); } catch { /* visibility is not worth failing a run for */ }
+    return result;
+  };
+
   /** Read the mailbox now, rather than waiting for the next poll. */
   async function postStaffPoll(req, res) {
-    const result = await pollMailbox({ store, mailbox, ingest: ingestMessages });
+    const result = await recordRun('gmail-incremental', await pollMailbox({ store, mailbox, ingest: ingestMessages }));
     sendJson(res, result.ok ? 200 : 503, result);
   }
 
@@ -1056,6 +1172,27 @@ export async function createApp(overrides = {}) {
    * `server/ingest/repair.js`, which says so in more detail and is where the
    * guarantees actually live.
    */
+  /**
+   * Recover the reservations that arrived before LunArt was watching.
+   *
+   * Staff-triggered like the repair, and for the same reason: it reads a year of
+   * mail rather than a week, which is right once and wrong every ten minutes. It
+   * goes through the ordinary pipeline, so it creates nothing twice, reissues no
+   * guide link and schedules no second email — see `server/ingest/backfill.js`,
+   * which is where the three jobs are told apart.
+   */
+  async function postStaffBackfill(req, res) {
+    const body = await readJson(req).catch(() => ({}));
+    const days = Number(body.days ?? DEFAULT_BACKFILL_DAYS);
+    const result = await recordRun('gmail-backfill', await backfillFromMailbox({
+      store,
+      mailbox,
+      ingest: ingestMessages,
+      days: Number.isFinite(days) && days > 0 ? days : DEFAULT_BACKFILL_DAYS,
+    }));
+    sendJson(res, result.ok ? 200 : 503, result);
+  }
+
   async function postStaffRepair(req, res) {
     const result = await repairFromMailbox({ store, mailbox });
     sendJson(res, result.ok ? 200 : 503, result);
@@ -1068,9 +1205,23 @@ export async function createApp(overrides = {}) {
     sendJson(res, result.ok ? 200 : 409, { job, ...result, state: scheduler.state().find((entry) => entry.id === job) });
   }
 
-  /** Compare the calendars now. */
+  /** Compare the calendars now, and hold whatever occupancy has nothing behind it. */
   async function postStaffReconcile(req, res) {
-    const result = await reconcileFeeds({ store, feeds: settings.icalFeeds });
+    const result = await recordRun('ical', await reconcileFeeds({ store, feeds: settings.icalFeeds }));
+    sendJson(res, result.ok ? 200 : 503, result);
+  }
+
+  /**
+   * Look at the feeds without touching anything.
+   *
+   * Nothing in LunArt knows what a QuoVai iCal export actually contains, and the
+   * answer to that is to read one rather than to design around a guess. This fetches
+   * each configured feed and reports its shape — which properties it uses, how many
+   * events, whether a booking number or a room number is anywhere in them. It writes
+   * nothing, creates nothing and sends nothing.
+   */
+  async function postStaffIcalInspect(req, res) {
+    const result = await inspectFeeds({ feeds: settings.icalFeeds });
     sendJson(res, result.ok ? 200 : 503, result);
   }
 
@@ -1352,6 +1503,7 @@ export async function createApp(overrides = {}) {
     ['POST', '/api/checkout', postCheckout],
     ['POST', '/api/stripe/webhook', postStripeWebhook],
     ['GET',  '/api/orders/:token', getOrder],
+    ['POST', '/api/orders/:token/cancel', postOrderCancel],
     ['GET',  '/api/card/:token', getCard],
     ['POST', '/api/card/validate', postValidateCard],
     ['GET',  '/api/provider/queue', getProviderQueue],
@@ -1387,7 +1539,9 @@ export async function createApp(overrides = {}) {
     ['GET',  '/api/staff/sync', guard(getStaffSync)],
     ['POST', '/api/staff/sync/poll', guard(postStaffPoll)],
     ['POST', '/api/staff/sync/repair', guard(postStaffRepair)],
+    ['POST', '/api/staff/sync/backfill', guard(postStaffBackfill)],
     ['POST', '/api/staff/sync/reconcile', guard(postStaffReconcile)],
+    ['POST', '/api/staff/sync/ical/inspect', guard(postStaffIcalInspect)],
     ['POST', '/api/staff/sync/ingest', guard(postStaffIngest)],
     ['POST', '/api/staff/sync/send-emails', guard(postStaffSendEmails)],
     ['POST', '/api/staff/alerts/:id/resolve', guard(postStaffAlertResolve)],
@@ -1462,7 +1616,7 @@ export async function createApp(overrides = {}) {
         enabled: settings.icalFeeds.length > 0 && settings.icalPollMinutes > 0,
         requires: settings.icalFeeds.length > 0 ? null : 'QUOVAI_ICAL_FEEDS',
         run: async () => {
-          const result = await reconcileFeeds({ store, feeds: settings.icalFeeds });
+          const result = await recordRun('ical', await reconcileFeeds({ store, feeds: settings.icalFeeds }));
           if (!result.ok) throw new Error(result.reason ?? 'reconciliation failed');
           return result;
         },
@@ -1662,7 +1816,22 @@ async function alertStaff(order, { store, push }) {
 export async function confirmProviderOrder(order, { store, stripe, settings }, note = '') {
   const events = [...(order.events ?? []), { at: new Date().toISOString(), type: 'provider-confirmed', note }];
   try {
-    await stripe.capturePaymentIntent(order.stripe_payment_intent_id, {}, { idempotencyKey: `capture:${order.id}` });
+    /**
+     * For what the order is worth *now*, not for what was authorised.
+     *
+     * A guest who cancelled one leg of a transfer before the driver confirmed had
+     * the order's amount reduced rather than the hold released and re-taken — a
+     * hold cannot be made smaller, but it can be captured for less. Passing the
+     * amount is what makes that come true; capturing the whole authorisation would
+     * charge for the leg they called off. The key carries it too, so a retry after
+     * a further cancellation is a different operation rather than a replay of the
+     * old figure.
+     */
+    await stripe.capturePaymentIntent(
+      order.stripe_payment_intent_id,
+      { amount_to_capture: order.amount },
+      { idempotencyKey: `capture:${order.id}:${order.amount}` },
+    );
   } catch (error) {
     return store.orders.update(order.id, {
       status: PAYMENT_STATUS.confirmed,

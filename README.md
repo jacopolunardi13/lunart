@@ -216,11 +216,39 @@ all.
 Static files; anything that serves a directory will do. The service worker and
 manifest are enhancements — if registration fails, every page still loads.
 
-Two things to do when publishing:
+One thing to do when publishing: work through the `?review=1` list. Nothing marked
+`blocker` should go out unconfirmed.
 
-1. Work through the `?review=1` list. Nothing marked `blocker` should go out
-   unconfirmed.
-2. Bump `CACHE` in `sw.js` so returning guests get the new version.
+### Why a redeploy now reaches returning guests
+
+`sw.js` used to serve everything that was not the API from the cache first, on the
+reasoning that the files only change when the guide is republished. That reasoning
+has a hole in it, and a guest fell through it: the guide *was* republished and a
+phone that had visited before kept running the old one. Nothing had broken — the
+cache was answering and the network was never asked.
+
+The hole is that `src/main.js` and `assets/css/app.css` are not content-addressed.
+Their names never change, so a cached copy and a deployed copy are indistinguishable
+by URL. A build step with hashed filenames would fix it; this project deliberately
+has no build step, so the service worker carries the distinction instead:
+
+| | strategy | why |
+|---|---|---|
+| `/api/…` | **never cached, at all** | a cached price is a figure shown as current when it is not |
+| documents, JS, CSS, manifest | network first, 3.5 s deadline | these are the guide itself; a guest must never be stuck on an old one |
+| images, fonts | cache first | `…-700.webp` is the same photograph forever |
+| anything unclassified | network first | a stale guide is worse than a slow one |
+
+The deadline matters as much as the order: hotel Wi-Fi that is technically connected
+and practically not would otherwise be a spinner, so the cache answers after 3.5
+seconds. Offline still works — that is what the file is for — and a personal link
+falls back to the guide page rather than to nothing.
+
+Bumping `CACHE` is no longer a release step for freshness; it is how a browser still
+holding an older *strategy* is retired, which `activate` does by deleting every
+cache but the current one. `test/cache.test.mjs` runs the real `sw.js` in a
+simulated worker scope and drives it with fetch events, because reading the file is
+not how you find out what it does with one.
 
 ## Reservations
 
@@ -240,7 +268,7 @@ through `ingestEvent`, which is the only thing that writes a reservation.
 |---|---|---|
 | QuoVai email | **working** | QuoVai already emails LunArt on every booking, change and cancellation. `server/ingest/quovai-email.js` reads them. |
 | QuoVai API / webhook | interface agreed, waiting on QuoVai | `server/ingest/quovai-api.js` — the route, the signature check and the open questions, with nothing invented. |
-| QuoVai iCal | reconciliation only | `server/ingest/ical.js` — occupancy, not guests. It catches what the email missed. |
+| QuoVai iCal | safety net, awaiting feed URLs | `server/ingest/ical.js` — occupancy, not guests. It catches what the email missed and holds it as a provisional stay. |
 | Staff, by hand | working | The fallback, through the same upsert as everything else. |
 
 The email parser is forgiving about everything except meaning: plain text or HTML,
@@ -258,16 +286,75 @@ Three rules hold it together:
    guest who already has one.
 3. **A cancellation never deletes.** The record stays, with its history, because
    somebody may already have paid for breakfast against it.
+4. **A reservation can start life incomplete.** See the safety net below: a stay
+   held from a calendar is filled in by the notification that arrives later, in
+   place, rather than filed beside it.
+
+### Three jobs that look alike and are not
+
+The mailbox is read three different ways, and the difference is the one thing that
+matters: what each is allowed to do to a reservation that already exists.
+
+| | what it does | creates? | run by |
+|---|---|---|---|
+| **poll** | keeps up with what arrives: recent mail, every few minutes | yes | the scheduler |
+| **backfill** | recovers what was never seen: a year of mail, in pages | yes | staff, on demand |
+| **repair** | corrects what was seen badly: re-reads with a better parser | **no** | staff, on demand |
+
+The backfill exists because the poll's window is right for keeping up and useless
+for starting. A booking made in September for an October stay had its notification
+arrive weeks ago; the window has long since slid past it, and nothing else will ever
+bring it back. It goes through the same idempotent pipeline as the poll — so running
+it twice creates nothing the second time, reissues no guide link and schedules no
+second email — and it applies messages **oldest first**, because a booking made,
+changed and cancelled over three weeks has three notifications and the wrong order
+leaves a cancelled stay looking live. The repair, by contrast, never creates and
+never moves a date: see `server/ingest/repair.js`.
+
+Each of the three reports separately on the Staff app's sync screen, with its own
+last success, last error and counts. That is not tidiness: rolled into one green
+tick, "the backfill has never run" is invisible, and it is exactly the thing an
+operator needs to know. The state is kept in the store rather than in the
+scheduler's memory, because the question is usually asked just after a deploy.
 
 ### iCal is a safety net, not a source
 
 An iCal feed says a room is occupied between two dates. It has no email address and
-usually no name, so treating it as a source would mean inventing a guest. What it is
-good for is catching what the email adapter missed: anything in the calendar with no
-reservation behind it becomes *occupancy detected but not synchronised* in front of
-staff. In the other direction it is timid — an event that disappears raises a
-reconciliation alert rather than deleting anything, because OTAs rewrite UIDs and
-feeds go stale.
+usually no name, so treating it as a source would mean inventing a guest — and a
+guest invented from a calendar entry is a guest nobody can email.
+
+But an alert is not enough either. A stay in the calendar with nothing behind it
+means somebody is arriving and LunArt has no reservation, no Pass and nothing to
+sell them. So the feed does create something: a **provisional** reservation holding
+exactly what the feed really said — dates, room, and a booking number only if one
+was actually written down — and admitting the rest is missing. No name, no email, no
+telephone number, no channel, no invented booking number. The record carries
+`provisional: true` and the feed's UID, and the Staff app shows it under *Dati
+ospite da completare*.
+
+Two guarantees make that safe to do:
+
+- **Nothing is sent.** A provisional reservation never schedules a guest email. The
+  check is in `scheduleGuideEmail`, not at each call site, so a half-known stay can
+  be created freely and the one irreversible act still cannot happen by accident.
+- **Nothing is doubled.** When the QuoVai notification arrives it *fills this record
+  in* — same id, same guide token, same orders, same Pass, same Privilege card —
+  instead of filing a second stay. Matching runs strongest-first: the booking
+  number, then the room over the same nights, then the room on the same arrival day.
+  **More than one candidate is not a match**: an ambiguous merge would attach a
+  guest to somebody else's stay and everything bought against it, so two candidates
+  means a person decides and both are named in the alert.
+
+In the other direction it stays timid. An event that disappears cancels nothing —
+OTAs rewrite UIDs, feeds truncate, caches go stale — it raises a warning saying so
+and a person decides.
+
+Nothing here assumes what a QuoVai export looks like. `inspectIcal` reads a feed and
+reports its shape — which properties it uses, how many events, whether a booking
+number or a room is anywhere in them — and the Staff app's "Esamina i feed" button
+runs it without writing anything. That is the right first thing to do with a URL
+nobody has seen yet, and it is why the architecture is finished while the feed URLs
+are still outstanding.
 
 ## The personal guide link
 
@@ -636,8 +723,59 @@ The wine rule is about the **order**, not the bottle: €90 or more in the baske
 an express run at ninety minutes' notice, below it waits for the next day's
 delivery. Two bottles together can be express when either alone would not be.
 Notice is counted back from the *end* of the chosen window, which is what makes the
-stated rule true — ninety minutes before the end of the 21:00–22:00 window is 20:30,
-the last moment wine can be ordered for the same evening.
+stated rule true — ninety minutes before the end of the 20:00–21:00 window is 19:30,
+the last moment wine can be ordered for the same evening. Nothing LunArt carries to
+a room goes up before 09:00 or after 21:00, and every delivery window in the
+catalogue sits inside those hours.
+
+#### The guest cancels it themselves
+
+A brunch no longer wanted at nine on Wednesday evening should not require finding
+somebody, so the guest can call a line off from their own order sheet. The rule is
+already written down — each product's `cancellation` in `commerce/catalog.js` — and
+that rule is the only thing consulted:
+
+- the **policy** comes from the catalogue, never from the order row, because terms
+  copied into a row in September are terms nobody can correct in October;
+- the **deadline** is that policy applied to the line's own date and slot, at the
+  server's clock in Florence;
+- the **amount** is the line's stored amount, which the server priced.
+
+The request carries two things and nothing else: which line, and how many of it. An
+amount in the payload is read by nobody. See `commerce/cancellation.js` for the
+shared calculation — the browser uses it to decide whether to draw a button, the
+server runs it again before any money moves — and `server/cancellation.js` for the
+settlement.
+
+What happens to the money depends on where it is, and the guest is told which:
+
+| the order is | calling a line off | what the guest is told |
+|---|---|---|
+| paid | partial refund for that line | "ti rimborsiamo €49" |
+| authorised, nothing left | the hold is released | "non ti è stato addebitato nulla" |
+| authorised, something left | the order's amount comes down and the capture asks for less | the same |
+| pending | nothing to undo | — |
+
+A hold cannot be made smaller, only captured for less, which is why cancelling one
+leg of a two-leg transfer reduces the order rather than dropping and re-taking an
+authorisation on a card that might then decline.
+
+Cancellation is **per line**, and the mixed order is the case that matters. A €69
+brunch and a €15 Privilege Card are one payment and two entirely different
+promises: the brunch can be called off until eight the evening before, the Card
+cannot be called off at all, and refunding the brunch leaves the Card valid with its
+entitlement untouched. The order only becomes `refunded` when the last cent of it
+has gone back — marking the whole order refunded would be the shortest route to
+revoking a card somebody paid for.
+
+Every cancellation writes a ledger entry on the line: how many units, how much came
+back, who asked (`guest` or `staff`), when, and Stripe's own reference for
+reconciliation. The guest never sees a Stripe id. Idempotence comes from that ledger
+rather than from a lock: a second identical request finds the units already gone and
+is refused, and the Stripe idempotency key carries the same count, so a retry that
+does reach Stripe cannot refund twice. A refund Stripe refuses writes nothing at
+all — the line stays the guest's to cancel, which is the only safe way for it to
+fail. Staff see what the guest did on the dashboard and on the order itself.
 
 None of this has anything to do with the accommodation booking, whose terms come
 from LunArt's own policy — not freely refundable, a date change possible with two
@@ -664,7 +802,13 @@ is used by a real guest:
 - `MAIL_PROVIDER=gmail` (same credentials, plus the `gmail.send` scope) and
   `DELIVERY_POLL_MINUTES` — otherwise guest guide emails are scheduled and rendered,
   and never sent.
-- `QUOVAI_ICAL_FEEDS` — otherwise there is no calendar to reconcile against.
+- `QUOVAI_ICAL_FEEDS` plus `ICAL_POLL_MINUTES` — otherwise there is no calendar to
+  reconcile against, and the safety net under the mailbox is not there. Format is
+  `301:https://…,302:https://…`, one export per room. **This is the one value LunArt
+  is still waiting on from outside**: the mechanism is built and tested, and nothing
+  here can invent a feed URL. The Staff app's sync screen names it as missing, and
+  "Esamina i feed" reads a URL and reports what it actually contains without writing
+  anything — which is the right first thing to do with a feed nobody has seen yet.
 - `VAPID_*` — otherwise the Staff app works but nothing reaches a phone.
 - `GOOGLE_CALENDAR_*` — otherwise hair appointments are not written anywhere the
   professional can see, and availability stays manual.
@@ -679,6 +823,7 @@ npm run dev &
 npm install --no-save playwright
 npm run qa:commerce             # the whole purchase, in a browser, at phone size
 npm run qa:reservations         # personal links, recovery, and the Staff app
+npm run qa:pass                 # the Pass, the ranked offers, the Privilege upgrade
 python3 tools/qr-verify.py      # the QR encoder, against two outside implementations
 ```
 

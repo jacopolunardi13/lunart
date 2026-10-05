@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 
 import { createApp, handleStripeEvent } from '../server/app.js';
+import { resetRateLimits } from '../server/rate-limit.js';
 import { createStore } from '../server/store.js';
 import { createMockStripe, verifyWebhookSignature, formEncode } from '../server/stripe.js';
 import { DEV_PRICES } from '../commerce/prices.dev.js';
@@ -452,4 +453,152 @@ test('health reports how the server is configured, warnings and all', async () =
   assert.ok(Array.isArray(body.warnings));
   assert.ok(body.availability.some((source) => source.configured === false),
     'unconfigured availability sources are reported as such');
+});
+
+/* ── Cancelling, over the wire ────────────────────────────────────────────── */
+
+/**
+ * The routes, not the arithmetic.
+ *
+ * `test/cancellation.test.mjs` proves the sums; this proves the wiring — that the
+ * guest's own order token is what authorises a cancellation, that the policy is
+ * enforced on the server side of the request, and that nothing the browser sends
+ * about money is read.
+ */
+const payFor = async (lines) => {
+  /**
+   * The rate limits are per process and per minute, and this file makes a lot of
+   * requests. Cleared here rather than raised in the server: the ceilings are real
+   * and worth keeping real, and a test that trips one is testing the limiter by
+   * accident instead of the thing it came for.
+   */
+  resetRateLimits();
+  const checkout = await api('/api/checkout', {
+    body: { lines, customer: { name: 'Jacopo', email: 'jacopo@example.com', room: '303' }, lang: 'it' },
+  });
+  assert.equal(checkout.status, 200, JSON.stringify(checkout.body));
+  const session = decodeURIComponent(checkout.body.checkoutUrl.split('session=')[1]);
+  await api('/mock-checkout/pay', { body: { session } });
+  return checkout.body.accessToken;
+};
+
+const brunchLine = (over = {}) => ({
+  productId: 'brunch', variantId: 'opera', quantity: 1,
+  date: soon(2), slotId: 'b-0900', room: '303', options: { hotDrink: 'cappuccino' }, ...over,
+});
+
+const cardLine = (over = {}) => ({
+  productId: 'privilege-card', variantId: '2d', quantity: 1,
+  date: soon(1), fields: { holderName: 'Jacopo Lunardi' }, ...over,
+});
+
+test('the order carries its own cancellation terms, and no Stripe id', async () => {
+  const token = await payFor([brunchLine(), cardLine()]);
+  const { body } = await api(`/api/orders/${token}`);
+
+  assert.equal(body.status, 'paid');
+  assert.equal(body.can_cancel, true);
+  assert.equal(body.lines[0].cancellation.cancellable, true);
+  assert.equal(body.lines[0].cancellation.policy.kind, 'dayBefore');
+  assert.ok(body.lines[0].cancellation.deadline);
+  assert.equal(body.lines[1].cancellation.cancellable, false);
+  assert.equal(body.lines[1].cancellation.blocked, 'policy-none');
+
+  const json = JSON.stringify(body);
+  assert.ok(!json.includes('pi_mock'), 'no payment intent');
+  assert.ok(!json.includes('cs_mock'), 'no checkout session');
+});
+
+test('the guest cancels the brunch and keeps the Privilege Card', async () => {
+  const token = await payFor([brunchLine(), cardLine()]);
+  const before = await api(`/api/orders/${token}`);
+  const cardToken = before.body.entitlements[0].access_token;
+
+  const cancelled = await api(`/api/orders/${token}/cancel`, { body: { line: 0 } });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.outcome, 'refunded');
+  assert.equal(cancelled.body.amount, 6900, 'the brunch, and nothing else');
+  assert.equal(cancelled.body.order.status, 'paid', 'the Card is still owed, so the order is not refunded');
+  assert.equal(cancelled.body.order.refunded_amount, 6900);
+
+  // And the card the guest paid for still works.
+  const card = await api(`/api/card/${cardToken}`);
+  assert.equal(card.status, 200);
+  assert.ok(card.body.reference, 'the card is not revoked');
+});
+
+test('the same cancellation twice is refused the second time', async () => {
+  const token = await payFor([brunchLine()]);
+  assert.equal((await api(`/api/orders/${token}/cancel`, { body: { line: 0 } })).status, 200);
+
+  const again = await api(`/api/orders/${token}/cancel`, { body: { line: 0 } });
+  assert.equal(again.status, 409);
+  assert.equal(again.body.error, 'already-cancelled');
+
+  const after = await api(`/api/orders/${token}`);
+  assert.equal(after.body.refunded_amount, 6900, 'and nothing further came back');
+});
+
+test('a line sold outright cannot be cancelled through the API either', async () => {
+  const token = await payFor([cardLine()]);
+  const refused = await api(`/api/orders/${token}/cancel`, { body: { line: 0 } });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.error, 'policy-none');
+});
+
+test('nothing the request says about money is read', async () => {
+  const token = await payFor([brunchLine()]);
+  // An amount, a product, a policy — all of it ignored in favour of the stored order.
+  const cancelled = await api(`/api/orders/${token}/cancel`, {
+    body: {
+      line: 0,
+      amount: 9999999,
+      refund: 9999999,
+      product_id: 'transfer-airport',
+      cancellation: { kind: 'hoursBefore', hours: 0 },
+    },
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.amount, 6900, 'the catalogue priced it, not the browser');
+});
+
+test('a line that does not exist, and an order that is not yours', async () => {
+  const token = await payFor([brunchLine()]);
+  resetRateLimits();
+  assert.equal((await api(`/api/orders/${token}/cancel`, { body: { line: 9 } })).status, 422);
+  assert.equal((await api(`/api/orders/${token}/cancel`, { body: { line: -1 } })).status, 422);
+  assert.equal((await api(`/api/orders/${token}/cancel`, { body: {} })).status, 422);
+  assert.equal((await api('/api/orders/not-a-token/cancel', { body: { line: 0 } })).status, 404);
+});
+
+test('cancelling part of an authorised transfer reduces what will be captured', async () => {
+  resetRateLimits();
+  const checkout = await api('/api/checkout', {
+    body: {
+      // Both legs of the same journey: one authorisation, two promises.
+      lines: [
+        { ...transferLine(), variantId: 'from-airport', date: soon(3), time: '14:00' },
+        { ...transferLine(), variantId: 'to-airport', date: soon(6), time: '09:30' },
+      ],
+      customer: { name: 'Jacopo', email: 'jacopo@example.com', room: '303' },
+      lang: 'it',
+    },
+  });
+  assert.equal(checkout.status, 200, JSON.stringify(checkout.body));
+  assert.equal(checkout.body.paymentMode, 'authorize-then-capture');
+
+  const session = decodeURIComponent(checkout.body.checkoutUrl.split('session=')[1]);
+  await api('/mock-checkout/pay', { body: { session } });
+
+  const token = checkout.body.accessToken;
+  const authorised = await api(`/api/orders/${token}`);
+  assert.equal(authorised.body.status, 'authorized');
+  assert.equal(authorised.body.amount, 18000);
+
+  const cancelled = await api(`/api/orders/${token}/cancel`, { body: { line: 1 } });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.outcome, 'reduced', 'a hold cannot be made smaller, only captured for less');
+  assert.equal(cancelled.body.order.amount, 9000);
+  assert.equal(cancelled.body.order.status, 'authorized', 'the other leg still stands');
+  assert.equal(cancelled.body.order.refunded_amount, 0, 'nothing was taken, so nothing came back');
 });

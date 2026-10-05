@@ -178,21 +178,37 @@ function windows(prefix, fromHour, toHour, minutes) {
 
 /** Delivery windows offered for anything brought to the room. */
 export const DELIVERY_SLOTS = {
+  /**
+   * Breakfast in the room starts at nine.
+   *
+   * The owner's rule, and an operational one rather than a preference: nothing
+   * LunArt carries to a room goes up before 09:00 or after 21:00. Breakfast at
+   * Opera Caffè keeps its own earlier hours — that is a room downstairs, not a
+   * tray carried up — and the sunrise takeaway is exactly the arrangement for
+   * somebody leaving before any of this opens.
+   */
   breakfast: [
-    { id: 'b-0730', label: { it: '07:30 – 08:00', en: '7:30 – 8:00 am' }, from: '07:30', to: '08:00' },
-    { id: 'b-0800', label: { it: '08:00 – 08:30', en: '8:00 – 8:30 am' }, from: '08:00', to: '08:30' },
-    { id: 'b-0830', label: { it: '08:30 – 09:00', en: '8:30 – 9:00 am' }, from: '08:30', to: '09:00' },
     { id: 'b-0900', label: { it: '09:00 – 09:30', en: '9:00 – 9:30 am' }, from: '09:00', to: '09:30' },
     { id: 'b-0930', label: { it: '09:30 – 10:00', en: '9:30 – 10:00 am' }, from: '09:30', to: '10:00' },
   ],
-  /** Wine goes up between 11:00 and 22:00; the last window ends at the latter. */
-  wine: windows('w', 11, 22, 60),
-  /** A set-up can be asked for at any half hour between noon and ten. */
-  celebration: windows('c', 12, 22, 30),
+  /** Wine goes up between 11:00 and 21:00; the last window ends at the latter. */
+  wine: windows('w', 11, 21, 60),
+  /** A set-up can be asked for at any half hour between noon and nine. */
+  celebration: windows('c', 12, 21, 30),
 };
 
+/**
+ * The hours anything LunArt carries to a room may be delivered in.
+ *
+ * One pair of numbers, so a service added later cannot quietly fall outside them,
+ * and a test can check every in-room product against the same rule. Services with
+ * a calendar of their own — a transfer, an appointment with the hairdresser — are
+ * not bound by this: their availability is somebody else's working day.
+ */
+export const IN_ROOM_HOURS = { from: '09:00', to: '21:00' };
+
 /** The last moment wine can still be delivered on the day it is ordered. */
-export const WINE_DELIVERY_WINDOW = { from: '11:00', to: '22:00' };
+export const WINE_DELIVERY_WINDOW = { from: '11:00', to: '21:00' };
 
 /**
  * Cut-off shapes.
@@ -201,8 +217,8 @@ export const WINE_DELIVERY_WINDOW = { from: '11:00', to: '22:00' };
  *
  * `leadMinutes` counts back from the end of the window rather than its start,
  * which is what makes the stated express rule true: ninety minutes before the end
- * of the 21:00–22:00 window is 20:30, the last moment wine can be ordered for the
- * same evening.
+ * of the last window — 20:00–21:00, since in-room delivery now stops at nine —
+ * is 19:30, the last moment wine can be ordered for the same evening.
  *
  * `eveningBefore` is the old name for `dayBefore` and is still accepted, because
  * the shape is identical and a stored order should not break on a rename.

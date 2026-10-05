@@ -15,6 +15,10 @@
  *      produce a second reservation, a second guide link or a second email.
  *   3. A cancellation never deletes. The record stays, with its history, because
  *      somebody may already have paid for breakfast against it.
+ *   4. A reservation can start life incomplete. An iCal feed knows a room is
+ *      occupied and nothing else; that is worth holding as a `provisional`
+ *      reservation, and the notification that arrives later must fill it in rather
+ *      than file a second stay beside it. See `adoptProvisional` below.
  */
 
 import { opaqueToken, randomRef } from './store.js';
@@ -94,6 +98,25 @@ export function buildReservation(input = {}) {
     currency: text(input.currency ?? 'EUR', 8),
     notes: text(input.notes, 1000),
 
+    /**
+     * True while this is occupancy rather than a guest.
+     *
+     * An iCal feed gives dates, a room and sometimes a booking number. It does not
+     * give a name, an address or a telephone number, and inventing any of them
+     * would be worse than admitting they are missing — so the record says so, and
+     * says it in one field that everything downstream can check. Nothing is emailed
+     * to a provisional reservation, and the Staff app puts it in front of somebody.
+     */
+    provisional: input.provisional === true,
+    /**
+     * The calendar entry this came from, when it came from one.
+     *
+     * The feed's own UID, kept so that reading the same feed again recognises the
+     * reservation it already made instead of making another. It is never shown to a
+     * guest and never used as a booking number, because it is not one.
+     */
+    ical_uid: text(input.ical_uid, 200),
+
     guide_token: input.guide_token ?? opaqueToken(24),
     guide_created_at: input.guide_created_at ?? new Date().toISOString(),
     guide_email_status: input.guide_email_status ?? 'pending',
@@ -134,6 +157,108 @@ export function changesBetween(current, incoming) {
   return changed;
 }
 
+const normaliseRef = (value) => String(value ?? '').replace(/\s+/g, '').toUpperCase();
+
+/**
+ * Fields a provisional reservation is still missing before it is a guest.
+ *
+ * Derived, never stored, so it cannot go stale: the moment a name is filled in the
+ * record stops reporting that it needs one. The Staff app shows this list verbatim
+ * under "Dati ospite da completare".
+ */
+export const REQUIRED_FOR_GUEST = ['first_name', 'last_name', 'guest_email'];
+
+export function incompleteFields(reservation) {
+  if (!reservation) return [];
+  return REQUIRED_FOR_GUEST.filter((field) => !String(reservation[field] ?? '').trim());
+}
+
+/** True when there is a stay here but not yet a guest to send anything to. */
+export const isProvisional = (reservation) =>
+  reservation?.provisional === true || incompleteFields(reservation).length > 0;
+
+/**
+ * Find the provisional reservation this notification is about, if there is one.
+ *
+ * The problem this solves: the calendar feed said room 304 is taken from the 12th
+ * to the 15th, so LunArt holds a provisional stay for it. Three hours later the
+ * QuoVai email arrives for the same stay. Keyed on `source` + `booking_reference`
+ * the email finds nothing — the provisional record came from `ical` and has no
+ * booking number — and files a second reservation. The guest then has two stays,
+ * two Passes and two guide links, one of which nobody is watching.
+ *
+ * So before creating, look for occupancy that is plainly the same stay. Three
+ * tiers, strongest first:
+ *
+ *   1. the booking number, when the feed happened to carry one
+ *   2. the same room over exactly the same nights
+ *   3. the same room arriving on the same day — two guests cannot
+ *
+ * And one rule above all three: **more than one candidate is not a match.** An
+ * ambiguous merge would silently attach a guest to somebody else's stay, orders
+ * and Pass included. Two candidates means a person decides, so it returns the
+ * candidates instead and the caller raises them.
+ */
+export async function findProvisionalMatch({ store, incoming }) {
+  const candidates = (await store.reservations.provisional()).filter((r) => isLive(r));
+  if (candidates.length === 0) return { match: null, by: null, candidates: [] };
+
+  const tiers = [
+    ['booking_reference', (r) => (
+      normaliseRef(incoming.booking_reference)
+      && normaliseRef(r.booking_reference) === normaliseRef(incoming.booking_reference)
+    )],
+    ['room-and-dates', (r) => (
+      incoming.room && incoming.check_in && incoming.check_out
+      && r.room === incoming.room
+      && r.check_in === incoming.check_in && r.check_out === incoming.check_out
+    )],
+    ['room-and-arrival', (r) => (
+      incoming.room && incoming.check_in
+      && r.room === incoming.room && r.check_in === incoming.check_in
+    )],
+  ];
+
+  for (const [by, matches] of tiers) {
+    const found = candidates.filter(matches);
+    if (found.length === 1) return { match: found[0], by, candidates: found };
+    if (found.length > 1) return { match: null, by, candidates: found, ambiguous: true };
+  }
+  return { match: null, by: null, candidates: [] };
+}
+
+/**
+ * Turn occupancy into a guest, in place.
+ *
+ * Everything that identifies the stay to the outside world is kept: the id orders
+ * are filed against, the guide token that may already be open on somebody's phone,
+ * the staff reference read down the telephone, the history, and — because they are
+ * keyed on `reservation_id` elsewhere and never copied in here — the orders, the
+ * Pass and any Privilege card. What changes is where it came from and who it is
+ * for.
+ */
+async function adoptProvisional({ store, reservation, incoming, by }) {
+  const patch = { provisional: false, status: incoming.status ?? RESERVATION_STATUS.active };
+  for (const field of [...MUTABLE, 'source', 'booking_reference', 'source_reference', 'lang']) {
+    const next = incoming[field];
+    if (next === undefined || next === null || next === '') continue;
+    if (String(reservation[field] ?? '') === String(next)) continue;
+    patch[field] = next;
+  }
+  // The guide email was never scheduled for occupancy. Now there is somebody to
+  // send it to, so it goes back on the ordinary footing and the caller schedules it.
+  if (incoming.guest_email) patch.guide_email_status = 'pending';
+
+  const described = Object.entries(patch)
+    .filter(([field]) => field !== 'provisional' && field !== 'status')
+    .map(([field, value]) => `${field}: ${value}`).join(', ');
+  const updated = await store.reservations.update(reservation.id, {
+    ...patch,
+    history: note(reservation, 'completed-from-notification', `${by}; ${described}`).history,
+  });
+  return { ok: true, action: 'completed', reservation: updated, matchedBy: by, changed: patch };
+}
+
 /**
  * Create or update one reservation from an inbound event.
  *
@@ -150,10 +275,24 @@ export async function upsertReservation({ store, event, now = new Date() }) {
   const existing = await store.reservations.findByBooking(incoming.source, incoming.booking_reference);
 
   if (!existing) {
+    /**
+     * Nothing under this key — but possibly the same stay under no key at all.
+     * A calendar feed may already have put it there.
+     */
+    const provisional = await findProvisionalMatch({ store, incoming });
+    if (provisional.match) {
+      return adoptProvisional({ store, reservation: provisional.match, incoming, by: provisional.by });
+    }
     const created = await store.reservations.create(
       note(incoming, 'created', `da ${incoming.source}`),
     );
-    return { ok: true, action: 'created', reservation: created };
+    return {
+      ok: true,
+      action: 'created',
+      reservation: created,
+      /** Said rather than guessed at: two provisional stays could be this one. */
+      ambiguousProvisional: provisional.ambiguous ? provisional.candidates.map((r) => r.id) : null,
+    };
   }
 
   const changed = changesBetween(existing, incoming);
@@ -355,6 +494,10 @@ export function staffView(reservation) {
     total_amount: reservation.total_amount,
     currency: reservation.currency,
     notes: reservation.notes,
+    provisional: reservation.provisional === true,
+    /** Exactly what a person has to go and find. Derived, so it cannot go stale. */
+    incomplete: incompleteFields(reservation),
+    ical_uid: reservation.ical_uid ?? null,
     guide_email_status: reservation.guide_email_status,
     guide_email_sent_at: reservation.guide_email_sent_at,
     guide_created_at: reservation.guide_created_at,

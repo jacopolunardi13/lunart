@@ -124,6 +124,20 @@ export function cancellableUntil(product, line = {}) {
   return { kind: rule.kind, deadline: null };
 }
 
+/**
+ * Is this an address Stripe will accept?
+ *
+ * Deliberately permissive — deciding whether an address exists is for the mail
+ * server, not for a regex — and deliberately not nothing. A guest typed
+ * "irenegmail.com" into the checkout, Stripe refused the session because there
+ * was no `@` in it, and LunArt could only say "payment-provider-unavailable":
+ * a payment failure for a typo, reported as an outage. One shape, checked in the
+ * browser so the guest is told at once, and again on the server so the browser is
+ * not the one deciding.
+ */
+export const EMAIL_SHAPE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+export const looksLikeEmail = (value) => EMAIL_SHAPE.test(String(value ?? '').trim());
+
 /** True when this line can still be cancelled at `now`. */
 export function isCancellable(product, line, now = new Date()) {
   const { kind, deadline } = cancellableUntil(product, line);

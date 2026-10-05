@@ -9,10 +9,10 @@
 
 import { esc } from '../../ui/dom.js';
 import { icon } from '../../ui/icons.js';
-import { UI } from '../../i18n.js';
+import { UI, fill } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
-import { money, shortDate } from './format.js';
-import { fetchOrder } from '../api.js';
+import { money, shortDate, policyText, deadlineText } from './format.js';
+import { fetchOrder, cancelOrderLine } from '../api.js';
 import { guestPurchases } from '../../guest.js';
 
 const STORAGE_KEY = 'lunart.orders.v1';
@@ -143,18 +143,46 @@ const TONE = {
 
 export const statusText = (status, lang) => STATUS_TEXT[lang]?.[status] ?? status;
 
+/**
+ * One line of an order, with what can still be done about it.
+ *
+ * The cancel button is drawn only where the server said the line is cancellable,
+ * and the deadline printed next to it is the server's own. Nothing here decides
+ * either: a browser that got this wrong would offer a button the server refuses, and
+ * one that got it wrong the other way would hide something the guest is entitled to.
+ * The confirmation is in front of the request, not behind it, because this is the
+ * one button in the guide that moves money.
+ */
+function orderLine(line, index, order, lang) {
+  const when = [line.date ? shortDate(line.date, lang) : '', line.time ?? ''].filter(Boolean).join(' · ');
+  const state = line.cancellation ?? {};
+  const gone = Number(state.cancelled_quantity ?? 0);
+  const refunded = Number(state.refunded_amount ?? 0);
+
+  return `<li class="cart-line${gone ? ' cart-line--cancelled' : ''}">
+    <div class="cart-line__main">
+      <p class="cart-line__title">${esc(line.title)}${line.quantity > 1 ? ` ×${line.quantity}` : ''}</p>
+      ${line.variant_title ? `<p class="cart-line__variant">${esc(line.variant_title)}</p>` : ''}
+      ${when ? `<p class="cart-line__when">${esc(when)}</p>` : ''}
+      ${gone ? `<p class="cart-line__note">${esc(refunded
+        ? fill(UI[lang].cancelledRefunded, { amount: money(refunded, { lang, currency: order.currency }) })
+        : UI[lang].cancelledLine)}</p>` : ''}
+      ${state.cancellable ? `<p class="cart-line__note">${esc(state.deadline
+        ? `${UI[lang].cancelFreeUntil} ${deadlineText(state.deadline, lang)}`
+        : policyText(state.policy, lang))}</p>` : ''}
+      ${!state.cancellable && !gone && state.blocked === 'past-deadline'
+        ? `<p class="cart-line__note">${esc(UI[lang].cancelDeadlinePassed)}</p>` : ''}
+    </div>
+    <span class="cart-line__amount">${esc(money(line.amount, { lang, currency: order.currency }))}</span>
+    ${state.cancellable ? `<button class="cart-line__cancel" type="button"
+      data-cancel-line="${index}"
+      data-cancel-amount="${esc(state.refundable_amount ?? 0)}"
+      data-cancel-settlement="${esc(state.settlement ?? 'none')}">${esc(UI[lang].cancelThis)}</button>` : ''}
+  </li>`;
+}
+
 function orderBody(order, lang) {
-  const lines = order.lines.map((line) => {
-    const when = [line.date ? shortDate(line.date, lang) : '', line.time ?? ''].filter(Boolean).join(' · ');
-    return `<li class="cart-line">
-      <div class="cart-line__main">
-        <p class="cart-line__title">${esc(line.title)}${line.quantity > 1 ? ` ×${line.quantity}` : ''}</p>
-        ${line.variant_title ? `<p class="cart-line__variant">${esc(line.variant_title)}</p>` : ''}
-        ${when ? `<p class="cart-line__when">${esc(when)}</p>` : ''}
-      </div>
-      <span class="cart-line__amount">${esc(money(line.amount, { lang, currency: order.currency }))}</span>
-    </li>`;
-  }).join('');
+  const lines = order.lines.map((line, index) => orderLine(line, index, order, lang)).join('');
 
   const cards = (order.entitlements ?? []).map((card) => `
     <button class="card" type="button" data-card="${esc(card.access_token)}">
@@ -182,6 +210,10 @@ function orderBody(order, lang) {
       <span>${esc(order.status === 'authorized' ? UI[lang].authorisedAmount : UI[lang].total)}</span>
       <strong>${esc(money(order.amount, { lang, currency: order.currency }))}</strong>
     </div>
+    ${order.refunded_amount > 0 && order.status !== 'refunded' ? `<div class="cart-total cart-total--muted">
+      <span>${esc(UI[lang].partlyRefunded)}</span>
+      <strong>${esc(money(order.refunded_amount, { lang, currency: order.currency }))}</strong>
+    </div>` : ''}
 
     ${cards ? `<h3 class="checkout-form__heading">${esc(UI[lang].yourCard)}</h3><div class="cards">${cards}</div>` : ''}
 
@@ -200,21 +232,61 @@ export function openOrderSheet(accessToken, { lang, onCard }) {
   });
 
   const wire = (container) => {
-    container.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-card]');
-      if (button) onCard?.(button.dataset.card);
+    container.addEventListener('click', async (event) => {
+      const card = event.target.closest('[data-card]');
+      if (card) { onCard?.(card.dataset.card); return; }
+
+      const cancel = event.target.closest('[data-cancel-line]');
+      if (!cancel) return;
+
+      /**
+       * Ask first, in the terms the guest will actually experience.
+       *
+       * "Ti rimborsiamo €49" and "liberiamo l'autorizzazione di €90" are different
+       * promises and only one of them involves waiting for a bank, so the question
+       * says which one this is. The amount comes from the server's own figure.
+       */
+      const settlement = cancel.dataset.cancelSettlement;
+      const amount = money(Number(cancel.dataset.cancelAmount) || 0, { lang, currency: order.currency });
+      const detail = settlement === 'refund' ? fill(UI[lang].cancelConfirmRefund, { amount })
+        : settlement === 'release' ? fill(UI[lang].cancelConfirmRelease, { amount })
+          : UI[lang].cancelConfirmNothing;
+      if (!window.confirm(`${UI[lang].cancelConfirmTitle}\n\n${detail}`)) return;
+
+      cancel.disabled = true;
+      try {
+        const result = await cancelOrderLine(accessToken, Number(cancel.dataset.cancelLine));
+        order = result.order;
+        replaceSheetBody({
+          title: UI[lang].yourOrder,
+          body: `${order.can_cancel || order.status === 'paid'
+            ? `<div class="notice"><p>${esc(UI[lang].cancelDonePartial)}</p></div>` : ''}${orderBody(order, lang)}`,
+          onMount: wire,
+        });
+      } catch (error) {
+        cancel.disabled = false;
+        const reason = error.payload?.error;
+        cancel.insertAdjacentHTML('afterend', `<p class="cart-line__note cart-line__note--bad">${esc(
+          reason === 'past-deadline' ? UI[lang].cancelDeadlinePassed : UI[lang].cancelFailed,
+        )}</p>`);
+      }
     });
   };
 
+  let order = null;
   fetchOrder(accessToken)
-    .then((order) => {
-      // Only the basket that produced *this* order is emptied, and only once it
-      // has actually gone through. Re-opening an old order later leaves a new
-      // basket alone.
-      if (pendingCheckout() === accessToken && WENT_THROUGH.has(order.status)) {
-        clearCart();
-        clearPending();
-      }
+    .then((loaded) => {
+      order = loaded;
+      /**
+       * The basket is not this screen's business any more.
+       *
+       * It used to be emptied here, which was both the wrong place and quietly
+       * broken: the comparison was against an object and the function it called did
+       * not exist, so the branch never ran — and would have thrown if it had.
+       * `settleCheckout` does it properly, on every start rather than only when an
+       * order sheet happens to be opened, and against a fingerprint of the basket
+       * that actually paid. See the top of this file.
+       */
       replaceSheetBody({ title: UI[lang].yourOrder, body: orderBody(order, lang), onMount: wire });
     })
     .catch(() => replaceSheetBody({
@@ -270,7 +342,11 @@ function purchaseRow(order, lang) {
       <span class="purchase__amount">${esc(money(order.amount, { lang, currency: order.currency }))}</span>
     </span>
     <span class="purchase__meta">
-      <span class="status-pill" data-tone="${esc(TONE[order.status] ?? 'muted')}">${esc(statusText(order.status, lang))}</span>
+      <span class="status-pill" data-tone="${esc(TONE[order.status] ?? 'muted')}">${esc(
+        order.refunded_amount > 0 && order.status !== 'refunded'
+          ? UI[lang].partlyRefunded
+          : statusText(order.status, lang),
+      )}</span>
       ${when ? `<span class="purchase__when">${esc(when)}</span>` : ''}
       ${order.reference ? `<span class="purchase__ref mono">${esc(order.reference)}</span>` : ''}
     </span>

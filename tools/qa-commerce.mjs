@@ -79,6 +79,13 @@ const summary = await page.textContent('[data-summary]');
 note(/89/.test(summary), `the sheet shows the price (${summary.replace(/\s+/g, ' ').trim().slice(0, 60)})`);
 note(/12|ore|hours/.test(summary), 'and the notice the order needs');
 note(/preavviso|notice/i.test(summary), 'it states the notice the bottle needs');
+
+// What happens if they change their mind, said before they decide rather than
+// after. Drawn from the product's own policy, so it cannot drift from the rule the
+// server applies when the cancellation actually arrives.
+const policyLine = await page.textContent('.terms--policy').catch(() => '');
+note(/annullabile|cancellable/i.test(policyLine), `the cancellation policy is stated up front (${policyLine.replace(/\s+/g, ' ').trim().slice(0, 60)})`);
+note(/3 ore|3 hours/i.test(policyLine), 'and it is the bottle’s own three-hour rule');
 await page.screenshot({ path: `${OUT}/product-390.png` });
 
 note(!(await addButton.isDisabled()), 'adding is allowed once the form is complete');
@@ -93,7 +100,7 @@ await page.goto(`${BASE}#/product/brunch`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(600);
 await page.check('input[name="variantId"][value="opera"]', { force: true });
 await page.fill('input[name="date"]', inDays(2));
-await page.selectOption('select[name="slotId"]', 'b-0830');
+await page.selectOption('select[name="slotId"]', 'b-0900');
 await page.selectOption('select[name="option:hotDrink"]', 'cappuccino');
 await page.fill('input[name="room"]', '303');
 await page.waitForTimeout(400);
@@ -130,6 +137,39 @@ await page.waitForTimeout(900);
 const status = await page.textContent('.status-pill');
 note(/pagato|paid/i.test(status), `the order comes back confirmed (${status.trim()})`);
 await page.screenshot({ path: `${OUT}/order-390.png` });
+
+/* ── Changing their mind ──────────────────────────────────────────────── */
+console.log('\n── cancelling a line ──');
+// The brunch is for the day after tomorrow, so it is inside its own window; the
+// Brunello is three days out and inside its own.
+const cancelButtons = page.locator('.cart-line__cancel');
+note((await cancelButtons.count()) >= 1, `the guest is offered a cancellation (${await cancelButtons.count()})`);
+const deadlineNote = (await page.locator('.cart-line__note').allTextContents()).join(' ');
+note(/fino al|until/i.test(deadlineNote), 'with the deadline printed next to it');
+
+// The confirmation is in front of the request, not behind it: this is the one
+// button in the guide that moves money.
+let asked = '';
+page.once('dialog', (dialog) => { asked = dialog.message(); dialog.accept(); });
+const linesBefore = await page.locator('.cart-line').count();
+await cancelButtons.first().click();
+await page.waitForTimeout(1200);
+
+note(/rimborsiamo|refund/i.test(asked), `it asks first, in money terms (${asked.replace(/\s+/g, ' ').slice(0, 70)})`);
+note((await page.locator('.cart-line--cancelled').count()) >= 1, 'the cancelled line stays, struck through');
+note((await page.locator('.cart-line').count()) === linesBefore, 'nothing is removed from the record');
+const afterCancel = (await page.locator('.cart-line__note').allTextContents()).join(' ');
+note(/annullato|cancelled/i.test(afterCancel), 'and it says it was cancelled');
+note(/rimborsat|refunded/i.test(afterCancel), 'and what came back');
+await page.screenshot({ path: `${OUT}/order-cancelled-390.png` });
+
+// The Privilege Card is sold outright, so it is never offered a cancel button.
+await page.goto(`${BASE}#/product/privilege-card`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(600);
+const cardPolicy = await page.textContent('.terms--policy').catch(() => '');
+note(/non annullabile|not cancellable/i.test(cardPolicy), `the card says it cannot be cancelled (${cardPolicy.replace(/\s+/g, ' ').trim().slice(0, 60)})`);
+await page.click('.sheet [data-close]');
+await page.waitForTimeout(400);
 
 /* ── Persistence ──────────────────────────────────────────────────────── */
 console.log('\n── cart persistence ──');
@@ -258,7 +298,10 @@ note(!/cerimonia|ceremony/i.test(serviceText), 'the ceremony styling is not show
 const serviceLabels = await page.locator('.chip--choice').allTextContents();
 note(!serviceLabels.some((label) => /colore|colour|highlight|balayage/i.test(label)),
   'no colour service is offered');
-note(/non sono al momento disponibili|are not available at the moment/i.test(await page.textContent('.terms')),
+// Every `.terms` paragraph, not the first one: the sheet now opens its small print
+// with the cancellation policy, and the prose this is looking for is below it.
+const serviceTerms = (await page.locator('.terms').allTextContents()).join(' ');
+note(/non sono al momento disponibili|are not available at the moment/i.test(serviceTerms),
   'and the terms say so plainly');
 
 const dayOptions = await page.locator('select[name="date"] option').count();

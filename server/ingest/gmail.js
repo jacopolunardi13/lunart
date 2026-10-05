@@ -119,24 +119,34 @@ export function createGmailMailbox(settings = {}) {
      * body. A message whose `get` fails is left out of the batch entirely, which
      * means it is neither ingested nor marked — so it comes back next time.
      */
-    async fetchMessages() {
+    /**
+     * @param {object} [overrides]
+     * @param {string} [overrides.query]  a different search, for the backfill
+     * @param {number} [overrides.max]    a different ceiling, for the same reason
+     */
+    async fetchMessages({ query: queryOverride = '', max = 0 } = {}) {
       if (!client.configured) {
         throw new GoogleError('gmail mailbox is not configured', { code: 'source-not-configured' });
       }
 
+      const search = queryOverride || query;
+      const ceiling = max > 0 ? Math.trunc(max) : cap;
+
       const ids = [];
       let pageToken = '';
 
-      // Pagination. Gmail returns 100 at a time by default and a token for the rest.
+      // Pagination. Gmail returns 100 at a time by default and a token for the
+      // rest, and the backfill is the reason this has to keep going: a year of
+      // notifications is several pages, not one.
       do {
-        const params = new URLSearchParams({ q: query, maxResults: String(Math.min(100, cap)) });
+        const params = new URLSearchParams({ q: search, maxResults: String(Math.min(100, ceiling)) });
         if (pageToken) params.set('pageToken', pageToken);
         const page = await client.call(`${API}/messages?${params}`);
         for (const message of page.messages ?? []) ids.push(message.id);
         pageToken = page.nextPageToken ?? '';
-      } while (pageToken && ids.length < cap);
+      } while (pageToken && ids.length < ceiling);
 
-      const wanted = ids.slice(0, cap).reverse();   // oldest first: a NEW before its MODIFIED
+      const wanted = ids.slice(0, ceiling).reverse();   // oldest first: a NEW before its MODIFIED
       const messages = [];
       const skipped = [];
 
@@ -154,6 +164,7 @@ export function createGmailMailbox(settings = {}) {
       state.lastError = null;
       state.lastCount = messages.length;
       state.skipped = skipped;
+      state.lastQuery = search;
       return messages;
     },
 

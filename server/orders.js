@@ -14,6 +14,7 @@ import { opaqueToken } from './store.js';
 import { priceCart, paymentModeFor, CURRENCY } from '../commerce/ordering.js';
 import { PAYMENT_STATUS, FULFILMENT_STATUS } from '../commerce/schema.js';
 import { buildCard, holderView } from './card.js';
+import { orderCancellation } from '../commerce/cancellation.js';
 
 /** Money states a given state is allowed to move to. Anything else is a bug. */
 const ALLOWED_TRANSITIONS = {
@@ -246,7 +247,16 @@ async function recordAppointments(order, { store, providerCalendar }) {
 }
 
 /** What the guest is shown about their own order. No Stripe ids, no tokens but their own. */
-export function orderView(order, { cards = [] } = {}) {
+export function orderView(order, { cards = [], now = new Date() } = {}) {
+  /**
+   * What can still be called off, worked out here rather than in the browser.
+   *
+   * The screen draws a cancel button from this and nothing else, so the button and
+   * the server's willingness to honour it come from one calculation. See
+   * `commerce/cancellation.js`.
+   */
+  const cancellation = orderCancellation(order, { now });
+
   return {
     id: order.id,
     reference: String(order.id).slice(0, 8).toUpperCase(),
@@ -255,9 +265,12 @@ export function orderView(order, { cards = [] } = {}) {
     payment_mode: order.payment_mode,
     currency: order.currency,
     amount: order.amount,
+    /** How much of it has come back, so "paid" and "partly refunded" can differ. */
+    refunded_amount: Number(order.refunded_amount ?? 0),
+    cancelled_amount: Number(order.cancelled_amount ?? 0),
     created_at: order.created_at,
     customer: { name: order.customer.name, email: order.customer.email, room: order.customer.room },
-    lines: order.lines.map((line) => ({
+    lines: order.lines.map((line, index) => ({
       title: line.title,
       variant_title: line.variant_title,
       quantity: line.quantity,
@@ -268,7 +281,10 @@ export function orderView(order, { cards = [] } = {}) {
       room: line.room,
       options: line.options,
       purchase_mode: line.purchase_mode,
+      /** The line's own cancellation state: policy, deadline, what comes back. */
+      cancellation: cancellation.lines[index],
     })),
+    can_cancel: cancellation.anyCancellable,
     provider: order.provider,
     entitlements: cards.map((card) => ({
       type: 'privilege_card',

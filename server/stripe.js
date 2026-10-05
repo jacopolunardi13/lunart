@@ -192,15 +192,22 @@ export function createMockStripe() {
       return intent;
     },
 
-    async capturePaymentIntent(id) {
+    async capturePaymentIntent(id, params = {}) {
       const intent = intents.get(id);
       if (!intent) throw new StripeError('No such payment intent', { status: 404 });
       if (intent.status === 'succeeded') return intent;        // capture is idempotent here
       if (intent.status !== 'requires_capture') {
         throw new StripeError(`payment intent is ${intent.status}, cannot capture`, { status: 400, code: 'payment_intent_unexpected_state' });
       }
+      // Capturing for less than was authorised is a real Stripe feature and the one
+      // the cancellation path depends on, so the stand-in has to honour it or the
+      // reduced-capture case would only ever be exercised against the live API.
+      const asked = Number(params.amount_to_capture);
+      const amount = Number.isFinite(asked) && asked >= 0
+        ? Math.min(Math.trunc(asked), intent.amount_capturable)
+        : intent.amount_capturable;
       intent.status = 'succeeded';
-      intent.amount_received = intent.amount_capturable;
+      intent.amount_received = amount;
       intent.amount_capturable = 0;
       return intent;
     },
@@ -217,14 +224,35 @@ export function createMockStripe() {
       return intent;
     },
 
-    async createRefund({ payment_intent: intentId }) {
+    async createRefund({ payment_intent: intentId, amount }) {
       const intent = intents.get(intentId);
       if (!intent) throw new StripeError('No such payment intent', { status: 404 });
-      if (intent.status !== 'succeeded') {
+      if (intent.status !== 'succeeded' && intent.status !== 'partially_refunded') {
         throw new StripeError('nothing to refund', { status: 400 });
       }
-      intent.status = 'refunded';
-      return { id: `re_mock_${randomUUID().slice(0, 12)}`, object: 'refund', payment_intent: intentId, amount: intent.amount_received };
+      /**
+       * Partial refunds, because that is the ordinary case.
+       *
+       * A guest cancels the brunch out of an order that also holds a Privilege Card.
+       * Stripe refunds the amount asked for and leaves the intent otherwise alone;
+       * a stand-in that marked the whole thing `refunded` would make the mixed-order
+       * path untestable without a live key, which is exactly the path most worth
+       * testing.
+       */
+      const already = Number(intent.amount_refunded ?? 0);
+      const available = Math.max(0, Number(intent.amount_received ?? 0) - already);
+      const asked = Number.isFinite(Number(amount)) ? Math.trunc(Number(amount)) : available;
+      if (asked <= 0 || asked > available) {
+        throw new StripeError('refund amount is more than is available', { status: 400, code: 'amount_too_large' });
+      }
+      intent.amount_refunded = already + asked;
+      intent.status = intent.amount_refunded >= Number(intent.amount_received ?? 0) ? 'refunded' : 'partially_refunded';
+      return {
+        id: `re_mock_${randomUUID().slice(0, 12)}`,
+        object: 'refund',
+        payment_intent: intentId,
+        amount: asked,
+      };
     },
 
     /** Drives the mock checkout page: the guest "pays". */

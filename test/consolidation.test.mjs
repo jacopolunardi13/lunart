@@ -376,6 +376,18 @@ test('every interface string exists in both languages', () => {
   }
 });
 
+test('a placeholder in one language exists in the other', () => {
+  /**
+   * The failure this catches: `'Ti rimborsiamo {amount}'` translated as
+   * `'We will refund it'`. Both are non-empty strings, both pass every other check,
+   * and one of them tells an English-speaking guest nothing about how much.
+   */
+  const placeholders = (value) => [...String(value).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+  for (const key of Object.keys(UI.it)) {
+    assert.deepEqual(placeholders(UI.it[key]), placeholders(UI.en[key]), key);
+  }
+});
+
 test('every product renders in both languages, coming-soon ones included', async () => {
   const { body } = await api('/api/catalog');
   for (const product of body.products) {

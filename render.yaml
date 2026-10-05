@@ -66,6 +66,19 @@ services:
       - key: HOUSEKEEPING_MINUTES
         value: "60"
 
+      # QUOVAI_ICAL_FEEDS is deliberately absent, and it is the one value LunArt is
+      # still waiting on from outside.
+      #
+      # The calendar safety net is built and tested; what it has no way to invent is
+      # a feed URL. Add it as `301:https://…,302:https://…` — one export per room,
+      # prefixed with the room it belongs to — and set ICAL_POLL_MINUTES to 15. The
+      # Staff app's sync screen says which is missing, and "Esamina i feed" reads
+      # one without writing anything, which is the right first thing to do with a
+      # URL nobody here has seen yet.
+      #
+      # Nothing happens until both are set: with no feed the reconciliation refuses
+      # and says so, rather than reporting a clean comparison of nothing.
+
       # PUBLIC_URL is deliberately absent: the server falls back to
       # RENDER_EXTERNAL_URL, so the personal guide links are built from the address
       # this service actually has.

@@ -102,6 +102,7 @@ export const UI = {
     authorisationNotice: 'Il transfer è soggetto a conferma di disponibilità. L’importo viene autorizzato ora e addebitato solo dopo la conferma dell’autista.',
     goToPayment: 'Vai al pagamento',
     detailsMissing: 'Servono nome ed email.',
+    emailInvalid: 'Controlla l’indirizzo email.',
     sendingToPayment: 'Un momento…',
     checkoutRefused: 'Non possiamo procedere:',
     checkoutFailed: 'Qualcosa è andato storto:',
@@ -118,6 +119,26 @@ export const UI = {
     orderNotFound: 'Non troviamo questo ordine.',
     awaitingProviderNote: 'Stiamo verificando la disponibilità con l’autista. Finché non conferma non viene addebitato nulla.',
     providerDeclinedNote: 'Purtroppo non era disponibile. L’autorizzazione è stata annullata e non ti è stato addebitato nulla.',
+
+    /* Annullamento e rimborso, dal lato dell’ospite. */
+    cancellationPolicy: 'Annullamento',
+    cancelFreeUntil: 'Annullabile gratuitamente fino al',
+    cancelHoursBefore: 'Annullabile fino a {hours} ore prima dell’orario scelto',
+    cancelDayBefore: 'Annullabile fino alle {hour}:00 del giorno prima',
+    cancelNotPossible: 'Non annullabile dopo l’acquisto',
+    cancelThis: 'Annulla',
+    cancelConfirmTitle: 'Confermi l’annullamento?',
+    cancelConfirmRefund: 'Ti rimborsiamo {amount}. Il rimborso arriva sulla stessa carta, di solito entro pochi giorni lavorativi.',
+    cancelConfirmRelease: 'Liberiamo l’autorizzazione di {amount}. Non ti è stato addebitato nulla e non lo sarà.',
+    cancelConfirmNothing: 'Non è stato addebitato nulla, quindi non c’è niente da rimborsare.',
+    cancelConfirmYes: 'Sì, annulla',
+    cancelKeep: 'No, mantieni',
+    cancelledLine: 'Annullato',
+    cancelledRefunded: 'Annullato · rimborsati {amount}',
+    cancelDonePartial: 'Annullato. Il resto dell’ordine resta valido.',
+    cancelDeadlinePassed: 'Il termine per annullare è passato. Scrivici su WhatsApp: vediamo cosa possiamo fare.',
+    cancelFailed: 'Non è stato possibile annullare adesso. Riprova, oppure scrivici su WhatsApp.',
+    partlyRefunded: 'Rimborsato in parte',
     upToTwo: 'fino a 2 persone',
     qrLabel: 'QR della tua LunArt Privilege Card',
     showAtVenue: 'Mostra questo codice al locale.',
@@ -249,6 +270,7 @@ export const UI = {
     authorisationNotice: 'The transfer is subject to availability. The amount is authorised now and charged only once the driver confirms.',
     goToPayment: 'Go to payment',
     detailsMissing: 'We need a name and an email.',
+    emailInvalid: 'Check the email address.',
     sendingToPayment: 'One moment…',
     checkoutRefused: 'We cannot go on:',
     checkoutFailed: 'Something went wrong:',
@@ -265,6 +287,26 @@ export const UI = {
     orderNotFound: 'We cannot find that order.',
     awaitingProviderNote: 'We are checking with the driver. Nothing is charged until they confirm.',
     providerDeclinedNote: 'Unfortunately nobody was available. The authorisation was released and you have not been charged.',
+
+    /* Cancelling, and getting the money back. */
+    cancellationPolicy: 'Cancellation',
+    cancelFreeUntil: 'Free cancellation until',
+    cancelHoursBefore: 'Cancellable until {hours} hours before the time you chose',
+    cancelDayBefore: 'Cancellable until {hour}:00 the day before',
+    cancelNotPossible: 'Not cancellable once bought',
+    cancelThis: 'Cancel',
+    cancelConfirmTitle: 'Cancel this?',
+    cancelConfirmRefund: 'We will refund {amount} to the same card, usually within a few working days.',
+    cancelConfirmRelease: 'We will release the {amount} hold. Nothing has been charged and nothing will be.',
+    cancelConfirmNothing: 'Nothing was charged, so there is nothing to refund.',
+    cancelConfirmYes: 'Yes, cancel',
+    cancelKeep: 'No, keep it',
+    cancelledLine: 'Cancelled',
+    cancelledRefunded: 'Cancelled · {amount} refunded',
+    cancelDonePartial: 'Cancelled. The rest of your order stands.',
+    cancelDeadlinePassed: 'The cancellation window has closed. Message us on WhatsApp and we will see what we can do.',
+    cancelFailed: 'We could not cancel that just now. Try again, or message us on WhatsApp.',
+    partlyRefunded: 'Partly refunded',
     upToTwo: 'up to 2 people',
     qrLabel: 'The QR of your LunArt Privilege Card',
     showAtVenue: 'Show this code at the venue.',
@@ -305,6 +347,23 @@ export const UI = {
 };
 
 /** Browser preference first, then whatever the guest last chose. */
+/**
+ * Fill the placeholders in one interface string.
+ *
+ * The copy stays as copy — `'Ti rimborsiamo {amount}.'` — rather than becoming a
+ * function, because the table is read by people who are translating it and checked
+ * wholesale by a test that every entry in it is a non-empty string in both
+ * languages. A function-valued entry would quietly exempt itself from both.
+ *
+ * A placeholder with no value is left as it is rather than blanked: a visible
+ * `{amount}` is a bug anybody can see, and an empty space is a bug nobody can.
+ */
+export function fill(template, values = {}) {
+  return String(template ?? '').replace(/\{(\w+)\}/g, (whole, key) => (
+    Object.hasOwn(values, key) ? String(values[key]) : whole
+  ));
+}
+
 export function initialLang() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);

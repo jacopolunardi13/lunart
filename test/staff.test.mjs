@@ -176,7 +176,7 @@ const order = (over = {}) => ({
   currency: 'EUR',
   payment_mode: 'instant',
   customer: { name: 'Marta', room: '303', phone: '+39348', email: 'm@example.invalid' },
-  lines: [{ product_id: 'brunch', title: 'Brunch', quantity: 1, amount: 6900, date: '2026-10-13', slot_id: 'b-0830', room: '303', fields: {}, options: {} }],
+  lines: [{ product_id: 'brunch', title: 'Brunch', quantity: 1, amount: 6900, date: '2026-10-13', slot_id: 'b-0900', room: '303', fields: {}, options: {} }],
   provider: { status: 'not-required' },
   events: [],
   ...over,

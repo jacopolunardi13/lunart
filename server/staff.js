@@ -22,10 +22,10 @@
 import { PAYMENT_STATUS, FULFILMENT_STATUS, canFulfilmentMove } from '../commerce/schema.js';
 import { canTransition, appendEvent } from './orders.js';
 import { getProduct, cancellableUntil } from '../commerce/ordering.js';
-import { propertyDate } from '../commerce/time.js';
+import { propertyDate, addDays } from '../commerce/time.js';
 import {
   buildReservation, upsertReservation, cancelReservation, staffView,
-  rotateGuideToken, RESERVATION_STATUS, isLive,
+  rotateGuideToken, RESERVATION_STATUS, isLive, incompleteFields,
 } from './reservations.js';
 import { scheduleGuideEmail, cancelGuideEmail, guideUrl, DELIVERY_STATUS } from './delivery.js';
 
@@ -74,6 +74,19 @@ export function staffOrderView(order, { now = new Date() } = {}) {
     payment_mode: order.payment_mode,
     amount: order.amount,
     currency: order.currency,
+    /** What has come back, and who sent it back. */
+    refunded_amount: Number(order.refunded_amount ?? 0),
+    cancelled_amount: Number(order.cancelled_amount ?? 0),
+    /**
+     * True when the guest called part of this off themselves.
+     *
+     * Staff have to know, and they have to know without reading a ledger: a brunch
+     * that was paid for and then cancelled at nine the evening before is a brunch
+     * the kitchen must not make, and the only trace of that decision is here.
+     */
+    guest_cancelled: (order.lines ?? []).some((line) => (
+      (line.cancellations ?? []).some((entry) => entry.actor === 'guest')
+    )),
     created_at: order.created_at,
     updated_at: order.updated_at,
     express: isExpress(order),
@@ -109,6 +122,15 @@ export function staffOrderView(order, { now = new Date() } = {}) {
         cancellable_until: cancellation.deadline ? cancellation.deadline.toISOString() : null,
         cancellable_now: cancellation.kind !== 'none'
           && (!cancellation.deadline || now <= cancellation.deadline),
+        /** And what has actually been called off, by whom, and for how much. */
+        cancelled_quantity: Number(line.cancelled_quantity ?? 0),
+        cancelled_by: line.cancelled_by ?? null,
+        cancelled_at: line.cancelled_at ?? null,
+        refunded_amount: Number(line.refunded_amount ?? 0),
+        cancellations: (line.cancellations ?? []).map((entry) => ({
+          at: entry.at, quantity: entry.quantity, amount: entry.amount,
+          actor: entry.actor, outcome: entry.outcome, reason: entry.reason ?? '',
+        })),
       };
     }),
     provider: order.provider,
@@ -283,7 +305,133 @@ export async function guideLinkFor({ store, reservation, origin, rotate = false 
   return { link: guideUrl(origin, current), rotated: rotate };
 }
 
+/* ── Reservations, in the order they matter ────────────────────────────── */
+
+/**
+ * The order a person actually works in.
+ *
+ * Sorting reservations by check-in date puts last March at the top and the guest
+ * standing at the desk four screens down. What a person needs first is who is here,
+ * then who arrives today, then who arrives soon — and finished stays not at all
+ * until they go looking for one.
+ *
+ * `incomplete` sits where it does on purpose. A provisional stay arriving today is
+ * urgent *because it is arriving today*, so it stays in `arriving-today` and carries
+ * its missing-fields list with it rather than being filed away under a data problem.
+ * This group is for the stays that cannot be placed on the timeline at all — no
+ * dates, or dates that make no sense — which would otherwise fall off the bottom.
+ */
+export const RESERVATION_GROUPS = [
+  'in-house', 'arriving-today', 'arriving-soon', 'upcoming', 'incomplete', 'history',
+];
+
+/** Within how many days an arrival counts as soon rather than merely upcoming. */
+export const ARRIVING_SOON_DAYS = 7;
+
+export function reservationGroup(reservation, today = propertyDate(), { soonDays = ARRIVING_SOON_DAYS } = {}) {
+  if (!isLive(reservation)) return 'history';
+  const { check_in: from, check_out: to } = reservation;
+  if (!from || !to || to < from) return 'incomplete';
+  if (to < today) return 'history';
+
+  /**
+   * Arriving today is checked before in the house, and the order is the point.
+   *
+   * A stay that begins today satisfies both readings — it is today, and it covers
+   * today — and the two mean different things at the desk: somebody arriving has
+   * not been given their keys, their room may not be ready, and nobody has met
+   * them yet. Testing for in-house first would fold every arrival into the people
+   * already upstairs and leave the arrivals group permanently empty.
+   */
+  if (from === today) return 'arriving-today';
+  if (from < today && to >= today) return 'in-house';
+  if (from > today) {
+    const soon = addDays(today, soonDays);
+    return from <= soon ? 'arriving-soon' : 'upcoming';
+  }
+  return 'history';
+}
+
+/**
+ * Every reservation, grouped and sorted the way the Staff app reads them.
+ *
+ * History is returned too rather than withheld, because the app's filter is a filter
+ * and not a second request: a person looking for last week's guest should not wait
+ * for a round trip. It is last, and it is collapsed.
+ */
+export function groupReservations(reservations = [], { now = new Date(), soonDays = ARRIVING_SOON_DAYS } = {}) {
+  const today = propertyDate(now);
+  const groups = Object.fromEntries(RESERVATION_GROUPS.map((id) => [id, []]));
+
+  for (const reservation of reservations) {
+    groups[reservationGroup(reservation, today, { soonDays })].push(reservation);
+  }
+
+  // Inside a group, soonest first — except history, which reads newest first.
+  for (const id of RESERVATION_GROUPS) {
+    groups[id].sort((a, b) => (id === 'history'
+      ? String(b.check_in ?? '').localeCompare(String(a.check_in ?? ''))
+      : String(a.check_in ?? '').localeCompare(String(b.check_in ?? ''))));
+  }
+
+  return {
+    today,
+    order: RESERVATION_GROUPS,
+    groups: Object.fromEntries(RESERVATION_GROUPS.map((id) => [id, groups[id].map(staffView)])),
+    counts: Object.fromEntries(RESERVATION_GROUPS.map((id) => [id, groups[id].length])),
+    /** How many live stays still need a person to go and find something. */
+    needsData: reservations.filter((r) => isLive(r) && incompleteFields(r).length > 0).length,
+  };
+}
+
 /* ── Sync ──────────────────────────────────────────────────────────────── */
+
+/**
+ * The three mailbox-and-calendar jobs, each reported on its own.
+ *
+ * They are genuinely different operations with different failure modes, and rolling
+ * them into one "sync: ok" is how an operator comes to believe the backfill has run
+ * when it never has. So each one says, separately: whether it is configured, when it
+ * last succeeded, what went wrong last time, and what its last run actually found.
+ *
+ *   gmail-incremental  the primary source, every few minutes, recent mail only
+ *   gmail-backfill     staff-triggered, a year of mail, recovers what was missed
+ *   ical               the safety net: occupancy, provisional stays, mismatches
+ *
+ * Read from the store rather than from the scheduler's memory, because the question
+ * this answers is usually asked just after a deploy.
+ */
+export const SYNC_JOBS = ['gmail-incremental', 'gmail-backfill', 'ical'];
+
+export async function syncJobStates({ store }) {
+  const runs = await store.syncRuns.all();
+  return Object.fromEntries(SYNC_JOBS.map((job) => {
+    const row = runs[job] ?? null;
+    const summary = row?.summary ?? {};
+    return [job, {
+      job,
+      /** Never run is a different answer from ran and found nothing. */
+      everRan: Boolean(row),
+      runs: row?.runs ?? 0,
+      lastRunAt: row?.at ?? null,
+      lastSuccessAt: row?.lastSuccessAt ?? null,
+      lastError: row?.lastError ?? null,
+      counts: {
+        scanned: summary.scanned ?? summary.checked ?? 0,
+        created: summary.created ?? 0,
+        modified: summary.modified ?? 0,
+        cancelled: summary.cancelled ?? 0,
+        unchanged: summary.unchanged ?? 0,
+        ignored: summary.ignored ?? 0,
+        failed: summary.failed ?? 0,
+        matched: summary.matched ?? 0,
+        unmatched: summary.unmatched ?? 0,
+        vanished: summary.vanished ?? 0,
+        ambiguous: summary.ambiguous ?? 0,
+      },
+    }];
+  }));
+}
 
 /**
  * The synchronisation screen: one row per reservation, and what has happened to it.
@@ -304,6 +452,7 @@ export async function syncOverview({ store, now = new Date() }) {
     .map((reservation) => {
       const delivery = byReservation.get(reservation.id) ?? null;
       const problems = [];
+      if (reservation.provisional === true) problems.push('provisional');
       if (!reservation.guest_email) problems.push('no-guest-email');
       if (!reservation.room) problems.push('no-room');
       if (!reservation.check_in || !reservation.check_out) problems.push('no-dates');
@@ -328,6 +477,9 @@ export async function syncOverview({ store, now = new Date() }) {
         email_sent_at: delivery?.sent_at ?? null,
         needs_review: problems.length > 0,
         problems,
+        provisional: reservation.provisional === true,
+        /** The fields a person has to go and find, named. */
+        incomplete: incompleteFields(reservation),
       };
     });
 
@@ -345,6 +497,9 @@ export async function syncOverview({ store, now = new Date() }) {
       detail: alert.detail, created_at: alert.created_at,
     })),
     mismatches: alerts.filter((a) => a.kind === 'occupancy-not-synchronised').length,
+    /** Stays held from a calendar with nobody's name on them yet. */
+    provisional: rows.filter((r) => r.provisional).length,
+    jobs: await syncJobStates({ store }),
   };
 }
 
@@ -371,5 +526,28 @@ export async function dashboard({ store, now = new Date() }) {
       .sort((a, b) => `${a.date}${a.time ?? ''}`.localeCompare(`${b.date}${b.time ?? ''}`))
       .slice(0, 8),
     alerts: alerts.length,
+    /**
+     * Lines the guests themselves called off, newest first.
+     *
+     * On the first screen because it is the one kind of change nobody at LunArt
+     * made: a kitchen that does not see it makes a breakfast that is not owed.
+     */
+    guestCancellations: Object.values(queues).flat()
+      .flatMap((order) => (order.lines ?? []).flatMap((line) => (line.cancellations ?? [])
+        .filter((entry) => entry.actor === 'guest')
+        .map((entry) => ({
+          order_id: order.id,
+          reference: String(order.id).slice(0, 8).toUpperCase(),
+          title: line.variant_title ? `${line.title} — ${line.variant_title}` : line.title,
+          room: line.room || order.customer?.room || '',
+          date: line.date ?? null,
+          time: line.time ?? null,
+          at: entry.at,
+          quantity: entry.quantity,
+          amount: entry.amount,
+          outcome: entry.outcome,
+        }))))
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+      .slice(0, 12),
   };
 }

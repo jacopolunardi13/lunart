@@ -84,6 +84,20 @@ export const startCheckout = (payload) =>
 
 export const fetchOrder = (accessToken) => request(`/orders/${encodeURIComponent(accessToken)}`);
 
+/**
+ * Call one line of an order off.
+ *
+ * Sends which line and how many, and nothing else — no amount, no date, no policy.
+ * The server recomputes all of it from the stored order and the catalogue, which is
+ * the only arrangement under which a button in a browser can be allowed to move
+ * money. What comes back is the whole order again, already recalculated.
+ */
+export const cancelOrderLine = (accessToken, line, quantity) =>
+  request(`/orders/${encodeURIComponent(accessToken)}/cancel`, {
+    method: 'POST',
+    body: { line, ...(quantity ? { quantity } : {}) },
+  });
+
 export const fetchCard = (accessToken) => request(`/card/${encodeURIComponent(accessToken)}`);
 
 export const validateCard = (reference, code) =>

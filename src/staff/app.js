@@ -185,6 +185,28 @@ async function renderDashboard() {
       ${stat(data.inHouse, 'In casa')}
     </div>
 
+    ${/**
+      * Lines the guests themselves called off.
+      *
+      * Near the top because it is the one change on this screen nobody at LunArt
+      * made: a cancelled breakfast that the kitchen does not see is a breakfast
+      * that goes up anyway. The money is already settled by the time it appears.
+      */''}
+    ${(data.guestCancellations ?? []).length ? `<h2>Annullati dagli ospiti</h2>
+      ${data.guestCancellations.map((entry) => `
+        <div class="row">
+          <div class="row__head">
+            <span class="row__title">${esc(entry.title)}${entry.quantity > 1 ? ` ×${esc(entry.quantity)}` : ''}</span>
+            <span class="row__amount">${esc(money(entry.amount, 'EUR'))}</span>
+          </div>
+          <p class="row__meta">
+            ${entry.room ? `Camera ${esc(entry.room)}` : ''}
+            ${entry.date ? ` · era per ${esc(day(entry.date))}${entry.time ? ` ${esc(entry.time)}` : ''}` : ''}
+            · <span class="pill" data-tone="${entry.outcome === 'refunded' ? 'good' : 'warn'}">${esc(CANCEL_OUTCOMES[entry.outcome] ?? entry.outcome)}</span>
+          </p>
+          <p class="row__meta">${esc(stamp(entry.at))} · ordine <span class="mono">${esc(entry.reference)}</span></p>
+        </div>`).join('')}` : ''}
+
     ${data.arrivals.length ? `<h2>Arrivi</h2>${data.arrivals.map(reservationRow).join('')}` : ''}
     ${data.departures.length ? `<h2>Partenze</h2>${data.departures.map(reservationRow).join('')}` : ''}
 
@@ -212,6 +234,11 @@ function orderRow(order) {
       ${Object.entries(line.options ?? {}).map(([key, value]) => `<div><span>${esc(key)}</span><span>${esc(value)}</span></div>`).join('')}
       ${Object.entries(line.fields ?? {}).map(([key, value]) => `<div><span>${esc(key)}</span><span>${esc(value)}</span></div>`).join('')}
       ${line.cancellable_until ? `<div><span>Annullabile fino a</span><span>${esc(stamp(line.cancellable_until))}</span></div>` : ''}
+      ${line.cancelled_quantity ? `<div><span>Annullato</span><span>
+        ${esc(line.cancelled_quantity)}${line.quantity > 1 ? ` di ${esc(line.quantity)}` : ''}
+        ${line.cancelled_by ? `· ${esc(line.cancelled_by === 'guest' ? 'dall’ospite' : 'dallo staff')}` : ''}
+        ${line.refunded_amount ? `· rimborsati ${esc(money(line.refunded_amount, order.currency))}` : ''}
+      </span></div>` : ''}
     </div>`).join('');
 
   return `<div class="row" data-order="${esc(order.id)}">
@@ -224,6 +251,9 @@ function orderRow(order) {
       · <span class="pill" data-tone="${tone}">${esc(label(order.status))}</span>
       <span class="pill">${esc(label(order.fulfilment_status))}</span>
       ${order.provider?.assignee ? `<span class="pill">${esc(order.provider.assignee)}</span>` : ''}
+      ${order.guest_cancelled ? '<span class="pill" data-tone="bad">annullato dall’ospite</span>' : ''}
+      ${order.refunded_amount && order.status !== 'refunded'
+        ? `<span class="pill" data-tone="warn">rimborsati ${esc(money(order.refunded_amount, order.currency))}</span>` : ''}
     </p>
     ${lines}
     <div class="actions">
@@ -250,12 +280,18 @@ async function renderQueue(queue) {
     : '<p class="empty">Niente in questa coda.</p>');
 }
 
+/** The fields a provisional stay is still missing, in words rather than in keys. */
+const FIELD_NAMES = {
+  first_name: 'nome', last_name: 'cognome', guest_email: 'email', guest_phone: 'telefono',
+};
+
 function reservationRow(reservation) {
   const tone = { active: 'good', modified: 'warn', cancelled: 'bad', completed: '' }[reservation.status] ?? '';
-  return `<details class="row" data-reservation="${esc(reservation.id)}">
+  const missing = reservation.incomplete ?? [];
+  return `<details class="row" data-reservation="${esc(reservation.id)}"${reservation.provisional ? ' data-provisional' : ''}>
     <summary>
       <div class="row__head">
-        <span class="row__title">${esc([reservation.first_name, reservation.last_name].filter(Boolean).join(' ') || '—')}</span>
+        <span class="row__title">${esc([reservation.first_name, reservation.last_name].filter(Boolean).join(' ') || 'Ospite da identificare')}</span>
         <span class="row__amount">${esc(day(reservation.check_in))} → ${esc(day(reservation.check_out))}</span>
       </div>
       <p class="row__meta">
@@ -263,8 +299,15 @@ function reservationRow(reservation) {
         · ${esc(reservation.guest_count ?? 0)} ospiti
         · <span class="pill" data-tone="${tone}">${esc(label(reservation.status))}</span>
         ${reservation.channel ? `<span class="pill">${esc(reservation.channel)}</span>` : ''}
+        ${reservation.provisional ? '<span class="pill" data-tone="warn">provvisoria</span>' : ''}
       </p>
+      ${missing.length ? `<p class="row__meta row__meta--warn">Dati ospite da completare: ${esc(missing.map((f) => FIELD_NAMES[f] ?? f).join(', '))}</p>` : ''}
     </summary>
+    ${reservation.provisional ? `<p class="note">
+      Creata dal calendario: sappiamo che la camera è occupata, non chi arriva.
+      Nessuna email è stata programmata. Quando arriva la notifica QuoVai questa
+      scheda si completa da sola, senza creare una seconda prenotazione.
+    </p>` : ''}
     <div class="row__fields">
       <div><span>Prenotazione</span><span class="mono">${esc(reservation.booking_reference || '—')}</span></div>
       <div><span>Riferimento LunArt</span><span class="mono">${esc(reservation.staff_ref || '—')}</span></div>
@@ -283,11 +326,43 @@ function reservationRow(reservation) {
   </details>`;
 }
 
+/**
+ * The groups, in the order a person works them, and what each one is called.
+ *
+ * History is last and closed, because it is the only group nobody is looking for
+ * until they are looking for one specific thing in it.
+ */
+const GROUP_NAMES = {
+  'in-house': 'In casa adesso',
+  'arriving-today': 'Arrivi di oggi',
+  'arriving-soon': 'Arrivi nei prossimi giorni',
+  upcoming: 'Prossimi soggiorni',
+  incomplete: 'Date da sistemare',
+  history: 'Storico',
+};
+
 async function renderReservations() {
   const data = await api('/reservations');
+  const groups = data.groups ?? {};
+  const order = data.order ?? Object.keys(groups);
+
+  const group = (id) => {
+    const rows = groups[id] ?? [];
+    if (rows.length === 0) return '';
+    if (id === 'history') {
+      return `<details class="row"><summary><div class="row__head">
+          <span class="row__title">${esc(GROUP_NAMES.history)}</span>
+          <span class="row__amount">${rows.length}</span>
+        </div></summary>${rows.map(reservationRow).join('')}</details>`;
+    }
+    return `<h3 class="group">${esc(GROUP_NAMES[id] ?? id)} <span class="group__count">${rows.length}</span></h3>
+      ${rows.map(reservationRow).join('')}`;
+  };
+
   paint(`
     <h2>Prenotazioni</h2>
-    ${data.reservations.length ? data.reservations.map(reservationRow).join('') : '<p class="empty">Nessuna prenotazione.</p>'}
+    ${data.needsData ? `<p class="note note--warn">${data.needsData} ${data.needsData === 1 ? 'soggiorno ha' : 'soggiorni hanno'} dati ospite da completare.</p>` : ''}
+    ${order.some((id) => (groups[id] ?? []).length) ? order.map(group).join('') : '<p class="empty">Nessuna prenotazione.</p>'}
 
     <h2>Inserimento manuale</h2>
     <p class="note">Da usare quando la notifica non è arrivata. Il resto funziona uguale: link personale e email programmata.</p>
@@ -359,6 +434,43 @@ function repairSummary(result) {
   </div>`;
 }
 
+/**
+ * What the backfill recovered.
+ *
+ * Every reservation it created is named with its dates, because the only way to
+ * trust a number like "17 created" is to recognise a few of the names in it.
+ */
+function backfillSummary(result) {
+  const counts = [
+    ['Lette', result.scanned],
+    ['Prenotazioni', result.reservationEvents],
+    ['Create', result.created],
+    ['Modificate', result.modified],
+    ['Annullate', result.cancelled],
+    ['Già note', result.duplicates + result.unchanged],
+    ['Non nostre', result.ignored],
+    ['Illeggibili', result.failed],
+  ];
+
+  const recovered = (result.recovered ?? []).map((row) => `
+    <li><strong>${esc(row.guest || row.booking_reference)}</strong>
+      ${row.room ? `· ${esc(UI_ROOM)} ${esc(row.room)}` : ''}
+      · ${esc(row.check_in)} → ${esc(row.check_out)}
+      <span class="mono">${esc(row.booking_reference)}</span></li>`).join('');
+
+  const problems = (result.problems ?? []).map((p) => `
+    <li>${esc(p.subject ?? '')} — ${esc(p.reason)}</li>`).join('');
+
+  return `<div class="banner" data-tone="${result.failed > 0 ? 'warn' : ''}">
+    <p>${counts.map(([label, value]) => `${esc(label)}: <strong>${Number(value ?? 0)}</strong>`).join(' · ')}</p>
+    ${recovered ? `<p class="note">Recuperate:</p><ul class="repair__list">${recovered}</ul>`
+    : '<p class="note">Nessuna prenotazione nuova da recuperare.</p>'}
+    ${problems ? `<p class="note">Da guardare:</p><ul class="repair__list">${problems}</ul>` : ''}
+  </div>`;
+}
+
+const UI_ROOM = 'camera';
+
 async function renderSync() {
   const data = await api('/sync');
 
@@ -418,6 +530,15 @@ async function renderSync() {
     ${row('Notifiche push', data.push, data.push?.configured ? `Trasporto: ${data.push.transport}` : 'L’app funziona lo stesso: si aggiorna da sola quando la apri')}
     ${row('Calendario del professionista', data.calendar, data.calendar?.id ?? '')}
 
+    <h2>Sincronizzazione prenotazioni</h2>
+    <p class="note">
+      Tre operazioni diverse, con tre esiti diversi. Il polling tiene il passo con
+      quello che arriva; il recupero storico riprende quello che non è mai arrivato;
+      il calendario è la rete di sicurezza. Qui ognuna dice per conto suo quando è
+      andata bene l’ultima volta e cosa ha trovato.
+    </p>
+    ${SYNC_JOBS.map((id) => syncJobRow(id, data.jobs?.[id])).join('')}
+
     <h2>Processi automatici</h2>
     ${jobs.length ? jobs.map(jobRow).join('') : '<p class="note">Nessun processo schedulato.</p>'}
     <div class="actions">
@@ -435,6 +556,37 @@ async function renderSync() {
     </p>
     <div class="actions">
       <button class="action" type="button" data-sync="repair">Ripara prenotazioni QuoVai</button>
+    </div>
+
+    <h2>Recupero storico</h2>
+    <p class="note">
+      Il polling normale guarda solo gli ultimi giorni. Questo rilegge un anno di
+      notifiche QuoVai e recupera le prenotazioni che non sono mai arrivate — quelle
+      prenotate settimane fa per un soggiorno che deve ancora iniziare. Non duplica
+      niente, non rigenera i link e non manda nessuna email. Si può rilanciare.
+    </p>
+    <div class="actions">
+      <button class="action" type="button" data-sync="backfill">Ricostruisci prenotazioni da QuoVai</button>
+    </div>
+
+    <h2>Calendario iCal</h2>
+    <p class="note">
+      La rete di sicurezza. Confronta l’occupancy dei calendari con le prenotazioni
+      che abbiamo: dove il calendario dice che una camera è occupata e noi non
+      abbiamo niente, crea una <strong>prenotazione provvisoria</strong> con i soli
+      dati del feed. Non inventa nome, email, telefono, canale o numero di
+      prenotazione, e non manda nessuna email. Quando arriva la notifica QuoVai la
+      scheda si completa; non se ne crea una seconda. Un evento che sparisce dal
+      feed non annulla mai niente da solo.
+    </p>
+    ${data.ical?.configured
+      ? `<p class="note">${data.ical.feeds} feed configurati${data.ical.provisional ? ` · ${data.ical.provisional} prenotazioni provvisorie aperte` : ''}.</p>`
+      : `<p class="note note--warn">
+          Nessun feed configurato: manca <span class="mono">QUOVAI_ICAL_FEEDS</span>.
+          L’architettura è pronta — servono gli URL iCal da QuoVai, uno per camera.
+        </p>`}
+    <div class="actions">
+      <button class="action" type="button" data-sync="ical/inspect">Esamina i feed</button>
     </div>
     <div id="sync-result"></div>
 
@@ -479,6 +631,126 @@ async function renderSync() {
   `);
 }
 
+/**
+ * The three synchronisation jobs, each with its own row.
+ *
+ * Reported separately because they fail separately and, more to the point, because
+ * "never run" is the answer that matters for the backfill and is invisible when the
+ * three are rolled into one green tick.
+ */
+const SYNC_JOBS = ['gmail-incremental', 'gmail-backfill', 'ical'];
+
+const SYNC_JOB_NAMES = {
+  'gmail-incremental': 'Notifiche QuoVai (continuo)',
+  'gmail-backfill': 'Recupero storico QuoVai',
+  ical: 'Calendario iCal',
+};
+
+const SYNC_JOB_WHAT = {
+  'gmail-incremental': 'Sorgente primaria: legge la posta recente e applica subito nuove, modifiche e cancellazioni.',
+  'gmail-backfill': 'Si lancia a mano. Rilegge un anno di posta e recupera le prenotazioni mai viste.',
+  ical: 'Rete di sicurezza. Confronta l’occupancy e tiene le prenotazioni provvisorie.',
+};
+
+function syncJobRow(id, entry) {
+  const counts = entry?.counts ?? {};
+  const tone = !entry?.everRan ? 'warn' : entry.lastError ? 'bad' : 'good';
+  const state = !entry?.everRan ? 'mai eseguito' : entry.lastError ? 'in errore' : 'ok';
+  const found = id === 'ical'
+    ? [
+      ['Eventi letti', counts.scanned], ['Corrispondenze', counts.matched],
+      ['Provvisorie create', counts.created], ['Non abbinate', counts.unmatched],
+      ['Spariti dal feed', counts.vanished], ['Ambigui', counts.ambiguous],
+    ]
+    : [
+      ['Messaggi letti', counts.scanned], ['Create', counts.created],
+      ['Modificate', counts.modified], ['Cancellate', counts.cancelled],
+      ['Già a posto', counts.unchanged], ['Non pertinenti', counts.ignored],
+      ['Non lette', counts.failed],
+    ];
+
+  return `<div class="row">
+    <div class="row__head">
+      <span class="row__title">${esc(SYNC_JOB_NAMES[id] ?? id)}</span>
+      <span class="pill" data-tone="${tone}">${esc(state)}</span>
+    </div>
+    <p class="row__meta">${esc(SYNC_JOB_WHAT[id] ?? '')}</p>
+    <div class="row__fields">
+      <div><span>Esecuzioni</span><span>${esc(entry?.runs ?? 0)}</span></div>
+      <div><span>Ultima</span><span>${entry?.lastRunAt ? esc(stamp(entry.lastRunAt)) : '—'}</span></div>
+      <div><span>Ultimo successo</span><span>${entry?.lastSuccessAt ? esc(stamp(entry.lastSuccessAt)) : '—'}</span></div>
+      ${entry?.lastError ? `<div><span>Ultimo errore</span><span>${esc(entry.lastError)}</span></div>` : ''}
+      ${entry?.everRan ? found.map(([name, value]) => `<div><span>${esc(name)}</span><span>${esc(value ?? 0)}</span></div>`).join('') : ''}
+    </div>
+  </div>`;
+}
+
+/** What the calendar run did, in the numbers that decide whether to look further. */
+function reconcileSummary(result) {
+  if (result.ok === false) {
+    return `<p class="note note--warn">Nessun feed configurato: manca <span class="mono">QUOVAI_ICAL_FEEDS</span>.</p>`;
+  }
+  const counts = [
+    ['Eventi', result.checked], ['Abbinati', result.matched],
+    ['Non abbinati', result.unmatched], ['Provvisorie create', result.created],
+    ['Già tenute', result.alreadyHeld], ['Ambigui', result.ambiguous],
+    ['Non nel feed', result.missing], ['Spariti dal feed', result.vanished],
+  ];
+  return `
+    <div class="grid">${counts.map(([name, value]) => `
+      <div class="stat"><span class="stat__value">${esc(value ?? 0)}</span><span class="stat__label">${esc(name)}</span></div>`).join('')}</div>
+    ${(result.provisional ?? []).length ? `<h3>Da completare</h3>${result.provisional.map((row) => `
+      <div class="row">
+        <div class="row__head">
+          <span class="row__title">${row.room ? `Camera ${esc(row.room)}` : 'Camera da assegnare'}</span>
+          <span class="row__amount">${esc(day(row.check_in))} → ${esc(day(row.check_out))}</span>
+        </div>
+        <p class="row__meta">Dati ospite da completare: ${esc((row.incomplete ?? []).map((f) => FIELD_NAMES[f] ?? f).join(', '))}</p>
+      </div>`).join('')}` : ''}
+    ${(result.errors ?? []).length ? `<p class="note note--warn">${result.errors.map((e) => esc(`${e.feed}: ${e.message}`)).join('<br>')}</p>` : ''}`;
+}
+
+/**
+ * What a feed actually contains.
+ *
+ * Nothing in LunArt knows what a QuoVai iCal export looks like, and this is the
+ * screen that answers it from the feed itself rather than from an assumption.
+ */
+function inspectSummary(result) {
+  if (result.ok === false) {
+    return `<p class="note note--warn">Nessun feed configurato: servono gli URL iCal da QuoVai.</p>`;
+  }
+  return (result.feeds ?? []).map((feed) => (feed.ok === false
+    ? `<div class="row">
+        <div class="row__head"><span class="row__title">${esc(feed.url)}</span><span class="pill" data-tone="bad">non raggiungibile</span></div>
+        <p class="row__meta">${esc(feed.message)}</p>
+      </div>`
+    : `<div class="row">
+        <div class="row__head">
+          <span class="row__title">${esc(feed.room ? `Camera ${feed.room}` : feed.url)}</span>
+          <span class="pill" data-tone="${feed.looksLikeIcal ? 'good' : 'bad'}">${feed.looksLikeIcal ? 'calendario' : 'non è un calendario'}</span>
+        </div>
+        <div class="row__fields">
+          <div><span>Eventi</span><span>${esc(feed.events)}</span></div>
+          <div><span>Con UID</span><span>${esc(feed.withUid)}</span></div>
+          <div><span>Con n. prenotazione</span><span>${esc(feed.withBookingReference)}</span></div>
+          <div><span>Con camera</span><span>${esc(feed.withRoom)}</span></div>
+          <div><span>Blocchi</span><span>${esc(feed.blocked)}</span></div>
+          <div><span>Proprietà</span><span class="mono">${esc((feed.properties ?? []).join(' '))}</span></div>
+        </div>
+        ${feed.sample ? `<p class="row__meta">Esempio: ${esc(feed.sample.check_in)} → ${esc(feed.sample.check_out)} · ${esc(feed.sample.summary || '—')}</p>` : ''}
+      </div>`)).join('');
+}
+
+/** What happened to the money, said the way a person would say it. */
+const CANCEL_OUTCOMES = {
+  refunded: 'rimborsato',
+  'refunded-offline': 'rimborsato (fuori Stripe)',
+  released: 'autorizzazione liberata',
+  reduced: 'importo ridotto',
+  'nothing-to-settle': 'nessun addebito',
+};
+
 const JOB_NAMES = {
   mailbox: 'Lettura casella QuoVai',
   'guest-email': 'Invio email in scadenza',
@@ -498,6 +770,8 @@ const alertTitle = (kind) => ({
   'provider-calendar-unavailable': 'Calendario del professionista non raggiungibile',
   'occupancy-not-synchronised': 'Prenotazione o occupazione non sincronizzata',
   'reservation-not-in-calendar': 'Prenotazione non presente nel calendario',
+  'occupancy-ambiguous': 'Evento del calendario riferibile a più prenotazioni',
+  'occupancy-vanished': 'Evento sparito dal calendario',
   'ical-feed-unreachable': 'Calendario non raggiungibile',
   'unreadable-notification': 'Notifica non interpretabile',
 }[kind] ?? kind);
@@ -627,8 +901,17 @@ document.addEventListener('click', async (event) => {
     syncButton.disabled = true;
     try {
       const result = await api(`/sync/${what}`, { method: 'POST', keepBody: true });
-      $('#sync-result').innerHTML = what === 'repair' && result.ok !== false
-        ? repairSummary(result)
+      const summary = {
+        repair: repairSummary,
+        backfill: backfillSummary,
+        reconcile: reconcileSummary,
+        'ical/inspect': inspectSummary,
+      }[what];
+      // The two calendar summaries answer usefully even when the run refused, so
+      // they are given the result either way; the rest fall back to the raw shape.
+      const readsRefusals = what === 'reconcile' || what === 'ical/inspect';
+      $('#sync-result').innerHTML = summary && (readsRefusals || result.ok !== false)
+        ? summary(result)
         : `<div class="banner" data-tone="${result.ok === false ? 'warn' : ''}">
             <p class="mono">${esc(JSON.stringify(result, null, 1).slice(0, 900))}</p></div>`;
     } catch (error) {

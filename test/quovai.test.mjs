@@ -19,11 +19,16 @@ import {
 import { repairFromMailbox } from '../server/ingest/repair.js';
 import * as REAL from './fixtures/quovai.js';
 import { ingestMessage, ingestMessages } from '../server/ingest/index.js';
-import { parseIcal, reconcile, reconcileFeeds, parseFeedConfig } from '../server/ingest/ical.js';
+import {
+  parseIcal, reconcile, reconcileFeeds, parseFeedConfig, inspectIcal, createProvisional,
+} from '../server/ingest/ical.js';
 import { createQuovaiApiAdapter, reservationSources } from '../server/ingest/quovai-api.js';
 import { createMemoryMailbox, createGmailMailbox, pollMailbox, createMailbox } from '../server/ingest/mailbox.js';
 import { createStore } from '../server/store.js';
-import { buildReservation } from '../server/reservations.js';
+import {
+  buildReservation, upsertReservation, incompleteFields, isProvisional, findProvisionalMatch,
+} from '../server/reservations.js';
+import { scheduleGuideEmail } from '../server/delivery.js';
 
 const fixtureUrl = (name) => new URL(`./fixtures/${name}`, import.meta.url);
 
@@ -381,7 +386,7 @@ END:VCALENDAR`;
   assert.equal(result.unmatched.length, 0);
 });
 
-test('reconciling a feed leaves one alert per problem, however often it runs', async () => {
+test('reconciling a feed is idempotent: the second run holds no second stay', async () => {
   const db = store();
   const feeds = [{ room: '303', url: 'https://feed.example/303.ics' }];
   const fetchText = async () => ICAL;
@@ -389,12 +394,215 @@ test('reconciling a feed leaves one alert per problem, however often it runs', a
   const first = await reconcileFeeds({ store: db, feeds, fetchText, now: new Date('2026-10-01T10:00:00Z') });
   assert.equal(first.ok, true);
   assert.equal(first.unmatched, 2, 'both the 303 booking and the 305 occupancy are unaccounted for');
+  assert.equal(first.created, 2, 'each one becomes a provisional reservation');
 
   const before = (await db.alerts.open()).length;
-  await reconcileFeeds({ store: db, feeds, fetchText, now: new Date('2026-10-01T11:00:00Z') });
-  const after = await db.alerts.open();
-  assert.equal(after.length, before, 'the same problem is one alert, with a count');
-  assert.ok(after.every((alert) => alert.seen >= 2));
+  const again = await reconcileFeeds({ store: db, feeds, fetchText, now: new Date('2026-10-01T11:00:00Z') });
+
+  assert.equal(again.unmatched, 0, 'the provisional reservations now answer for the occupancy');
+  assert.equal(again.created, 0);
+  assert.equal(again.matched, 2);
+  assert.equal((await db.reservations.list({ limit: 50 })).length, 2, 'and no second stay was filed');
+  assert.equal((await db.alerts.open()).length, before, 'nor a second alert');
+});
+
+test('a calendar entry nobody has emailed about becomes a provisional stay, not a guess', async () => {
+  const db = store();
+  const result = await reconcileFeeds({
+    store: db,
+    feeds: [{ room: '305', url: 'https://feed.example/305.ics' }],
+    fetchText: async () => ICAL,
+    now: new Date('2026-10-01T10:00:00Z'),
+  });
+
+  assert.equal(result.created, 2);
+  const held = (await db.reservations.list({ limit: 10 })).find((r) => r.ical_uid === 'qv-unknown@quovai');
+  assert.ok(held, 'the occupancy is held');
+  assert.equal(held.provisional, true);
+  assert.equal(held.source, 'ical');
+  assert.equal(held.check_in, '2026-10-20');
+  assert.equal(held.check_out, '2026-10-22');
+  assert.equal(held.room, '305');
+
+  // Nothing invented. Every one of these is something only a guest can tell us.
+  assert.equal(held.first_name, '');
+  assert.equal(held.last_name, '');
+  assert.equal(held.guest_email, '');
+  assert.equal(held.guest_phone, '');
+  assert.equal(held.channel, '');
+  assert.equal(held.booking_reference, '', 'a booking number is read back by a guest, so it is never made up');
+  assert.deepEqual(incompleteFields(held), ['first_name', 'last_name', 'guest_email']);
+  assert.equal(isProvisional(held), true);
+});
+
+test('a provisional stay never schedules a guest email', async () => {
+  const db = store();
+  await reconcileFeeds({
+    store: db,
+    feeds: [{ room: '305', url: 'https://feed.example/305.ics' }],
+    fetchText: async () => ICAL,
+    now: new Date('2026-10-01T10:00:00Z'),
+  });
+
+  const [held] = await db.reservations.list({ limit: 10 });
+  // Asked for directly, which is the only way it could ever happen by accident.
+  const delivery = await scheduleGuideEmail({
+    store: db, reservation: held, now: new Date('2026-10-18T09:00:00Z'), reason: 'test',
+  });
+  assert.equal(delivery, null, 'there is nobody to write to, so nothing is queued at all');
+  assert.equal((await db.deliveries.list({ limit: 10 })).length, 0);
+});
+
+test('the QuoVai notification fills the calendar’s stay in rather than filing a second one', async () => {
+  const db = store();
+  await reconcileFeeds({
+    store: db,
+    feeds: [{ room: '303', url: 'https://feed.example/303.ics' }],
+    fetchText: async () => ICAL,
+    now: new Date('2026-10-01T10:00:00Z'),
+  });
+
+  const held = (await db.reservations.list({ limit: 10 })).find((r) => r.ical_uid === 'qv-5312447891@quovai');
+  assert.ok(held);
+  // Something was already bought against it, which is what makes the id load-bearing.
+  const order = await db.orders.create({ reservation_id: held.id, amount: 4900, lines: [], status: 'paid' });
+
+  const result = await upsertReservation({
+    store: db,
+    event: {
+      kind: 'new',
+      source: 'quovai',
+      booking_reference: '5312447891',
+      first_name: 'Marta',
+      last_name: 'Rossi',
+      guest_email: 'marta@example.com',
+      check_in: '2026-10-12',
+      check_out: '2026-10-15',
+      room: '303',
+      channel: 'Booking.com',
+    },
+    now: new Date('2026-10-02T10:00:00Z'),
+  });
+
+  assert.equal(result.action, 'completed');
+  assert.equal(result.matchedBy, 'booking_reference');
+  assert.equal(result.reservation.id, held.id, 'the same record');
+  assert.equal(result.reservation.guide_token, held.guide_token, 'and the same link, which may already be open');
+  assert.equal(result.reservation.staff_ref, held.staff_ref);
+  assert.equal(result.reservation.provisional, false);
+  assert.equal(result.reservation.source, 'quovai');
+  assert.equal(result.reservation.first_name, 'Marta');
+  assert.equal(result.reservation.guest_email, 'marta@example.com');
+  assert.equal(result.reservation.channel, 'Booking.com');
+  assert.deepEqual(incompleteFields(result.reservation), []);
+
+  // The feed held two stays; the email accounted for one of them. Two records, not
+  // three — and exactly one of them carries this booking number.
+  const all = await db.reservations.list({ limit: 50 });
+  assert.equal(all.length, 2);
+  assert.equal(all.filter((r) => r.booking_reference === '5312447891').length, 1, 'one stay, not two');
+  assert.equal((await db.orders.get(order.id)).reservation_id, held.id, 'and what was bought is still against it');
+  assert.ok(
+    result.reservation.history.some((entry) => entry.type === 'completed-from-notification'),
+    'the history says what happened',
+  );
+});
+
+test('a stay with no booking number in the feed is still recognised by room and dates', async () => {
+  const db = store();
+  const feed = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:bare@quovai
+DTSTART;VALUE=DATE:20261112
+DTEND;VALUE=DATE:20261115
+SUMMARY:Camera 304
+END:VEVENT
+END:VCALENDAR`;
+  await reconcileFeeds({
+    store: db, feeds: [{ room: '304', url: 'https://feed.example/304.ics' }],
+    fetchText: async () => feed, now: new Date('2026-11-01T10:00:00Z'),
+  });
+  const [held] = await db.reservations.list({ limit: 10 });
+
+  const result = await upsertReservation({
+    store: db,
+    event: {
+      kind: 'new', source: 'quovai', booking_reference: '6703524869',
+      first_name: 'Irene', last_name: 'Bianchi', guest_email: 'irene@example.com',
+      check_in: '2026-11-12', check_out: '2026-11-15', room: '304',
+    },
+    now: new Date('2026-11-02T10:00:00Z'),
+  });
+
+  assert.equal(result.action, 'completed');
+  assert.equal(result.matchedBy, 'room-and-dates');
+  assert.equal(result.reservation.id, held.id);
+  assert.equal(result.reservation.booking_reference, '6703524869', 'the real number arrives with the email');
+});
+
+test('two provisional stays that both fit are never merged into one', async () => {
+  const db = store();
+  // The same room on the same nights, twice: a feed read badly, or two feeds.
+  for (const uid of ['dup-a@quovai', 'dup-b@quovai']) {
+    await createProvisional({
+      store: db,
+      occupancy: { uid, check_in: '2026-12-01', check_out: '2026-12-04', room: '302' },
+      now: new Date('2026-11-01T10:00:00Z'),
+    });
+  }
+
+  const incoming = buildReservation({
+    source: 'quovai', booking_reference: 'AMBIG-1',
+    check_in: '2026-12-01', check_out: '2026-12-04', room: '302',
+  });
+  const found = await findProvisionalMatch({ store: db, incoming });
+  assert.equal(found.match, null, 'a guess that attaches a guest to the wrong stay is worse than a new row');
+  assert.equal(found.ambiguous, true);
+  assert.equal(found.candidates.length, 2);
+
+  const result = await upsertReservation({
+    store: db,
+    event: {
+      kind: 'new', source: 'quovai', booking_reference: 'AMBIG-1',
+      first_name: 'Anna', check_in: '2026-12-01', check_out: '2026-12-04', room: '302',
+    },
+  });
+  assert.equal(result.action, 'created');
+  assert.equal(result.ambiguousProvisional.length, 2, 'and it says which two it could have been');
+});
+
+test('an event vanishing from the feed is reported and never cancelled', async () => {
+  const db = store();
+  const feeds = [{ room: '305', url: 'https://feed.example/305.ics' }];
+  await reconcileFeeds({ store: db, feeds, fetchText: async () => ICAL, now: new Date('2026-10-01T10:00:00Z') });
+  const held = (await db.reservations.list({ limit: 10 })).find((r) => r.ical_uid === 'qv-unknown@quovai');
+
+  const empty = 'BEGIN:VCALENDAR\nEND:VCALENDAR';
+  const result = await reconcileFeeds({
+    store: db, feeds, fetchText: async () => empty, now: new Date('2026-10-02T10:00:00Z'),
+  });
+
+  assert.equal(result.vanished, 2, 'both stays the calendar created are now absent from it');
+  assert.equal((await db.reservations.get(held.id)).status, 'active', 'and both are still live');
+  const alert = (await db.alerts.open()).find((a) => a.kind === 'occupancy-vanished');
+  assert.ok(alert, 'a person is told');
+  assert.match(alert.detail.message, /Nessuna cancellazione automatica/);
+});
+
+test('inspecting a feed reports its shape and writes nothing', () => {
+  const shape = inspectIcal(ICAL);
+  assert.equal(shape.looksLikeIcal, true);
+  assert.equal(shape.events, 3);
+  assert.equal(shape.withUid, 3);
+  assert.equal(shape.withBookingReference, 1, 'only one of these actually carries a number');
+  assert.equal(shape.withRoom, 2);
+  assert.ok(shape.properties.includes('DTSTART'));
+  assert.ok(shape.properties.includes('SUMMARY'));
+  assert.equal(shape.sample.uid, 'qv-5312447891@quovai');
+
+  const notACalendar = inspectIcal('<html>login required</html>');
+  assert.equal(notACalendar.looksLikeIcal, false, 'a feed behind a login page says so rather than parsing as empty');
+  assert.equal(notACalendar.events, 0);
 });
 
 test('an unreachable feed is an alert, not a silent failure', async () => {

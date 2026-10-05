@@ -255,11 +255,11 @@ export const PRODUCTS = [
     active: true,
     title: { it: 'Vino in camera', en: 'Wine in your room' },
     summary: {
-      it: 'Una bottiglia che ti aspetta in camera, consegnata fra le 11:00 e le 22:00.',
-      en: 'A bottle waiting in your room, delivered between 11:00 and 22:00.',
+      it: 'Una bottiglia che ti aspetta in camera, consegnata fra le 11:00 e le 21:00.',
+      en: 'A bottle waiting in your room, delivered between 11:00 and 21:00.',
     },
     description: {
-      it: 'Scegli la bottiglia, il giorno e la fascia oraria. Solo bottiglie intere, dalla nostra selezione.\n\nDa 90 € di ordine la consegna è Express e bastano 90 minuti di preavviso: l’ultimo ordine per la stessa sera è alle 20:30. Sotto i 90 € serve mezza giornata, perché la bottiglia arriva con la consegna successiva.',
+      it: 'Scegli la bottiglia, il giorno e la fascia oraria. Solo bottiglie intere, dalla nostra selezione.\n\nDa 90 € di ordine la consegna è Express e bastano 90 minuti di preavviso: l’ultimo ordine per la stessa sera è alle 19:30. Sotto i 90 € serve mezza giornata, perché la bottiglia arriva con la consegna successiva.',
       en: 'Pick the bottle, the day and the window. Full bottles only, from our selection.\n\nFrom €90 the delivery is Express and ninety minutes’ notice is enough: the last order for the same evening is 8:30 PM. Below €90 it needs half a day, because the bottle comes with the next delivery.',
     },
     variants: wineVariants(),
@@ -277,8 +277,8 @@ export const PRODUCTS = [
     partner: 'opera-caffe',
     cancellation: { kind: 'hoursBefore', hours: 3 },
     terms: {
-      it: 'Solo bottiglie intere. Consegna fra le 11:00 e le 22:00. Preavviso: 90 minuti per ordini da 90 € in su, 12 ore sotto i 90 €. Si può annullare fino a 3 ore prima della fascia scelta. La fascia di consegna è indicativa.',
-      en: 'Full bottles only. Delivered between 11:00 and 22:00. Notice: ninety minutes for orders of €90 or more, twelve hours below €90. Cancellable until three hours before the window you chose. The delivery window is approximate.',
+      it: 'Solo bottiglie intere. Consegna fra le 11:00 e le 21:00. Preavviso: 90 minuti per ordini da 90 € in su, 12 ore sotto i 90 €. Si può annullare fino a 3 ore prima della fascia scelta. La fascia di consegna è indicativa.',
+      en: 'Full bottles only. Delivered between 11:00 and 21:00. Notice: ninety minutes for orders of €90 or more, twelve hours below €90. Cancellable until three hours before the window you chose. The delivery window is approximate.',
     },
     images: [],
   },
@@ -580,8 +580,8 @@ export const PRODUCTS = [
     partner: null,
     cancellation: { kind: 'dayBefore', hour: 12 },
     terms: {
-      it: 'Da ordinare entro le 12:00 del giorno precedente, e annullabile entro le 12:00 del giorno precedente. Durante il soggiorno l’orario richiesto va dalle 12:00 alle 22:00. Niente candele a fiamma viva e niente petali sulla biancheria del letto. I fiori seguono la disponibilità stagionale del fioraio.',
-      en: 'Ordered by 12:00 noon the day before, and cancellable until 12:00 noon the day before. During the stay the requested time runs from 12:00 to 22:00. No open-flame candles and no petals on the bed linen. Flowers follow the florist’s seasonal availability.',
+      it: 'Da ordinare entro le 12:00 del giorno precedente, e annullabile entro le 12:00 del giorno precedente. Durante il soggiorno l’orario richiesto va dalle 12:00 alle 21:00. Niente candele a fiamma viva e niente petali sulla biancheria del letto. I fiori seguono la disponibilità stagionale del fioraio.',
+      en: 'Ordered by 12:00 noon the day before, and cancellable until 12:00 noon the day before. During the stay the requested time runs from 12:00 to 21:00. No open-flame candles and no petals on the bed linen. Flowers follow the florist’s seasonal availability.',
     },
     images: [],
   },

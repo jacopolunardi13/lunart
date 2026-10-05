@@ -670,6 +670,39 @@ fieldset.field { border: 0; padding: 0; }
 }
 .cart-line__remove:hover { color: var(--ink); }
 
+/**
+ * Cancelling a line, from the order sheet.
+ *
+ * The cancel control is deliberately quiet — underlined text, not a button with a
+ * fill — because this is not an action anybody should be nudged towards. It sits at
+ * the end of the row rather than under the title so a thumb cannot reach it while
+ * scrolling. A line that has been called off greys out and stays: the guest bought
+ * it, and the record of changing their mind is part of what they are reading.
+ */
+.cart-line__cancel {
+  align-self: center; flex: none;
+  min-height: 40px; padding: 0 2px;
+  font-size: var(--micro); color: var(--ink-quiet); text-decoration: underline;
+}
+.cart-line__cancel:hover { color: var(--ink); }
+.cart-line__cancel[disabled] { opacity: .5; text-decoration: none; }
+.cart-line__note { font-size: var(--micro); color: var(--ink-quiet); margin-top: 4px; line-height: 1.5; }
+.cart-line__note--bad { color: #8a2f2f; }
+.cart-line--cancelled .cart-line__title,
+.cart-line--cancelled .cart-line__variant,
+.cart-line--cancelled .cart-line__amount { color: var(--ink-quiet); text-decoration: line-through; }
+.cart-line--cancelled .cart-line__note { text-decoration: none; }
+
+/* What came back out of a total that is otherwise unchanged. */
+.cart-total--muted {
+  margin-top: 6px; padding-top: 6px; border-top: 0;
+  font-size: var(--small); color: var(--ink-quiet);
+}
+.cart-total--muted strong { font-size: var(--step-1); color: var(--ink-quiet); }
+
+/* The policy, said before the guest decides rather than after. */
+.terms--policy { color: var(--ink-soft); }
+
 .stepper { display: flex; align-items: center; border: 1px solid var(--ink-line); border-radius: 999px; }
 .stepper__button { width: 40px; height: 40px; display: grid; place-items: center; font-size: 1rem; }
 .stepper__value { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }

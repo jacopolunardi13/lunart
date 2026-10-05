@@ -306,3 +306,29 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
   font-size: .9rem; line-height: 1.5;
 }
 .repair__list .mono { color: var(--staff-quiet); font-size: .82rem; }
+
+/**
+ * Reservations in working order.
+ *
+ * A heading per group rather than a filter, because the groups are not alternatives
+ * — a person reads down them. The count sits in the heading so an empty morning is
+ * legible without opening anything.
+ */
+.group {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 22px 0 6px;
+  font-size: .78rem; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--staff-quiet);
+}
+.group__count {
+  padding: 1px 7px;
+  border: 1px solid var(--staff-rule);
+  border-radius: 999px;
+  font-size: .72rem; font-weight: 600; letter-spacing: .04em;
+}
+
+/* A stay the calendar found and nobody has claimed: visibly unfinished. */
+.row[data-provisional] { border-left: 2px solid var(--staff-warn); padding-left: 12px; }
+.row__meta--warn { color: var(--staff-warn); }
+.note--warn { color: var(--staff-warn); }

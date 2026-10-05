@@ -43,6 +43,13 @@ export function createMemoryMailbox(initial = []) {
     id: 'memory',
     configured: true,
     implemented: true,
+    /**
+     * Everything it holds, whatever is asked for.
+     *
+     * The backfill passes a wider query and a bigger ceiling; neither means
+     * anything to a queue somebody filled by hand, and answering with the whole
+     * queue is the honest equivalent.
+     */
     async fetchMessages() {
       const batch = queue;
       queue = [];

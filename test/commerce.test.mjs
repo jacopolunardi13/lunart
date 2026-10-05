@@ -215,10 +215,10 @@ test('a wine order of EUR 90 or more is Express at ninety minutes', () => {
 
   const product = getProduct('wine-in-room');
   const variant = getVariant(product, 'brunello');            // 89 EUR on its own
-  const { minutes } = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-2100' }, { wineSubtotal: BRUNELLO });
+  const { minutes } = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-2000' }, { wineSubtotal: BRUNELLO });
   assert.equal(minutes, 720, 'one Brunello is 89 EUR, which is not Express');
 
-  const express = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-2100' }, { wineSubtotal: 9000 });
+  const express = cutoffFor(product, variant, { date: '2026-10-05', slotId: 'w-2000' }, { wineSubtotal: 9000 });
   assert.equal(express.minutes, 90);
 });
 
@@ -232,23 +232,23 @@ test('the rule is about the order, so two bottles together can be Express', () =
   assert.equal(one.lines[0].cutoff.minutes, 720, 'alone it does not');
 });
 
-test('the last Express order for the same evening is 20:30', () => {
+test('the last Express order for the same evening is 19:30', () => {
   const product = getProduct('wine-in-room');
   const lastSlot = product.deliverySlots.at(-1);
-  assert.equal(lastSlot.from, '21:00');
-  assert.equal(lastSlot.to, '22:00', 'wine goes up until ten');
+  assert.equal(lastSlot.from, '20:00');
+  assert.equal(lastSlot.to, '21:00', 'wine goes up until nine');
 
   const { deadline } = cutoffFor(product, getVariant(product, 'brunello'),
     { date: '2026-10-05', slotId: lastSlot.id }, { wineSubtotal: 12000 });
-  assert.equal(deadline.toISOString(), propertyTimeToInstant('2026-10-05', '20:30').toISOString());
+  assert.equal(deadline.toISOString(), propertyTimeToInstant('2026-10-05', '19:30').toISOString());
 });
 
-test('wine is delivered between eleven and ten, and nowhere else', () => {
+test('wine is delivered between eleven and nine, and nowhere else', () => {
   const slots = getProduct('wine-in-room').deliverySlots;
   assert.equal(slots[0].from, '11:00');
-  assert.equal(slots.at(-1).to, '22:00');
+  assert.equal(slots.at(-1).to, '21:00');
   for (const slot of slots) {
-    assert.ok(slot.from >= '11:00' && slot.to <= '22:00', slot.id);
+    assert.ok(slot.from >= '11:00' && slot.to <= '21:00', slot.id);
   }
 });
 
@@ -274,7 +274,7 @@ test('ordering a bottle too late is refused', () => {
 
   // A basket over ninety euros is Express, and the ten o'clock window is still open.
   const inTime = priceCart(
-    [{ productId: 'wine-in-room', variantId: 'dom-perignon', quantity: 1, date: '2026-10-05', slotId: 'w-2100', room: '303' }],
+    [{ productId: 'wine-in-room', variantId: 'dom-perignon', quantity: 1, date: '2026-10-05', slotId: 'w-2000', room: '303' }],
     { now },
   );
   assert.equal(inTime.ok, true, JSON.stringify(inTime.errors));
@@ -286,7 +286,7 @@ test('breakfast closes at noon the day before, Florence time', () => {
   assert.equal(kind, 'dayBefore');
   assert.equal(deadline.toISOString(), propertyTimeToInstant('2026-10-05', '12:00').toISOString());
 
-  const base = { productId: 'brunch', variantId: 'opera', quantity: 1, date: '2026-10-06', slotId: 'b-0830', room: '303', options: { hotDrink: 'espresso' } };
+  const base = { productId: 'brunch', variantId: 'opera', quantity: 1, date: '2026-10-06', slotId: 'b-0900', room: '303', options: { hotDrink: 'espresso' } };
   const justInTime = validateLine(base, { now: new Date('2026-10-05T09:59:00Z') });   // 11:59 local
   const tooLate   = validateLine(base, { now: new Date('2026-10-05T10:01:00Z') });   // 12:01 local
   assert.equal(justInTime.ok, true, JSON.stringify(justInTime.errors));
@@ -304,7 +304,7 @@ test('the light breakfast is two bowls and a juice, and brings no hot drink', ()
   assert.ok(product.includes.en.some((item) => /juice/i.test(item)));
   // And it can still be bought by noon the day before.
   const ok = validateLine({
-    productId: 'light-breakfast', quantity: 1, date: '2026-10-06', slotId: 'b-0830', room: '303',
+    productId: 'light-breakfast', quantity: 1, date: '2026-10-06', slotId: 'b-0900', room: '303',
   }, { now: new Date('2026-10-05T09:00:00Z') });
   assert.equal(ok.ok, true, JSON.stringify(ok.errors));
   assert.equal(ok.amount, 4900);
@@ -333,7 +333,7 @@ test('a line is checked for all of its requirements at once', () => {
 test('an option that is not on the menu is refused', () => {
   const result = validateLine({
     productId: 'brunch', variantId: 'opera', quantity: 1, date: soon(2),
-    slotId: 'b-0830', room: '303', options: { hotDrink: 'champagne' },
+    slotId: 'b-0900', room: '303', options: { hotDrink: 'champagne' },
   }, { now: NOW, allowPlaceholders: true });
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((e) => e.code === 'option-invalid'));
@@ -480,11 +480,11 @@ test('a set-up during the stay needs a time, one before arrival does not', () =>
   assert.equal(onArrival.ok, true, JSON.stringify(onArrival.errors));
 });
 
-test('a requested set-up time runs from noon to ten, in half hours', () => {
+test('a requested set-up time runs from noon to nine, in half hours', () => {
   const slots = getProduct('celebration').deliverySlots;
   assert.equal(slots[0].from, '12:00');
-  assert.equal(slots.at(-1).to, '22:00');
-  assert.equal(slots.length, 20);
+  assert.equal(slots.at(-1).to, '21:00');
+  assert.equal(slots.length, 18);
 });
 
 test('a celebration closes at noon the day before', () => {
@@ -519,7 +519,7 @@ test('a basket of several different things adds up', () => {
   const cart = priceCart([
     line(),                                                   // Brunello, 70
     line({ variantId: 'vermentino', slotId: 'w-2000' }),      // Vermentino, 34
-    { productId: 'brunch', variantId: 'opera', quantity: 1, date: soon(2), slotId: 'b-0830', room: '303', options: { hotDrink: 'espresso' } },
+    { productId: 'brunch', variantId: 'opera', quantity: 1, date: soon(2), slotId: 'b-0900', room: '303', options: { hotDrink: 'espresso' } },
   ], { now: NOW, allowPlaceholders: true });
 
   assert.equal(cart.ok, true, JSON.stringify(cart.errors));

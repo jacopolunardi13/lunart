@@ -45,6 +45,8 @@ const EMPTY = () => ({
   subscriptions: {},
   /** Guest emails: when they are due, and what happened to them. */
   deliveries: {},
+  /** One row per synchronisation job, holding what its last run did. */
+  sync_runs: {},
 });
 
 export function createStore({ dataDir = '' } = {}) {
@@ -181,6 +183,12 @@ export function createStore({ dataDir = '' } = {}) {
           )
         ));
       },
+      /** The record a feed event already produced, so a second read is not a second stay. */
+      findByIcalUid: (uid) => (uid
+        ? reservations.findBy((r) => r.ical_uid && r.ical_uid === uid)
+        : Promise.resolve(null)),
+      /** Occupancy we hold with no guest behind it yet. */
+      provisional: () => reservations.filter((r) => r.provisional === true),
       overlapping: (from, to) => reservations.filter(
         (r) => String(r.check_in) <= String(to) && String(r.check_out) >= String(from),
       ),
@@ -211,6 +219,44 @@ export function createStore({ dataDir = '' } = {}) {
         String(d.send_at) <= String(atIso)
         && (d.status === 'scheduled' || (d.status === 'failed' && (d.attempts ?? 0) < maxAttempts))
       )),
+    },
+
+    /**
+     * What each synchronisation job did, the last time it ran.
+     *
+     * The scheduler already keeps this in memory, which is the wrong place for the
+     * one question a person asks after a deploy — *did the backfill ever run?* —
+     * because a deploy is precisely what clears memory. One row per job, rewritten
+     * each run, so the Staff app can tell "never run" from "ran and found nothing".
+     */
+    syncRuns: {
+      async record(job, summary = {}) {
+        await load();
+        const key = String(job ?? '').trim();
+        if (!key) return null;
+        const runs = collection(state, 'sync_runs');
+        const previous = runs[key] ?? { runs: 0 };
+        const ok = summary.ok !== false;
+        runs[key] = {
+          job: key,
+          at: now(),
+          runs: (previous.runs ?? 0) + 1,
+          ok,
+          lastSuccessAt: ok ? now() : (previous.lastSuccessAt ?? null),
+          lastError: ok ? null : String(summary.reason ?? summary.message ?? 'failed').slice(0, 300),
+          summary,
+        };
+        await persist();
+        return runs[key];
+      },
+      async get(job) {
+        await load();
+        return collection(state, 'sync_runs')[String(job ?? '')] ?? null;
+      },
+      async all() {
+        await load();
+        return { ...collection(state, 'sync_runs') };
+      },
     },
 
     /**

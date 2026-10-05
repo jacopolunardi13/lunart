@@ -293,10 +293,28 @@ note(/Processi automatici/.test(syncText), 'the scheduled jobs are listed');
 note((await staffPage.locator('[data-job]').count()) >= 3, 'each can be run by hand');
 note(/Email in attesa|Email inviate/.test(syncText), 'with the guest emails accounted for');
 
+/* ── The calendar safety net ──────────────────────────────────────────── */
+note(/Calendario iCal/.test(syncText), 'the calendar safety net has a section of its own');
+note(/QUOVAI_ICAL_FEEDS/.test(syncText),
+  'and names the variable that is missing rather than looking merely idle');
+note(/provvisoria/i.test(syncText), 'it says what it does when occupancy has nothing behind it');
+
+// The three jobs, each reported separately: the one whose "never run" matters
+// most is the backfill, and that is invisible when they are rolled into one tick.
+note(/Notifiche QuoVai \(continuo\)/.test(syncText), 'the incremental poll is reported on its own');
+note(/Recupero storico QuoVai/.test(syncText), 'so is the historical backfill');
+note(/mai eseguito/.test(syncText), 'and a job that has never run says so');
+
 await staffPage.click('[data-sync="reconcile"]');
 await staffPage.waitForTimeout(800);
-note(/no-feeds-configured/.test(await staffPage.textContent('#sync-result')),
-  'reconciling with no feed says so rather than pretending');
+const reconcileResult = await staffPage.textContent('#sync-result');
+note(/QUOVAI_ICAL_FEEDS/.test(reconcileResult),
+  'reconciling with no feed says what is missing rather than pretending');
+
+await staffPage.click('[data-sync="ical/inspect"]');
+await staffPage.waitForTimeout(800);
+note(/URL iCal|QuoVai/.test(await staffPage.textContent('#sync-result')),
+  'and the feed inspector says what it would need to look at');
 await staffPage.screenshot({ path: `${OUT}/staff-sync-390.png` });
 
 /* The parser repair, which is the only thing in here that looks past the message
