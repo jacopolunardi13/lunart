@@ -1452,6 +1452,12 @@ fieldset.field { border: 0; padding: 0; }
 /* What the Privilege adds, marked so a bought benefit never reads as a free one. */
 .pass__benefit--privilege { border-left: 2px solid var(--accent); padding-left: 12px; }
 .pass__benefit--privilege .pass__benefit-what { color: var(--accent); }
+/* And dimmed while the card it belongs to is not running — the same treatment the
+   venues get inside the card, for the same reason. The gold rule stays, softened:
+   the row is still hers, it is simply not tonight. Nothing moves, because the
+   border and the padding are the layout and only the colours change. */
+.pass__benefit--dormant { border-left-color: var(--accent-soft); }
+.pass__benefit--dormant .pass__benefit-what { color: var(--ink-soft); }
 .pass__note { margin-top: 12px; font-size: var(--small); line-height: 1.65; color: var(--ink-soft); }
 
 /* --- Partners ------------------------------------------------------------

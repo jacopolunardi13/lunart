@@ -255,6 +255,38 @@ const previewRow = (view, lang, extra = '') => {
 };
 
 /**
+ * The two rows under the card on the home, and how strongly to draw each.
+ *
+ * Two is enough to say what sort of thing is in there and the rest is one tap
+ * away — but two Privilege venues in a row would say the Pass is a partner list,
+ * and with twenty partners it would never again mention the breakfast. So the
+ * glimpse takes the first thing the upgrade added and then what the stay includes,
+ * which is the honest summary of a Pass that has both.
+ *
+ * The paid row is marked, so a benefit somebody paid for never reads as one that
+ * comes free — and it dims with the card, because the alternative was the thing
+ * this fixes: "10% di sconto" in full gold, two lines above a sentence saying the
+ * benefits are not available until Thursday. It is dimmed and not locked: it is
+ * hers, it is simply not tonight.
+ *
+ * The stay's row never dims. Opera Caffè asks for no entitlement and has nothing to
+ * do with the card's dates, so a guest whose Privilege starts on Thursday still has
+ * her breakfast tomorrow.
+ */
+export function passPreview(pass) {
+  const bought = pass.privileges ?? [];
+  const included = pass.included ?? [];
+
+  const live = pass.card?.state === 'active';
+  const paid = ` pass__benefit--privilege${live ? '' : ' pass__benefit--dormant'}`;
+
+  const rows = bought.length
+    ? [{ view: bought[0], className: paid }, ...included.map((view) => ({ view, className: '' }))]
+    : included.map((view) => ({ view, className: '' }));
+  return rows.slice(0, 2);
+}
+
+/**
  * The Pass block for the home.
  *
  * Returns nothing at all when there is no reservation behind this page: the public
@@ -272,21 +304,7 @@ export function passBlock(lang) {
   if (!pass) return '';
 
   const privilege = pass.tier === 'privilege';
-  /**
-   * Two rows, one of each kind where the guest has both.
-   *
-   * Two is enough to say what sort of thing is in there and the rest is one tap
-   * away — but two Privilege venues in a row would say the Pass is a partner list,
-   * and with twenty partners it would never again mention the breakfast. So the
-   * glimpse takes the first thing the upgrade added and then what the stay
-   * includes, which is the honest summary of a Pass that has both.
-   */
-  const bought = pass.privileges ?? [];
-  const included = pass.included ?? [];
-  // Marked, so a benefit that was paid for never reads as one that comes free.
-  const preview = (bought.length
-    ? [{ view: bought[0], paid: true }, ...included.map((view) => ({ view, paid: false }))]
-    : included.map((view) => ({ view, paid: false }))).slice(0, 2);
+  const preview = passPreview(pass);
 
   return `<section class="section" aria-labelledby="h-pass">
     <div class="section__head">
@@ -300,7 +318,7 @@ export function passBlock(lang) {
     </button>
 
     ${preview.length ? `<ul class="pass__benefits">
-      ${preview.map(({ view, paid }) => previewRow(view, lang, paid ? ' pass__benefit--privilege' : '')).join('')}
+      ${preview.map(({ view, className }) => previewRow(view, lang, className)).join('')}
     </ul>` : ''}
 
     <button class="action action--wide" type="button" data-open-pass>

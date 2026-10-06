@@ -36,11 +36,12 @@ import {
   partnerView, activePartners, publicPartner, publicPartners,
 } from '../commerce/partners.js';
 import { privilegeSection, stayBenefitsSection, partnerCard } from '../src/commerce/ui/partners.js';
-import { passNote } from '../src/commerce/ui/pass.js';
+import { passNote, passPreview } from '../src/commerce/ui/pass.js';
 import { cardBenefitsBlock } from '../src/commerce/ui/card-sheet.js';
 import { fill } from '../src/i18n.js';
 import { longDate } from '../src/commerce/ui/format.js';
 import { esc } from '../src/ui/dom.js';
+import { readFile } from 'node:fs/promises';
 import { UI } from '../src/i18n.js';
 
 const KEY = 'k'.repeat(32);
@@ -410,6 +411,49 @@ test('the card says when its benefits start, and stops saying it once they have'
     assert.ok(ended.includes(esc(fill(UI[lang].cardBenefitsEnded, { date: longDate('2026-11-04', lang) }))), lang);
     assert.equal(venues(ended, 'unavailable'), 2, 'kept, as a record, and plainly over');
   }
+});
+
+/**
+ * The two rows on the home, which had the same contradiction one screen up: the
+ * paid benefit in full gold, two lines above a sentence saying it is not available
+ * until Thursday.
+ */
+test('the paid row on the home dims with the card, and the stay row never does', () => {
+  const rows = (now) => passPreview(passFor(LONG_STAY(), { card: TWO_DAYS(), now }));
+
+  for (const [label, now] of [['before', at('2026-11-01')], ['after', at('2026-11-05')]]) {
+    const [paid, stay] = rows(now);
+    assert.equal(paid.view.partner_id, 'le-firme', `${label}: what she bought leads`);
+    assert.ok(paid.className.includes('pass__benefit--privilege'), `${label}: still marked as paid`);
+    assert.ok(paid.className.includes('pass__benefit--dormant'), `${label}: and dimmed`);
+
+    assert.equal(stay.view.partner_id, 'opera-caffe');
+    assert.equal(stay.className, '', `${label}: the stay's own benefit is untouched by the card`);
+  }
+
+  const [live, stay] = rows(at('2026-11-03'));
+  assert.ok(live.className.includes('pass__benefit--privilege'));
+  assert.equal(live.className.includes('dormant'), false, 'full strength once the card runs');
+  assert.equal(stay.className, '');
+});
+
+test('a standard Pass previews only what the stay includes, at full strength', () => {
+  const rows = passPreview(passFor(LONG_STAY(), { now: at('2026-11-01') }));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].view.partner_id, 'opera-caffe');
+  assert.equal(rows[0].className, '', 'nothing to dim, and nothing to lock');
+});
+
+test('the dormant row is a softened gold rule, not a removed one', async () => {
+  const css = await readFile(new URL('../assets/css/app.css', import.meta.url), 'utf8');
+
+  assert.match(css, /\.pass__benefit--dormant \{ border-left-color: var\(--accent-soft\); \}/,
+    'the gold identity stays, softened');
+  assert.match(css, /\.pass__benefit--dormant \.pass__benefit-what \{ color: var\(--ink-soft\); \}/,
+    'and the words read as the dormant venues inside the card do');
+  // The layout is the border and the padding, and neither moves between states.
+  assert.equal(/\.pass__benefit--dormant[^}]*(padding|margin|display)/.test(css), false,
+    'only the colours change, so nothing shifts when the card starts');
 });
 
 /* ── Internal notes stay internal ────────────────────────────────────────── */

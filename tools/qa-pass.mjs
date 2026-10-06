@@ -700,10 +700,39 @@ if (sellableCard) {
       heading: [...document.querySelectorAll('#main h2')].map((e) => e.textContent.trim()).join(' | '),
       passes: document.querySelectorAll('[data-pass]').length,
       section: document.querySelector('[data-pass-block]')?.innerText ?? '',
+      /** The two rows under the card, and how strongly each is actually painted. */
+      rows: [...document.querySelectorAll('[data-pass-block] .pass__benefit')].map((li) => ({
+        what: li.querySelector('.pass__benefit-what')?.textContent.trim() ?? '',
+        who: li.querySelector('.pass__benefit-partner')?.textContent.trim() ?? '',
+        dormant: li.classList.contains('pass__benefit--dormant'),
+        paid: li.classList.contains('pass__benefit--privilege'),
+        ink: getComputedStyle(li.querySelector('.pass__benefit-what')).color,
+        rule: getComputedStyle(li).borderLeftColor,
+        indent: getComputedStyle(li).paddingLeft,
+      })),
     }));
     step('the upgrade turns the same Pass into Privilege', /privilege/.test(after.tier), after.tier.trim());
     /* The line under the Pass on the home. It used to say the benefits were
        unlocked to anybody holding a card; this stay is a month away. */
+    /* And the rows above that sentence, which used to contradict it: the benefit
+       she paid for in full gold, two lines over "saranno disponibili da giovedì". */
+    {
+      const paid = after.rows.find((r) => r.paid);
+      const stay = after.rows.find((r) => !r.paid);
+      // `--ink-soft` is declared as an rgba, so this is what the browser reports —
+      // 6.16:1 once composited, which is the same ink the dormant venues use.
+      step('the paid row on the home is dimmed while the card is not running',
+        paid?.dormant === true && paid?.ink === 'rgba(26, 26, 26, 0.68)',
+        `${paid?.what} · ${paid?.ink}`);
+      step('and no longer set in the gold reserved for a benefit she can use',
+        paid?.ink !== stay?.ink && !/138, 106, 61/.test(paid?.ink ?? ''), paid?.ink);
+      step('keeping its gold rule, softened rather than removed',
+        paid?.rule === 'rgb(201, 168, 109)' && paid?.indent === '12px',
+        `${paid?.rule} at ${paid?.indent}`);
+      step('while the stay\'s own benefit is untouched by the card',
+        stay?.dormant === false && /opera/i.test(stay?.who ?? ''),
+        `${stay?.who} · ${stay?.ink}`);
+    }
     step('and the home says she owns it, not that she can use it',
       /Hai già LunArt Privilege/.test(after.section)
         && !/vantaggi Privilege sbloccati/.test(after.section),
