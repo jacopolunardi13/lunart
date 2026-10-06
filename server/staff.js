@@ -20,7 +20,7 @@
  */
 
 import { PAYMENT_STATUS, FULFILMENT_STATUS, canFulfilmentMove } from '../commerce/schema.js';
-import { canTransition, appendEvent } from './orders.js';
+import { canTransition, appendEvent, orderReference } from './orders.js';
 import { getProduct, cancellableUntil } from '../commerce/ordering.js';
 import { propertyDate, addDays } from '../commerce/time.js';
 import {
@@ -67,7 +67,7 @@ export const isExpress = (order) => order.lines.some(
 export function staffOrderView(order, { now = new Date() } = {}) {
   return {
     id: order.id,
-    reference: String(order.id).slice(0, 8).toUpperCase(),
+    reference: orderReference(order),
     queue: queueOf(order),
     status: order.status,
     fulfilment_status: order.fulfilment_status,
@@ -537,7 +537,7 @@ export async function dashboard({ store, now = new Date() }) {
         .filter((entry) => entry.actor === 'guest')
         .map((entry) => ({
           order_id: order.id,
-          reference: String(order.id).slice(0, 8).toUpperCase(),
+          reference: orderReference(order),
           title: line.variant_title ? `${line.title} — ${line.variant_title}` : line.title,
           room: line.room || order.customer?.room || '',
           date: line.date ?? null,

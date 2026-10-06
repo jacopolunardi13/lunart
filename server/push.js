@@ -39,6 +39,30 @@ export const PUSH_EVENTS = {
     body: () => 'In attesa di conferma del fornitore',
     tag: (data) => `order:${data.orderId}`,
   },
+  /**
+   * A guest called something off themselves.
+   *
+   * Operationally this is the one that matters most of the five: nobody asked a
+   * person first, the money has already moved, and whoever is making the breakfast
+   * at seven needs to know not to. So the title says who did it rather than naming
+   * the product — "Annullamento ospite" on a lock screen is unambiguous at a glance
+   * — and the line, the room and what happened to the money follow in the body.
+   *
+   * Tagged by order *and* line: two cancellations on one order are two things to
+   * know about, and a tag they shared would quietly replace the first with the
+   * second.
+   */
+  'order-cancelled': {
+    title: () => 'Annullamento ospite',
+    body: (data) => [
+      data.quantity > 1 ? `${data.title} ×${data.quantity}` : data.title,
+      data.room ? `Camera ${data.room}` : null,
+      data.money,
+      data.when ? `era per ${data.when}` : null,
+      data.reference ? `Ordine ${data.reference}` : null,
+    ].filter(Boolean).join(' · '),
+    tag: (data) => `order-cancel:${data.orderId}:${data.line}`,
+  },
   'reservation-new': {
     title: () => 'Nuova prenotazione',
     body: (data) => [data.guest, data.room ? `Camera ${data.room}` : null, `${data.check_in} → ${data.check_out}`]

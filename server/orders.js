@@ -247,6 +247,16 @@ async function recordAppointments(order, { store, providerCalendar }) {
 }
 
 /** What the guest is shown about their own order. No Stripe ids, no tokens but their own. */
+/**
+ * What an order is called out loud.
+ *
+ * The first eight characters of its id, upper-cased. Defined once because it is
+ * printed on the guest's order sheet, in the Staff app and on a lock screen, and
+ * three copies of the same slice is three chances for one of them to quote a
+ * reference nobody can search for.
+ */
+export const orderReference = (order) => String(order?.id ?? '').slice(0, 8).toUpperCase();
+
 export function orderView(order, { cards = [], now = new Date() } = {}) {
   /**
    * What can still be called off, worked out here rather than in the browser.
@@ -259,7 +269,7 @@ export function orderView(order, { cards = [], now = new Date() } = {}) {
 
   return {
     id: order.id,
-    reference: String(order.id).slice(0, 8).toUpperCase(),
+    reference: orderReference(order),
     status: order.status,
     fulfilment_status: order.fulfilment_status,
     payment_mode: order.payment_mode,

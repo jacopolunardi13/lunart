@@ -152,34 +152,52 @@ export async function sendDueGuideEmails({ store, mailer, origin, now = new Date
       results.push(await store.deliveries.update(delivery.id, { status: DELIVERY_STATUS.unsendable }));
       continue;
     }
-
-    const message = renderGuideEmail({ reservation, origin, lang: delivery.lang });
-    try {
-      const outcome = await mailer.send({ to: delivery.to, ...message });
-      results.push(await store.deliveries.update(delivery.id, {
-        status: outcome.simulated ? DELIVERY_STATUS.simulated : DELIVERY_STATUS.sent,
-        sent_at: now.toISOString(),
-        attempts: (delivery.attempts ?? 0) + 1,
-        provider: mailer.id,
-        subject: message.subject,
-        /** Kept when nothing was really sent, so it can be read and checked. */
-        body: outcome.simulated ? message.text : null,
-        error: null,
-      }));
-      await store.reservations.update(reservation.id, {
-        guide_email_status: outcome.simulated ? DELIVERY_STATUS.simulated : DELIVERY_STATUS.sent,
-        guide_email_sent_at: now.toISOString(),
-      });
-    } catch (error) {
-      results.push(await store.deliveries.update(delivery.id, {
-        status: DELIVERY_STATUS.failed,
-        attempts: (delivery.attempts ?? 0) + 1,
-        error: String(error.message ?? error).slice(0, 300),
-      }));
-    }
+    results.push(await deliverGuideEmail({ store, mailer, origin, reservation, delivery, now }));
   }
 
   return results;
+}
+
+/**
+ * Write one guide email, and record exactly what happened to it.
+ *
+ * Pulled out of the loop above because the launch-day catch-up sends the same
+ * email through the same door, and two functions writing a delivery's status is
+ * how one of them ends up writing a status the other does not expect. Whoever
+ * calls this has already decided that this reservation should be written to; this
+ * only does it, and records it.
+ *
+ * `simulated` and `sent` are deliberately different words. With no mail provider
+ * configured nothing left the building, and a record saying otherwise would make
+ * a staging run look like a guest had been contacted.
+ */
+export async function deliverGuideEmail({ store, mailer, origin, reservation, delivery, now = new Date() }) {
+  const message = renderGuideEmail({ reservation, origin, lang: delivery.lang });
+  try {
+    const outcome = await mailer.send({ to: delivery.to, ...message });
+    const status = outcome.simulated ? DELIVERY_STATUS.simulated : DELIVERY_STATUS.sent;
+    const written = await store.deliveries.update(delivery.id, {
+      status,
+      sent_at: now.toISOString(),
+      attempts: (delivery.attempts ?? 0) + 1,
+      provider: mailer.id,
+      subject: message.subject,
+      /** Kept when nothing was really sent, so it can be read and checked. */
+      body: outcome.simulated ? message.text : null,
+      error: null,
+    });
+    await store.reservations.update(reservation.id, {
+      guide_email_status: status,
+      guide_email_sent_at: now.toISOString(),
+    });
+    return written;
+  } catch (error) {
+    return store.deliveries.update(delivery.id, {
+      status: DELIVERY_STATUS.failed,
+      attempts: (delivery.attempts ?? 0) + 1,
+      error: String(error.message ?? error).slice(0, 300),
+    });
+  }
 }
 
 /* ── The email itself ──────────────────────────────────────────────────── */

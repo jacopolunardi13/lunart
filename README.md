@@ -391,6 +391,42 @@ is whatever the reservation carries, `@guest.booking.com` alias and all: that re
 reaches a real person, and substituting our own guess for it would mean writing to
 nobody.
 
+### The one-off launch catch-up
+
+The rule above looks forward. On the day production starts there is a backlog it
+cannot see: people whose T-3 moment passed while the mailer was still a stand-in,
+and who would otherwise simply never be written to. So there is a separate
+operation for them, on the Staff app's **Sincronizzazione** screen, under *Invio
+iniziale Guest Guide*. It is not scheduled, it does not run at boot, it does not
+run on deploy, and configuring Gmail does not set it off.
+
+Two buttons, because they are two different acts:
+
+- **Controlla destinatari** is a `GET`. It opens no mailer and has no way to send.
+  It answers with how many reservations were read, how many would be written to,
+  how many were left out and why, and then the rows themselves — guest, room,
+  dates, reference, delivery state, and a masked address, enough to recognise
+  somebody without printing the mailbox on a phone in a breakfast room.
+- **Invia Guest Guide agli ospiti selezionati** is a `POST` that carries
+  `{"confirm": true}` and is refused with a 422 without it, so no retry, prefetch
+  or mistyped URL can write to a guest. In the app it stays disabled until a
+  preview has run and found somebody, and then asks once more, naming the number.
+
+A reservation is in the catch-up when the stay is live or modified, is not
+provisional, has not checked out, has a real guest address and a guide token, and
+has not already had a real email. Everything else is excluded and counted under
+the reason: already sent, cancelled, past, provisional, no address, no token.
+
+The distinction that makes it idempotent is `sent` versus `simulated`. For the
+ordinary scheduler both mean *finished*, which is right: it must not send twice,
+and in staging there is nothing to send with. Here they are opposites. `sent`
+means a provider accepted the message, and it is the one state that takes a guest
+off the list — asked of the delivery row *and* of the reservation, so a record
+imported without its delivery row still cannot be written to twice. `simulated`
+means nothing left the building, so those guests are the backlog rather than the
+done pile. Run the catch-up twice and the second run has nothing to do.
+
+
 ## LunArt Staff
 
 A private app at `/staff`, dark and thumb-sized, built on the same backend as the
@@ -472,6 +508,28 @@ is exactly the kind of thing not to write by hand. What is written here is the
 policy: a 404 or a 410 means the browser dropped the subscription and it is deleted;
 anything else means the push service is having a bad morning and the device is kept.
 A notification that fails never fails the order it was about.
+
+There are five events, and the wording lives next to each one in `server/push.js`
+because the wording *is* the notification. `order-new` and `order-awaiting` are one
+per checkout — exactly one, which took a bug to get right: the authorise-then-
+capture branch used to send its own and then fall through to the shared call, so a
+transfer buzzed both phones twice with the identical line. Both branches now read
+the event off the order and announce it once, and only when something actually
+moved, so the webhook and the order page's own reconciliation cannot both report
+the same payment. `order-cancelled` is the guest calling something off themselves:
+nobody asked a person first, the money has already moved, and somebody may be about
+to make a breakfast that is no longer wanted — so the title says *Annullamento
+ospite* rather than naming the product, and the line, the room, the quantity, what
+happened to the money and when it was for follow in the body. It is sent only after
+the cancellation has succeeded; a refusal tells nobody anything.
+
+On the first day, registering the phones is four steps and no secrets: set
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` in the environment;
+open `/staff` on each phone and allow notifications, which registers that device;
+press **Invia una notifica di prova** on the Sincronizzazione screen once; and check
+it arrived on both. The answer says how many devices were registered and how many
+were delivered to, and if there are no keys it says which variables are missing
+without ever printing a value.
 
 ### The hair calendar
 

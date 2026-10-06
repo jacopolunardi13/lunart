@@ -17,7 +17,9 @@ import { createStripe, createMockStripe, verifyWebhookSignature } from './stripe
 import {
   readJson, readRawBody, sendJson, sendHtml, sendText, redirect, serveStatic, matchRoute, escapeHtml,
 } from './http.js';
-import { priceAndBuild, stripeLineItems, fulfilOrder, orderView, canTransition, appendEvent } from './orders.js';
+import {
+  priceAndBuild, stripeLineItems, fulfilOrder, orderView, orderReference, canTransition, appendEvent,
+} from './orders.js';
 import { holderView, currentCode, validateCode, qrPayload, cardState, revoke } from './card.js';
 import {
   PRODUCTS, PLANNED_PRODUCTS, COMMERCE_CATEGORIES, WINES, WINE_KINDS, DELIVERY_SLOTS,
@@ -44,6 +46,7 @@ import {
   createMailer, scheduleGuideEmail, sendDueGuideEmails, renderGuideEmail,
   mailProviders, guideUrl, DELIVERY_STATUS,
 } from './delivery.js';
+import { previewGuideCatchUp, runGuideCatchUp } from './catchup.js';
 import { ingestMessage, ingestMessages, ingestEvent, resolveAlert, raiseAlert } from './ingest/index.js';
 import { createMailbox, mailboxSources, pollMailbox, createMemoryMailbox } from './ingest/mailbox.js';
 import { createQuovaiApiAdapter, reservationSources } from './ingest/quovai-api.js';
@@ -519,6 +522,16 @@ export async function createApp(overrides = {}) {
       return;
     }
 
+    /**
+     * Only now, and only on the way out.
+     *
+     * A refusal — too late, not cancellable, nothing left to cancel — returned
+     * above without reaching here, which is the point: staff are told about things
+     * that happened, not about things a guest tried. `alertCancelled` cannot throw,
+     * so the cancellation stands whatever the push service is doing.
+     */
+    await alertCancelled(result, { store, push, order, index });
+
     const cards = [];
     for (const entitlement of result.order.entitlements ?? []) {
       const card = await store.cards.get(entitlement.id);
@@ -784,7 +797,7 @@ export async function createApp(overrides = {}) {
       .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
       .map((order) => ({
         access_token: order.access_token,
-        reference: order.id.slice(-8).toUpperCase(),
+        reference: orderReference(order),
         status: order.status,
         fulfilment_status: order.fulfilment_status,
         amount: order.amount,
@@ -1303,6 +1316,34 @@ export async function createApp(overrides = {}) {
     });
   }
 
+  /* ── Launch day: the guests already in the system ──────────────────────
+     Deliberately two handlers behind two verbs. The preview is a GET because it
+     changes nothing, and the send is a POST that refuses without an explicit
+     confirmation in the body — so no retry, no prefetch and no mistyped URL can
+     write to a guest. Neither runs on a timer, at boot, or on deploy. */
+
+  /** Who the catch-up would write to. Opens no mailer; sends nothing. */
+  async function getStaffGuideCatchUp(req, res) {
+    const preview = await previewGuideCatchUp({ store });
+    sendJson(res, 200, {
+      ...preview,
+      provider: mailer.id,
+      /** So the screen can say whether pressing send would really write to anybody. */
+      mailerConfigured: mailer.configured,
+    });
+  }
+
+  /** And the send, which a person has to mean. */
+  async function postStaffGuideCatchUp(req, res) {
+    const body = await readJson(req).catch(() => ({}));
+    if (body?.confirm !== true) {
+      sendJson(res, 422, { ok: false, error: 'not-confirmed', message: 'Serve una conferma esplicita.' });
+      return;
+    }
+    const outcome = await runGuideCatchUp({ store, mailer, origin, confirm: true });
+    sendJson(res, 200, { ...outcome, mailerConfigured: mailer.configured });
+  }
+
   /** A manifest of its own, so the Staff app installs as itself. */
   async function getStaffManifest(req, res) {
     res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-cache' })
@@ -1568,6 +1609,8 @@ export async function createApp(overrides = {}) {
     ['POST', '/api/staff/sync/ical/inspect', guard(postStaffIcalInspect)],
     ['POST', '/api/staff/sync/ingest', guard(postStaffIngest)],
     ['POST', '/api/staff/sync/send-emails', guard(postStaffSendEmails)],
+    ['GET',  '/api/staff/sync/guide-catchup', guard(getStaffGuideCatchUp)],
+    ['POST', '/api/staff/sync/guide-catchup', guard(postStaffGuideCatchUp)],
     ['POST', '/api/staff/alerts/:id/resolve', guard(postStaffAlertResolve)],
     ['POST', '/api/staff/push/subscribe', guard(postStaffSubscribe)],
     ['POST', '/api/staff/push/test', guard(postStaffNotifyTest)],
@@ -1746,14 +1789,34 @@ export async function handleStripeEvent(event, { store, stripe, settings, push =
           fulfilment_status: FULFILMENT_STATUS['awaiting-confirmation'],
           provider: { ...order.provider, status: 'awaiting', updated_at: new Date().toISOString() },
         }, 'authorised, awaiting provider');
-        await alertStaff(order, { store, push });
+        /**
+         * No notification here.
+         *
+         * There used to be one, and then the call after the branch fired as well:
+         * a transfer that needed a driver's confirmation buzzed both phones twice
+         * with the identical "in attesa di conferma". One checkout, one buzz. The
+         * call below covers both branches and reads the event off `order`, which
+         * `move` has already updated — so the manual path says `order-awaiting` and
+         * the immediate one says `order-new`, from the same line.
+         */
       } else {
         outcome = await move(PAYMENT_STATUS.paid, { stripe_payment_intent_id: intentId }, 'paid at checkout');
         const fulfilled = await fulfilOrder(order, { store, signingKey: settings.cardSigningKey, providerCalendar });
         order = fulfilled.order;
         outcome.entitlements = fulfilled.cards.length;
       }
-      await alertStaff(order, { store, push });
+      /**
+       * And only if something actually moved.
+       *
+       * `store.events.remember` already stops the *same* event being handled
+       * twice, but one payment legitimately reaches here under two different ids:
+       * Stripe's webhook, and the deterministic `reconcile:` event the order page
+       * raises when a guest comes back before the webhook does. Whichever is second
+       * finds the order already paid, so `move` answers `repeated` — and that is
+       * the signal that there is nothing new to tell anybody. A phone buzzing a
+       * second time for one breakfast is how staff stop trusting the phone.
+       */
+      if (!outcome.repeated && !outcome.skipped) await alertStaff(order, { store, push });
       break;
     }
 
@@ -1796,6 +1859,9 @@ export async function handleStripeEvent(event, { store, stripe, settings, push =
   return outcome;
 }
 
+/** Eurocents as a person reads them: "69,00 €". */
+const euros = (amount) => `${((amount ?? 0) / 100).toFixed(2).replace('.', ',')} €`;
+
 /**
  * Tell staff an order landed.
  *
@@ -1807,7 +1873,7 @@ async function alertStaff(order, { store, push }) {
   if (!push) return;
   try {
     const first = order.lines[0];
-    const money = `${(order.amount / 100).toFixed(2).replace('.', ',')} €`;
+    const money = euros(order.amount);
     await notifyStaff({
       store,
       push,
@@ -1826,6 +1892,52 @@ async function alertStaff(order, { store, push }) {
     console.warn('[push] staff notification failed:', error.message);
   }
 }
+
+/**
+ * Tell staff a guest called something off.
+ *
+ * Nobody asked a person first and the money has already moved, so this is the
+ * notification with the shortest fuse: somebody may be about to make a breakfast
+ * that is no longer wanted. It carries what the line was, the room, how many, what
+ * happened to the money and when it was for — everything a person needs to act
+ * without opening the app, and nothing that would need a second screen to read.
+ *
+ * Like `alertStaff`, it is not allowed to fail the thing it is about. A guest who
+ * cancelled has cancelled; a notification that did not arrive is a phone call.
+ */
+async function alertCancelled(result, { store, push, order, index }) {
+  if (!push) return;
+  try {
+    const line = order.lines[index] ?? {};
+    const money = {
+      refunded: `Rimborso ${euros(result.amount)}`,
+      'refunded-offline': `Da rimborsare ${euros(result.amount)}`,
+      released: 'Autorizzazione rilasciata',
+      reduced: `Addebito ridotto di ${euros(result.amount)}`,
+      'nothing-to-settle': 'Nessun importo da restituire',
+    }[result.outcome] ?? null;
+
+    await notifyStaff({
+      store,
+      push,
+      event: 'order-cancelled',
+      data: {
+        orderId: order.id,
+        line: index,
+        reference: orderReference(order),
+        title: line.variant_title ? `${line.title} — ${line.variant_title}` : (line.title ?? 'Ordine'),
+        room: order.customer?.room || line.room || '',
+        quantity: result.quantity ?? 1,
+        money,
+        when: [line.date, line.time].filter(Boolean).join(' '),
+        url: '/staff',
+      },
+    });
+  } catch (error) {
+    console.warn('[push] cancellation notification failed:', error.message);
+  }
+}
+
 
 /* ── Provider decisions ────────────────────────────────────────────────── */
 

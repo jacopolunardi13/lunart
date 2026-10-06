@@ -346,6 +346,75 @@ note(/Lette|Corrette|no-mailbox-configured|source-not-configured/.test(repairTex
 note(!/^\s*$/.test(repairText), 'and never silently');
 await staffPage.screenshot({ path: `${OUT}/staff-repair-390.png` });
 
+/* ── The one-off launch catch-up ──────────────────────────────────────────
+   Two buttons that must never be confused for each other: one reads, one writes
+   to guests and cannot be undone. So what is checked here is the distinction —
+   that the screen says the preview sends nothing, that the send starts out of
+   reach, and that it is armed only by a preview that found somebody. The send
+   itself is never pressed from QA; the unit tests cover what it does. */
+await staffPage.click('[data-view="sync"]');
+await staffPage.waitForTimeout(800);
+const catchUpText = await staffPage.textContent('#main');
+
+note(/Invio iniziale Guest Guide/.test(catchUpText), 'the launch catch-up has a section of its own');
+note(/tre giorni prima dell\u2019arrivo/.test(catchUpText),
+  'and says the ordinary rule is unchanged rather than leaving it to be guessed');
+note(/non manda niente/.test(catchUpText), 'the preview says in words that it sends nothing');
+note(/non si pu\u00f2 annullare/.test(catchUpText), 'and the send says it cannot be undone');
+note(await staffPage.isVisible('[data-catchup="preview"]'), 'Controlla destinatari is offered');
+note(await staffPage.isVisible('[data-catchup="send"]'), 'so is the send');
+note(await staffPage.isDisabled('[data-catchup="send"]'),
+  'and the send is out of reach until somebody has looked at the list');
+
+await staffPage.click('[data-catchup="preview"]');
+await staffPage.waitForTimeout(1500);
+const dryRun = (await staffPage.textContent('#catchup-result')).replace(/\s+/g, ' ').trim();
+note(/Nessuna email \u00e8 stata inviata/.test(dryRun), `the dry run says so first (${dryRun.slice(0, 80)})`);
+note(/Prenotazioni lette:/.test(dryRun), 'and gives the three numbers');
+note(/Riceverebbero la guida|Nessun ospite da recuperare/.test(dryRun), 'then names who, or says nobody');
+
+const armed = Number(await staffPage.getAttribute('[data-catchup="send"]', 'data-eligible'));
+const sendDisabled = await staffPage.isDisabled('[data-catchup="send"]');
+note(sendDisabled === (armed === 0),
+  `the send is armed only when there is somebody to write to (${armed} eligible)`);
+note(/Controllo fatto/.test(await staffPage.textContent('#catchup-hint')),
+  'and the hint under the buttons says the check has been done');
+
+/* No guest's full address on a screen that may be held up in a breakfast room —
+   and, when there are rows, the masked form really is there to be recognised by. */
+const masked = (dryRun.match(/\S*\u2022+\S*@[A-Za-z0-9.-]+/g) ?? []);
+const bare = (dryRun.match(/[A-Za-z0-9._%+-]{3,}@[A-Za-z0-9.-]+/g) ?? []);
+note(bare.length === 0, `no full address is printed (${bare.slice(0, 2).join(', ') || 'none'})`);
+note(armed === 0 || masked.length > 0,
+  `each row carries a masked address instead (${masked.slice(0, 2).join(', ') || 'no rows'})`);
+
+/* Guarded like every other staff route, and refusing without a confirmation. */
+const [previewStatus, sendStatus, confirmlessStatus] = await Promise.all([
+  fetch(`${BASE}/api/staff/sync/guide-catchup`).then((r) => r.status),
+  fetch(`${BASE}/api/staff/sync/guide-catchup`, { method: 'POST' }).then((r) => r.status),
+  fetch(`${BASE}/api/staff/sync/guide-catchup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: 'yes' }),
+  }).then((r) => r.status),
+]);
+note((previewStatus === 401) === (dashboardStatus === 401),
+  `the catch-up preview is guarded like the rest of the staff API (${previewStatus})`);
+note(sendStatus === 422 || sendStatus === 401,
+  `a send with no body is refused rather than performed (${sendStatus})`);
+note(confirmlessStatus === 422 || confirmlessStatus === 401,
+  `and so is a send whose confirmation is not the word true (${confirmlessStatus})`);
+
+/* ── The push test ────────────────────────────────────────────────────── */
+note(await staffPage.isVisible('[data-push-test="now"]'), 'a test notification can be sent from here');
+await staffPage.click('[data-push-test="now"]');
+await staffPage.waitForTimeout(1200);
+const pushResult = (await staffPage.textContent('#push-result')).replace(/\s+/g, ' ').trim();
+note(pushResult.length > 0, `and it answers rather than looking idle (${pushResult.slice(0, 80)})`);
+note(/Nessun telefono registrato|Telefoni registrati/.test(pushResult),
+  'saying whether there was anywhere to send it');
+note(!/VAPID_PRIVATE_KEY["\s:=]+[A-Za-z0-9_-]{8}/.test(pushResult),
+  'and names the variable it needs without ever printing a value');
+await staffPage.screenshot({ path: `${OUT}/staff-catchup-390.png` });
+
 /* The manual form carries one language selector. It only ever had one, but the
    owner saw two, so this is the assertion rather than the assumption. */
 await staffPage.click('[data-view="reservations"]');

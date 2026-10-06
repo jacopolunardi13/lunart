@@ -471,6 +471,118 @@ function backfillSummary(result) {
 
 const UI_ROOM = 'camera';
 
+/** Why a reservation is not in the catch-up. Mirrors CATCHUP_SKIP on the server. */
+const CATCHUP_REASONS = {
+  'already-sent': 'guida già inviata',
+  cancelled: 'annullate',
+  past: 'soggiorno concluso',
+  provisional: 'provvisorie',
+  'no-email': 'senza indirizzo email',
+  'no-token': 'senza link personale',
+  other: 'altro',
+};
+
+/**
+ * Who the catch-up would write to — and, first of all, that it has not.
+ *
+ * The one sentence a person needs before reading anything else is that nothing
+ * has been sent, so it is the first line and it is in bold. After that the three
+ * numbers, then why each exclusion happened, then the list itself: a count of
+ * "28 ospiti" is only trustworthy if you can recognise four or five names in it.
+ *
+ * The addresses arrive masked from the server and are printed as they arrive.
+ */
+function catchUpPreviewSummary(result) {
+  const breakdown = Object.entries(result.breakdown ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([reason, count]) => `${esc(CATCHUP_REASONS[reason] ?? reason)}: <strong>${Number(count)}</strong>`)
+    .join(' · ');
+
+  const rows = (result.rows ?? []).map((r) => `
+    <li><strong>${esc(r.guest || r.reference || '—')}</strong>
+      ${r.room ? `· ${esc(UI_ROOM)} ${esc(r.room)}` : ''}
+      · ${esc(day(r.check_in))} → ${esc(day(r.check_out))}
+      <span class="mono">${esc(r.email)}</span>
+      <span class="mono">${esc(r.reference)} · ${esc(label(r.delivery_status))}</span></li>`).join('');
+
+  return `<div class="banner" data-tone="${result.eligible > 0 ? 'warn' : ''}">
+    <p><strong>Nessuna email è stata inviata.</strong> Questo è solo il controllo.</p>
+    <p>Prenotazioni lette: <strong>${Number(result.considered ?? 0)}</strong> ·
+      riceverebbero la guida: <strong>${Number(result.eligible ?? 0)}</strong> ·
+      escluse: <strong>${Number(result.excluded ?? 0)}</strong></p>
+    ${breakdown ? `<p class="note">Escluse perché — ${breakdown}</p>` : ''}
+    ${rows
+      ? `<p class="note">Riceverebbero la guida:</p><ul class="repair__list">${rows}</ul>`
+      : '<p class="note">Nessun ospite da recuperare: sono già tutti a posto.</p>'}
+    ${result.mailerConfigured === false && result.eligible > 0
+      ? `<p class="note note--warn">Nessun provider email configurato: premendo
+          “Invia” le email verrebbero preparate e registrate come
+          <em>simulate</em>, senza partire davvero.</p>`
+      : ''}
+  </div>`;
+}
+
+/** And what it did. The three outcomes are kept apart, because they are not the same. */
+function catchUpSendSummary(result) {
+  if (result.ok === false) {
+    return `<div class="banner" data-tone="bad">
+      <p>Invio non eseguito: serviva una conferma esplicita. Non è partito niente.</p>
+    </div>`;
+  }
+
+  const rows = (result.results ?? []).map((r) => `
+    <li><strong>${esc(r.guest || r.reservation_id)}</strong> · ${esc(label(r.status))}
+      ${r.error ? `<span class="mono">${esc(r.error)}</span>` : ''}</li>`).join('');
+
+  const wrong = (result.failed ?? 0) > 0 || (result.simulated ?? 0) > 0;
+  return `<div class="banner" data-tone="${wrong ? 'warn' : ''}">
+    <p>Tentate: <strong>${Number(result.attempted ?? 0)}</strong> ·
+      inviate: <strong>${Number(result.sent ?? 0)}</strong> ·
+      simulate: <strong>${Number(result.simulated ?? 0)}</strong> ·
+      non riuscite: <strong>${Number(result.failed ?? 0)}</strong></p>
+    <p class="note">Provider: ${esc(result.provider ?? '—')}.${result.simulated
+      ? ' Le simulate non sono partite: non c’è nessun provider configurato, e quegli ospiti restano da recuperare.'
+      : ''}</p>
+    ${rows ? `<ul class="repair__list">${rows}</ul>` : '<p class="note">Nessun ospite da recuperare.</p>'}
+  </div>`;
+}
+
+/**
+ * What the test notification actually did.
+ *
+ * Three things can be wrong and each needs a different person to do a different
+ * thing: no device has registered yet — open the app on the phone and allow
+ * notifications; no keys are configured — an environment variable on the server;
+ * the push service refused — nothing to do but read the error. Saying "non
+ * funziona" would send somebody looking in the wrong place.
+ *
+ * Subscription endpoints are not printed. They are per-device addresses and the
+ * screen has no use for them.
+ */
+function pushTestSummary(result) {
+  if (!result.devices) {
+    return `<div class="banner" data-tone="warn">
+      <p>Nessun telefono registrato: non c’è dove mandarla.</p>
+      <p class="note">Aprire questa app sul telefono, consentire le notifiche, e riprovare.</p>
+    </div>`;
+  }
+
+  const errors = (result.results ?? []).filter((r) => r.error);
+  return `<div class="banner" data-tone="${result.simulated || errors.length ? 'warn' : ''}">
+    <p>Telefoni registrati: <strong>${Number(result.devices ?? 0)}</strong> ·
+      consegnate: <strong>${Number(result.delivered ?? 0)}</strong>${result.removed
+        ? ` · registrazioni scadute rimosse: <strong>${Number(result.removed)}</strong>` : ''}</p>
+    ${result.simulated
+      ? `<p class="note note--warn">Nessuna chiave configurata: la notifica è stata
+          registrata ma non è partita. Sul server servono
+          <span class="mono">VAPID_PUBLIC_KEY</span>,
+          <span class="mono">VAPID_PRIVATE_KEY</span> e
+          <span class="mono">VAPID_SUBJECT</span>.</p>`
+      : '<p class="note">Controllare che sia arrivata su tutti i telefoni che dovrebbero averla.</p>'}
+    ${errors.map((r) => `<p class="note note--warn">${esc(r.error)}</p>`).join('')}
+  </div>`;
+}
+
 async function renderSync() {
   const data = await api('/sync');
 
@@ -529,6 +641,16 @@ async function renderSync() {
     ${row('Invio email agli ospiti', data.mail, `Provider: ${data.mail?.provider ?? '—'}${data.mail?.configured ? '' : ' — le email vengono preparate ma non spedite'}`)}
     ${row('Notifiche push', data.push, data.push?.configured ? `Trasporto: ${data.push.transport}` : 'L’app funziona lo stesso: si aggiorna da sola quando la apri')}
     ${row('Calendario del professionista', data.calendar, data.calendar?.id ?? '')}
+    <div class="actions">
+      <button class="action" type="button" data-push-test="now">Invia una notifica di prova</button>
+    </div>
+    <p class="note">
+      Arriva su ogni telefono che ha aperto e autorizzato questa app. È la verifica
+      da fare in partenza: aprite l’app sui due telefoni, premete qui una volta e
+      controllate che la notifica arrivi su entrambi. Le chiavi si configurano come
+      variabili d’ambiente sul server — non si vedono e non si impostano da qui.
+    </p>
+    <div id="push-result"></div>
 
     <h2>Sincronizzazione prenotazioni</h2>
     <p class="note">
@@ -546,6 +668,27 @@ async function renderSync() {
       <button class="action" type="button" data-sync="reconcile">Confronta i calendari</button>
       <button class="action" type="button" data-sync="send-emails">Invia le email in scadenza</button>
     </div>
+
+    <h2>Invio iniziale Guest Guide</h2>
+    <p class="note">
+      Una volta sola, in partenza. La regola normale non cambia e questa operazione
+      non la tocca: la guida parte tre giorni prima dell’arrivo, alle 10:00 ora di
+      Firenze. Questo serve per le prenotazioni già in archivio, il cui momento è
+      passato prima che l’invio fosse attivo — altrimenti a quelle persone non
+      scriverebbe nessuno.
+    </p>
+    <p class="note">
+      <strong>Controlla destinatari</strong> non manda niente: legge e mostra chi
+      riceverebbe, chi no e per quale motivo. <strong>Invia</strong> scrive davvero
+      agli ospiti e non si può annullare. Chi ha già ricevuto la guida resta sempre
+      fuori, quindi un secondo lancio non manda doppioni.
+    </p>
+    <div class="actions">
+      <button class="action" type="button" data-catchup="preview">Controlla destinatari</button>
+      <button class="action action--danger" type="button" data-catchup="send" disabled>Invia Guest Guide agli ospiti selezionati</button>
+    </div>
+    <p class="note" id="catchup-hint">L’invio si sblocca dopo il controllo.</p>
+    <div id="catchup-result"></div>
 
     <h2>Riparazione</h2>
     <p class="note">
@@ -918,6 +1061,76 @@ document.addEventListener('click', async (event) => {
       if (!error.handled) $('#sync-result').innerHTML = `<div class="banner" data-tone="bad">${esc(error.message)}</div>`;
     } finally {
       syncButton.disabled = false;
+    }
+    return;
+  }
+
+  /**
+   * The launch catch-up. Two buttons, because they are two different acts.
+   *
+   * The preview is a GET and has no way to send. The send is a POST carrying an
+   * explicit confirmation, is refused by the server without it, and is disabled
+   * here until a preview has run — so the only route to it is through having read
+   * who is on the list. Leaving the screen disables it again, because by the time
+   * you come back the list may have moved.
+   */
+  const catchUp = event.target.closest('[data-catchup]');
+  if (catchUp) {
+    const what = catchUp.dataset.catchup;
+    const send = $('[data-catchup="send"]');
+    const out = $('#catchup-result');
+    const hint = $('#catchup-hint');
+
+    if (what === 'send') {
+      const count = Number(send.dataset.eligible ?? 0);
+      if (!count) return;
+      // The last gate, and the only one that names the number out loud.
+      if (!confirm(`Invio reale della Guest Guide a ${count} ospiti. Non si può annullare. Procedere?`)) return;
+    }
+
+    catchUp.disabled = true;
+    try {
+      const result = what === 'preview'
+        ? await api('/sync/guide-catchup', { keepBody: true })
+        : await api('/sync/guide-catchup', { method: 'POST', body: { confirm: true }, keepBody: true });
+
+      out.innerHTML = what === 'preview' ? catchUpPreviewSummary(result) : catchUpSendSummary(result);
+
+      if (what === 'preview') {
+        // The preview arms the send, with the number it found, and only when there
+        // is somebody to write to.
+        send.dataset.eligible = String(result.eligible ?? 0);
+        send.disabled = !result.eligible;
+        hint.textContent = result.eligible
+          ? `Controllo fatto, nessuna email inviata. L’invio scriverebbe a ${result.eligible} ospiti.`
+          : 'Controllo fatto, nessuna email inviata: non c’è nessun ospite da recuperare.';
+      } else {
+        // Sent is sent. A second press would find nothing, but it should not be one
+        // tap away either.
+        send.disabled = true;
+        send.dataset.eligible = '0';
+        hint.textContent = 'Invio eseguito. Per rivedere la situazione, rifare il controllo.';
+      }
+    } catch (error) {
+      if (!error.handled) out.innerHTML = `<div class="banner" data-tone="bad">${esc(error.message)}</div>`;
+      if (what === 'send') hint.textContent = 'Rifare il controllo per sapere a chi è arrivata.';
+    } finally {
+      if (what === 'preview') catchUp.disabled = false;
+    }
+    return;
+  }
+
+  /** One test notification to every registered device. */
+  const pushTest = event.target.closest('[data-push-test]');
+  if (pushTest) {
+    pushTest.disabled = true;
+    try {
+      const result = await api('/push/test', { method: 'POST', keepBody: true });
+      $('#push-result').innerHTML = pushTestSummary(result);
+    } catch (error) {
+      if (!error.handled) $('#push-result').innerHTML = `<div class="banner" data-tone="bad">${esc(error.message)}</div>`;
+    } finally {
+      pushTest.disabled = false;
     }
     return;
   }
