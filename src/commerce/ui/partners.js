@@ -32,7 +32,9 @@
 import { esc } from '../../ui/dom.js';
 import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
-import { ACCESS, benefitAccess, eligibilityOf, passContextOf } from '../../../commerce/partners.js';
+import {
+  ACCESS, PARTNERSHIP_STATUS, benefitAccess, eligibilityOf, passContextOf,
+} from '../../../commerce/partners.js';
 
 const text = (field, lang) => (field ? (field[lang] ?? field.it ?? '') : '');
 
@@ -106,6 +108,57 @@ function benefitRow({ benefit, access }, lang) {
 }
 
 /**
+ * The official mark, where a business gave us one.
+ *
+ * A fixed box with `object-fit: contain`, because the marks are not one shape:
+ * L'Opera Caffè is a wide flourish at roughly 2.4:1 and Blue Velvet is a portrait
+ * lock-up at 0.8:1, and a slot that stretched either of them to fit would be
+ * handing somebody else's brand back to them damaged. Nothing is cropped and
+ * nothing is distorted; a mark that does not fill the box simply does not.
+ *
+ * It is `alt=""`. The business name is in text two lines down and always will be —
+ * the renderer draws it whether or not a logo exists — so announcing the mark as
+ * well would read the venue's name twice to anybody listening instead of looking.
+ *
+ * The intrinsic size is written into the tag so the row does not jump when the
+ * image lands, and a partner with no logo gets no box at all: the text simply
+ * starts where it would anyway.
+ */
+function partnerLogo(view) {
+  const logo = view.logo;
+  if (!logo?.src) return '';
+  return `<span class="partner__logo">
+    <img src="${esc(logo.src)}" alt="" decoding="async" loading="lazy"
+      ${logo.width ? `width="${esc(logo.width)}"` : ''} ${logo.height ? `height="${esc(logo.height)}"` : ''}>
+  </span>`;
+}
+
+/** Name, category and where — the identity every partner card leads with. */
+function partnerIdentity(view, lang) {
+  const where = view.address || text(view.area, lang);
+  return `<div class="partner__id">
+    ${partnerLogo(view)}
+    <div class="partner__who">
+      <p class="partner__name">${esc(view.partner)}</p>
+      ${where ? `<p class="partner__meta">${esc(where)}</p>` : ''}
+    </div>
+  </div>`;
+}
+
+/** Directions, or the verified map pin where a partner has one. Never a guess. */
+function partnerDirections(view, lang) {
+  const to = view.directions_url
+    ? { href: view.directions_url, label: UI[lang].directions }
+    : view.maps
+      ? { href: view.maps, label: UI[lang].openMaps }
+      : null;
+  if (!to) return '';
+  return `<a class="partner__directions" href="${esc(to.href)}" target="_blank" rel="noopener">
+    ${icon('map', 14)}<span>${esc(to.label)}</span>
+  </a>`;
+}
+
+/**
  * One partner, with everything it gives.
  *
  * The venue line carries the category and the address because that is what gets a
@@ -119,28 +172,11 @@ export function partnerCard(view, pass, lang) {
 
   const state = partnerState(rows);
   const missing = missingFrom(rows);
-  /**
-   * The address, and not the category next to it.
-   *
-   * The category is on the record and on the element, so grouping a retail network
-   * by it later is a rendering change and not a data one. It is not in the line
-   * because the line is next to the benefit copy, and "Moda e shopping · Via Il
-   * Prato" immediately above "Moda e shopping a Porta al Prato" is the venue saying
-   * the same thing twice before it has said anything. What a guest needs here is
-   * where to go.
-   */
-  const where = view.address || text(view.area, lang);
-
-  const directions = view.directions_url
-    ? { href: view.directions_url, label: UI[lang].directions }
-    : view.maps
-      ? { href: view.maps, label: UI[lang].openMaps }
-      : null;
+  const directions = partnerDirections(view, lang);
 
   return `<li class="partner" data-access="${esc(state)}"
     data-partner="${esc(view.partner_id)}" data-category="${esc(view.category)}">
-    <p class="partner__name">${esc(view.partner)}</p>
-    ${where ? `<p class="partner__meta">${esc(where)}</p>` : ''}
+    ${partnerIdentity(view, lang)}
 
     <ul class="partner__benefits">
       ${rows.map((row) => benefitRow(row, lang)).join('')}
@@ -150,11 +186,7 @@ export function partnerCard(view, pass, lang) {
       ${missing.length
         ? `<span class="partner__lock">${icon('key', 14)}<span>${esc(UI[lang].privilegeLocked)}</span></span>`
         : ''}
-      ${directions
-        ? `<a class="partner__directions" href="${esc(directions.href)}" target="_blank" rel="noopener">
-             ${icon('map', 14)}<span>${esc(directions.label)}</span>
-           </a>`
-        : ''}
+      ${directions}
     </p>` : ''}
   </li>`;
 }
@@ -162,6 +194,52 @@ export function partnerCard(view, pass, lang) {
 /** A list of partners, in register order. Grouping by category comes with the tenth. */
 export const partnerList = (views, pass, lang) => `
   <ul class="partners">${views.map((view) => partnerCard(view, pass, lang)).join('')}</ul>`;
+
+/**
+ * The network, as one list.
+ *
+ * Who LunArt works with, in the order LunArt curated: the venues with an agreement
+ * first, then one quiet rule, then the ones still being set up. Not two sections —
+ * a guest scrolls through one list and the far end of it is simply quieter, the way
+ * a restaurant that is closed tonight sits at the foot of a delivery app instead of
+ * vanishing. The same card geometry throughout, so nothing reads as broken.
+ *
+ * It is a catalogue and it authorises nothing. The claimable half is drawn by
+ * `privilegeSection` and `stayBenefitsSection` from `cardBenefits()` and
+ * `stayBenefits()`, which the activating venues cannot reach — see
+ * `benefitPartners()`.
+ */
+function networkCard(view, lang) {
+  const soon = view.partnership_status === PARTNERSHIP_STATUS.activating;
+  const directions = partnerDirections(view, lang);
+  const category = text(view.category_label, lang);
+
+  return `<li class="partner partner--network" data-partner="${esc(view.partner_id)}"
+    data-category="${esc(view.category)}" data-status="${esc(view.partnership_status)}">
+    ${partnerIdentity(view, lang)}
+    <p class="partner__kind">${esc(category)}</p>
+    ${soon ? `<p class="partner__soon">${esc(UI[lang].partnerComingSoon)}</p>` : ''}
+    ${directions ? `<p class="partner__actions">${directions}</p>` : ''}
+  </li>`;
+}
+
+export function networkSection(views, lang) {
+  if (!views?.length) return '';
+
+  const live = views.filter((v) => v.partnership_status !== PARTNERSHIP_STATUS.activating);
+  const soon = views.filter((v) => v.partnership_status === PARTNERSHIP_STATUS.activating);
+
+  return `
+    <p class="pass__label" data-section="network">${esc(UI[lang].partnerNetwork)}</p>
+    <p class="pass__lead">${esc(UI[lang].partnerNetworkBlurb)}</p>
+    <ul class="partners partners--network">
+      ${live.map((view) => networkCard(view, lang)).join('')}
+      ${soon.length ? `<li class="partners__turn" data-network-turn aria-hidden="true">
+        <span>${esc(UI[lang].partnerActivating)}</span>
+      </li>` : ''}
+      ${soon.map((view) => networkCard(view, lang)).join('')}
+    </ul>`;
+}
 
 /**
  * The Privilege section of the Pass.

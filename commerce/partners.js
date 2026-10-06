@@ -82,6 +82,30 @@ export const ENTITLEMENTS = {
 
 export const ENTITLEMENT_NAMES = Object.values(ENTITLEMENTS);
 
+/**
+ * Where a partnership is, which is not where a guest is.
+ *
+ * `active` is already taken and means something else: whether a record is
+ * published at all. Half the register is inactive example shapes that no screen
+ * ever draws, and overloading that flag to mean "we have a deal" would have made
+ * one field answer two questions and eventually get one of them wrong.
+ *
+ *   active      LunArt has a real benefit here today, agreed and claimable.
+ *   activating  the business is in the network being built. No benefit is
+ *               promised, nothing is claimable, and nothing it carries may become
+ *               so because a guest happens to hold Privilege.
+ *
+ * The firewall is `benefitPartners()` below: every selector that leads to a
+ * claim — `cardPartners`, `stayPartners`, `cardBenefits`, `stayBenefits`,
+ * `allGuestBenefits`, and through them `requiresPartners` and the scanner —
+ * filters through it. An activating venue is reachable only through
+ * `partnerNetwork()`, which is a catalogue and authorises nothing.
+ */
+export const PARTNERSHIP_STATUS = {
+  active: 'active',
+  activating: 'activating',
+};
+
 /** What a guest can actually buy. The list the catalogue is allowed to act on. */
 export const ENTITLEMENTS_ON_SALE = [ENTITLEMENTS.privilege];
 
@@ -140,8 +164,11 @@ export const PARTNER_CATEGORIES = {
    * keys to this map, which is the point.
    */
   shopping: { it: 'Moda e shopping', en: 'Fashion and shopping' },
+  cafes: { it: 'Caffè e bistrot', en: 'Cafés and bistros' },
   spa: { it: 'SPA e benessere', en: 'Spa and wellness' },
   beauty: { it: 'Beauty', en: 'Beauty' },
+  pharmacy: { it: 'Farmacia', en: 'Pharmacy' },
+  tobacco: { it: 'Tabacchi', en: 'Tobacconist' },
   experiences: { it: 'Esperienze', en: 'Experiences' },
   other: { it: 'Altro', en: 'Other' },
 };
@@ -155,11 +182,45 @@ export const PARTNER_CATEGORIES = {
  */
 export const BENEFIT_KINDS = ['percentage', 'amount', 'special', 'item', 'guestlist', 'other'];
 
+/**
+ * A business in the network that LunArt has not agreed terms with yet.
+ *
+ * Everything these carry is a fact about the business — its name, what it is,
+ * where it is when that is certain — and nothing is a promise. `benefits` is
+ * empty by construction rather than by discipline, so there is no percentage to
+ * leak, no entry price to honour and nothing for a scanner to match: a record
+ * made here cannot become claimable without somebody writing a benefit into it.
+ *
+ * `directions` follows the address, because that is the only thing a map link can
+ * honestly be built from. A business whose exact branch is still in question gets
+ * its name and no pin — a wrong pin sends a guest across Florence, which is worse
+ * than no pin at all. The uncertainty itself is recorded in `verify`, internal.
+ *
+ * Activating one later is this record gaining `benefits`, an `eligibility` rule and
+ * `partnership_status: 'active'`. No renderer changes.
+ */
+const activating = ({ id, name, category, address = null, area = null, notes = null, verify = null }) => ({
+  partner_id: id,
+  active: true,
+  partnership_status: PARTNERSHIP_STATUS.activating,
+  name,
+  category,
+  area: area ? { it: area, en: area } : null,
+  address,
+  directions: Boolean(address),
+  logo: null,
+  /** Nothing is promised. The firewall is this, not a flag somewhere else. */
+  benefits: [],
+  ...(notes ? { notes } : {}),
+  ...(verify ? { verify } : {}),
+});
+
 export const PARTNERS = [
   // ── Included with the stay ───────────────────────────────────────────────
   {
     partner_id: 'opera-caffe',
     active: true,
+    partnership_status: PARTNERSHIP_STATUS.active,
     /**
      * Everyone on the reservation, not two people, and not conditional on buying
      * anything. This is the line that must never move: listing Opera Caffè as
@@ -168,10 +229,12 @@ export const PARTNERS = [
      */
     applies_to: 'all-guests',
     eligibility: STAY_ELIGIBILITY,
-    name: 'Opera Caffè',
+    name: 'L’Opera Caffè',
     category: 'restaurants',
-    area: { it: 'Piazza del Duomo 62R', en: 'Piazza del Duomo 62R' },
+    area: { it: 'Piazza del Duomo 62/R', en: 'Piazza del Duomo 62/R' },
+    address: 'Piazza del Duomo 62/R, Firenze',
     maps: 'https://maps.app.goo.gl/uok3CmvHBLmwieoV9',
+    logo: { src: 'assets/img/partners/opera-caffe-400.webp', width: 400, height: 170 },
     benefits: [
       {
         benefit_id: 'opera-caffe-table',
@@ -198,7 +261,10 @@ export const PARTNERS = [
   {
     partner_id: 'le-firme',
     active: true,
+    partnership_status: PARTNERSHIP_STATUS.active,
     eligibility: PRIVILEGE_ELIGIBILITY,
+    /** No official asset supplied yet. The name carries the identity until one is. */
+    logo: null,
     name: 'Le Firme',
     category: 'shopping',
     area: { it: 'Porta al Prato', en: 'Porta al Prato' },
@@ -228,7 +294,15 @@ export const PARTNERS = [
   {
     partner_id: 'blue-velvet',
     active: true,
+    partnership_status: PARTNERSHIP_STATUS.active,
     eligibility: PRIVILEGE_ELIGIBILITY,
+    /**
+     * Traced from nothing: `assets/img/_src/partners/blue-velvet.pdf` is the
+     * Illustrator vector the club supplied, converted path for path by
+     * `pdftocairo -svg` and cropped to its own ink by moving the viewBox. No
+     * redrawing, no approximation, and no request to anybody else's server.
+     */
+    logo: { src: 'assets/img/partners/blue-velvet.svg', width: 237, height: 283 },
     name: 'Blue Velvet',
     category: 'nightlife',
     /**
@@ -291,6 +365,111 @@ export const PARTNERS = [
      */
     notes: 'Vantaggi confermati dalla proprietà per chi ha LunArt Privilege attiva: ingresso in lista a massimo €15 a persona con una consumazione, a qualsiasi ora; 20% su tavoli / bottle service. Listino normale del locale, solo come contesto interno: fino all’01:00 donna €15 con consumazione, uomo €20 con consumazione; dopo l’01:00 €20 senza consumazione. Non forniti, da non inventare: telefono, sito, giorni e orari di apertura, dress code, spesa minima o numero minimo di persone per un tavolo, bottiglie incluse, modalità di prenotazione del tavolo, cumulabilità.',
   },
+
+
+  // ── In attivazione ───────────────────────────────────────────────────────
+  // The network being built. Every record below is guest-visible and promises
+  // nothing: no benefit, no percentage, no terms, and no claim any screen or
+  // scanner can honour. See `activating()` and `benefitPartners()`.
+  activating({
+    id: 'babylon-club', name: 'Babylon Club', category: 'nightlife',
+    area: 'Firenze centro',
+    verify: { level: 'address', note: 'Indirizzo civico da confermare prima dell’attivazione.' },
+  }),
+  activating({ id: 'la-petite', name: 'La Petite', category: 'bars', address: 'Via Pellicceria 30R, Firenze' }),
+  activating({ id: 'bitter-bar', name: 'Bitter Bar', category: 'bars', address: 'Via di Mezzo 28R, Firenze' }),
+
+  activating({
+    id: 'giotto-smn', name: 'Giotto Pizzeria-Bistrot', category: 'restaurants',
+    area: 'Santa Maria Novella', address: 'Via Panzani 57, Firenze',
+    notes: 'Locale d’angolo: l’altro affaccio è Piazza Santa Maria Novella 24R. Pubblichiamo un solo civico.',
+  }),
+  activating({ id: 'antica-porta', name: 'Pizzeria Antica Porta', category: 'restaurants', address: 'Via Senese 23, Firenze' }),
+  activating({
+    id: 'braceria-all-11', name: 'Braceria All’11', category: 'restaurants',
+    area: 'Santo Spirito', address: 'Via Sant’Agostino 11/R, Firenze',
+  }),
+  activating({ id: 'obica-firenze', name: 'Obicà Mozzarella Bar', category: 'restaurants', address: 'Via de’ Tornabuoni 16, Firenze' }),
+  activating({
+    id: 'tre-panche', name: 'Osteria delle Tre Panche', category: 'restaurants',
+    verify: { level: 'address', note: 'Più indirizzi fiorentini in circolazione, storici e attuali, in conflitto fra loro. Confermare la sede partecipante prima di pubblicare un civico.' },
+  }),
+  activating({
+    id: 'la-giostra', name: 'La Giostra', category: 'restaurants', area: 'Borgo Pinti',
+    verify: { level: 'address', note: 'Zona confermata, civico no.' },
+  }),
+  activating({
+    id: 'osteria-fulvio', name: 'Osteria Fulvio', category: 'restaurants',
+    verify: { level: 'identity', note: 'Exact public identity/address to confirm.' },
+  }),
+  activating({
+    id: 'vecchia-bettola', name: 'La Vecchia Betola', category: 'restaurants',
+    verify: { level: 'address', note: 'Civico da confermare.' },
+  }),
+  activating({ id: 'neromo', name: 'Neromo', category: 'restaurants', address: 'Borgo San Frediano 23R–25R, Firenze' }),
+  activating({
+    id: 'la-cupola', name: 'Ristorante La Cupola', category: 'restaurants', address: 'Piazza del Duomo 47/R, Firenze',
+    notes: 'Referente interno: Mirko.',
+  }),
+  activating({
+    id: 'quattro-leoni', name: 'Trattoria 4 Leoni', category: 'restaurants', area: 'Piazza della Passera',
+    verify: { level: 'address', note: 'Piazza confermata, civico no.' },
+  }),
+  activating({
+    id: 'le-mossacce', name: 'Le Mossacce', category: 'restaurants', address: 'Via del Proconsolo 55R, Firenze',
+    notes: 'Referente interno: Massimiliano.',
+  }),
+  activating({ id: 'fuor-d-acqua', name: 'Fuor d’Acqua', category: 'restaurants', address: 'Via Pisana 37R, Firenze' }),
+  activating({
+    id: 'caffe-maioli', name: 'Caffè Maioli', category: 'cafes',
+    verify: { level: 'identity', note: 'Più risultati fiorentini in conflitto. Confermare quale sede è quella partecipante.' },
+  }),
+  activating({
+    id: 'caffe-amerini', name: 'Caffè Amerini', category: 'cafes',
+    verify: { level: 'address', note: 'Civico da confermare senza ambiguità prima di pubblicarlo.' },
+  }),
+
+  activating({
+    id: 'alessi', name: 'Alessi', category: 'shopping',
+    verify: { level: 'identity', note: 'Quale attività fiorentina di nome Alessi è ancora da confermare. Non sostituire con un’altra con lo stesso nome.' },
+  }),
+  activating({ id: 'ditta-braschi', name: 'Ditta Braschi', category: 'shopping', address: 'Via del Corso 67R, Firenze' }),
+  activating({ id: 'cose-cosi', name: 'Cose Così', category: 'shopping', address: 'Borgo la Croce 23, Firenze' }),
+  activating({
+    id: 'pasquinucci', name: 'Pasquinucci', category: 'shopping',
+    verify: { level: 'address', note: 'Sede fiorentina e indirizzo attuale da confermare.' },
+  }),
+  activating({
+    id: 'wycon-calzaiuoli', name: 'WYCON Cosmetics', category: 'beauty',
+    area: 'Via dei Calzaiuoli', address: 'Via dei Calzaiuoli 88, Firenze',
+    notes: 'Filiale partecipante: Via dei Calzaiuoli, non le altre sedi fiorentine. Referente interno: Mary.',
+  }),
+  activating({
+    id: 'via-del-te-condotta', name: 'La Via del Tè', category: 'shopping',
+    area: 'Via della Condotta', address: 'Via della Condotta 26/28R, Firenze',
+    notes: 'Negozio dietro Piazza della Signoria. Non usare la sede di Santo Spirito né le altre fiorentine.',
+  }),
+  activating({
+    id: 'erbolario', name: 'L’Erbolario', category: 'beauty',
+    verify: { level: 'address', note: 'Confirm exact participating Florence branch with Jacopo before activation. Jacopo ricorda una sede verso Via de’ Tornabuoni; le fonti pubbliche indicano un altro negozio fiorentino. Non scegliere Via del Corso o un’altra filiale d’ufficio.' },
+  }),
+  activating({
+    id: 'farmacia-insegna-del-moro', name: 'Farmacia All’Insegna del Moro', category: 'pharmacy',
+    area: 'Piazza San Giovanni',
+    verify: { level: 'address', note: 'Angolo di fronte a Scudieri, verso il Battistero. Civico da confermare.' },
+  }),
+  activating({
+    id: 'tabacchi-san-giovanni', name: 'Tabacchi — Piazza San Giovanni', category: 'tobacco',
+    area: 'Piazza San Giovanni',
+    notes: 'Referente interno: Mauro — riferimento operativo, non il nome pubblico dell’attività.',
+    verify: { level: 'identity', note: 'Insegna pubblica da verificare: fino ad allora si usa un’etichetta neutra. Accanto alla farmacia, verso il Battistero.' },
+  }),
+  activating({
+    id: 'benheart-vigna-nuova', name: 'Benheart', category: 'shopping',
+    area: 'Via della Vigna Nuova', address: 'Via della Vigna Nuova 85/R, Firenze',
+    notes: 'Filiale partecipante: Via della Vigna Nuova, non le altre sedi fiorentine.',
+  }),
+  activating({ id: 'sartoria-rossi', name: 'Sartoria Rossi', category: 'shopping', address: 'Via della Vigna Nuova 37, Firenze' }),
 
   // ── Shapes, not partners. Never shown: `active` is false. ────────────────
   {
@@ -488,15 +667,37 @@ export const partnerAccess = (partner, pass) =>
 
 /* ── Selections ──────────────────────────────────────────────────────────── */
 
+/** Where a partnership stands. Absent means not agreed, which is the safe way to be wrong. */
+export const statusOf = (partner) => partner?.partnership_status ?? PARTNERSHIP_STATUS.activating;
+
+/**
+ * The partners LunArt actually has a benefit with — the one gate every claim
+ * passes through.
+ *
+ * `active` says a record is published; this says there is a deal behind it. The
+ * thirty businesses in the network being built are published and have no deal, and
+ * the distance between those two facts is the whole point of this function: put it
+ * in front of `cardPartners`, `stayPartners` and `allGuestBenefits` and an
+ * activating venue cannot reach a Pass, a card, a scanner or the rail that decides
+ * whether Privilege is worth selling. It would have to grow a benefit first, and
+ * growing one is a commercial act with a person's signature on it.
+ */
+export const benefitPartners = () =>
+  activePartners().filter((p) => statusOf(p) === PARTNERSHIP_STATUS.active);
+
+/** The network being built: visible, and claimable by nobody. */
+export const activatingPartners = () =>
+  activePartners().filter((p) => statusOf(p) === PARTNERSHIP_STATUS.activating);
+
 /** Venues whose benefits are the paid upgrade's reason to exist. */
-export const cardPartners = () => activePartners().filter((p) => inclusionOf(p) === 'card');
+export const cardPartners = () => benefitPartners().filter((p) => inclusionOf(p) === 'card');
 
 /** Venues whose benefits come with the stay, upgrade or no upgrade. */
-export const stayPartners = () => activePartners().filter((p) => inclusionOf(p) === 'stay');
+export const stayPartners = () => benefitPartners().filter((p) => inclusionOf(p) === 'stay');
 
 /** Partners whose benefits need a given entitlement. The future Shopping seam. */
 export const partnersRequiring = (entitlement) =>
-  activePartners().filter((p) => entitlementsRequiredBy(p).includes(entitlement));
+  benefitPartners().filter((p) => entitlementsRequiredBy(p).includes(entitlement));
 
 /* ── Links ───────────────────────────────────────────────────────────────── */
 
@@ -554,6 +755,13 @@ export function partnerView(partnerId, origin = '') {
     partner: partner.name,
     category: partner.category,
     category_label: PARTNER_CATEGORIES[partner.category] ?? PARTNER_CATEGORIES.other,
+    partnership_status: statusOf(partner),
+    /**
+     * The official mark, where the business gave us one, served from this origin.
+     * Never a link to somebody else's server, and never a substitute for the name:
+     * the renderer draws both, and a test refuses a logo without one.
+     */
+    logo: partner.logo ?? null,
     inclusion: inclusionOf(partner),
     applies_to: partner.applies_to ?? 'card-holder-and-companion',
     area: partner.area ?? null,
@@ -564,14 +772,48 @@ export function partnerView(partnerId, origin = '') {
     eligibility: eligibilityOf(partner),
     entitlements_required: entitlementsRequiredBy(partner),
     benefits: (partner.benefits ?? []).map((benefit) => benefitView(partner, benefit)),
-    validation_url: origin ? validationUrl(origin, partner.partner_id) : validationPath(partner.partner_id),
+    /**
+     * A scanner page exists where there is something to scan for. A business in
+     * the network with no agreed benefit has no door to validate at, and giving it
+     * a page would be inviting somebody to check a card against nothing.
+     */
+    validation_url: statusOf(partner) !== PARTNERSHIP_STATUS.active
+      ? null
+      : (origin ? validationUrl(origin, partner.partner_id) : validationPath(partner.partner_id)),
   };
 }
+
+/**
+ * The guest view of a partner that actually honours a card.
+ *
+ * A scanner scoped to a business LunArt is only talking to would otherwise be
+ * handed a partner object with an empty benefits list — a green screen with
+ * nothing on it, at a door that agreed to nothing. There is no view to give it.
+ */
+export const benefitPartnerView = (partnerId, origin = '') => {
+  const partner = getPartner(partnerId);
+  return statusOf(partner) === PARTNERSHIP_STATUS.active ? partnerView(partnerId, origin) : null;
+};
 
 const viewsOf = (partners, origin) =>
   partners.map((p) => partnerView(p.partner_id, origin)).filter(Boolean);
 
-export const allGuestBenefits = (origin = '') => viewsOf(activePartners(), origin);
+export const allGuestBenefits = (origin = '') => viewsOf(benefitPartners(), origin);
+
+/**
+ * The network, as one list a guest scrolls through: what works today, then what is
+ * being set up, in the order LunArt curated them.
+ *
+ * One list and not two sections, because that is how it reads — a guest sees who
+ * LunArt works with, and the ones not ready yet are further down and quieter, the
+ * way an unavailable restaurant sits at the foot of a delivery app rather than
+ * disappearing. It authorises nothing: it is a catalogue, and the claimable half of
+ * it is reachable through `cardBenefits` and `stayBenefits` as before.
+ */
+export const partnerNetwork = (origin = '') => [
+  ...viewsOf(benefitPartners(), origin),
+  ...viewsOf(activatingPartners(), origin),
+];
 
 /** What the paid upgrade gets a holder. Empty until a venue reserves something. */
 export const cardBenefits = (origin = '') => viewsOf(cardPartners(), origin);

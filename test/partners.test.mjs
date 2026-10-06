@@ -62,6 +62,12 @@ test('every partner states its eligibility rather than inheriting a default', ()
   // The default is deliberately the paid tier, so a record that forgets this locks
   // rather than gives itself away. Nothing in the register may rely on it.
   for (const partner of PARTNERS) {
+    // A business with no benefit has nothing to be eligible for, and must not
+    // pretend otherwise by carrying a rule.
+    if (!partner.benefits?.length) {
+      assert.equal(partner.eligibility, undefined, `${partner.partner_id} promises nothing yet`);
+      continue;
+    }
     assert.ok(partner.eligibility, `${partner.partner_id} states no eligibility rule`);
   }
   assert.deepEqual(eligibilityOf({}), PRIVILEGE_ELIGIBILITY, 'and the fallback fails closed');

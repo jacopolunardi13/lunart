@@ -205,7 +205,7 @@ test('a card can be opened with its own token and gives a live code', async () =
   const { body: valid } = await api('/api/card/validate', { body: { reference, code, partner: 'opera-caffe' } });
   assert.equal(valid.valid, true);
   assert.equal(valid.card.holder, 'Ada Lovelace');
-  assert.equal(valid.partner.partner, 'Opera Caffè');
+  assert.equal(valid.partner.partner, 'L’Opera Caffè');
 
   // Scanned again, and again: nothing is consumed.
   for (let i = 0; i < 3; i++) {

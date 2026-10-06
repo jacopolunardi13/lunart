@@ -27,6 +27,7 @@ import {
 import { applySchedule, scheduleInForce, slotsFor, daysWithSlots } from '../commerce/schedule.js';
 import {
   activePartners, getPartner, partnerView, cardPartners, publicPartners,
+  statusOf, PARTNERSHIP_STATUS,
   cardBenefits, stayBenefits,
 } from '../commerce/partners.js';
 import { publicProduct } from '../commerce/catalog.js';
@@ -634,10 +635,20 @@ export async function createApp(overrides = {}) {
 
   /* ── Partners ────────────────────────────────────────────────────────── */
 
-  /** What a partner's own scanner page needs to render itself. */
+  /**
+   * What a partner's own scanner page needs to render itself.
+   *
+   * Only a partner LunArt has an agreement with has a scanner. A business in the
+   * network being set up is published to guests and has no benefit to check a card
+   * against, so there is no page for it — and no way for one to appear by accident
+   * the day somebody buys Privilege.
+   */
+  const honoursCards = (partner) =>
+    Boolean(partner?.active) && statusOf(partner) === PARTNERSHIP_STATUS.active;
+
   async function getPartnerInfo(req, res, { id }) {
     const partner = getPartner(id);
-    if (!partner?.active) { sendJson(res, 404, { error: 'not-found' }); return; }
+    if (!honoursCards(partner)) { sendJson(res, 404, { error: 'not-found' }); return; }
     sendJson(res, 200, partnerView(partner.partner_id, settings.publicUrl));
   }
 
@@ -648,7 +659,7 @@ export async function createApp(overrides = {}) {
    */
   async function getPartnerManifest(req, res, { id }) {
     const partner = getPartner(id);
-    if (!partner?.active) { sendText(res, 404, 'Not found'); return; }
+    if (!honoursCards(partner)) { sendText(res, 404, 'Not found'); return; }
     res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-cache' })
       .end(JSON.stringify({
         name: `LunArt · ${partner.name}`,

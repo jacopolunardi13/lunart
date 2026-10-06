@@ -38,12 +38,18 @@ const run = (kind, args) => execFileSync(IM[kind][0], [...IM[kind].slice(1), ...
  * produced four raster sizes nothing references, one of them flattened onto white —
  * a logo with its transparency silently removed, sitting next to the real one.
  *
+ * `partners/` holds the official marks businesses supplied — a vector master and a
+ * transparent PNG. They are logos, not photographs: one is converted by
+ * `pdftocairo` and the other resized once with its alpha intact, and a sweep that
+ * produced three widths of each and flattened the transparent one onto white would
+ * be handing somebody else's brand back to them damaged.
+ *
  * `_archive/` holds real LunArt assets that are not in use: the breakfast voucher
  * the Pass wore before the painting, kept so reverting is possible. They are sources
  * worth keeping and derivatives worth not shipping — left in the sweep, every run
  * put four unused files back into the deployed tree.
  */
-const SKIP = new Set(['brand', '_archive']);
+const SKIP = new Set(['brand', '_archive', 'partners']);
 
 function* sources(dir, folder = '') {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

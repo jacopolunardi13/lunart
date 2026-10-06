@@ -134,10 +134,19 @@ test('B · the Pass carries the card, with the date it starts and no code', () =
   assert.equal(pass.card.end_date, '2026-11-08');
   assert.ok(pass.card.reference && pass.card.access_token);
 
-  // Nothing resembling a code travels with a Pass, at any state.
-  const sent = JSON.stringify(pass.card);
-  for (const leak of ['qr', 'code', 'window', 'signing', 'secret']) {
-    assert.equal(sent.toLowerCase().includes(leak), false, `the Pass leaks "${leak}"`);
+  /**
+   * Nothing resembling a code travels with a Pass, at any state.
+   *
+   * By the keys, not by searching the text. The first version of this grepped the
+   * serialised card for "qr", "code", "secret" and friends — and `access_token` is
+   * a random base64url string, so about three runs in a hundred it contained one
+   * of those by pure chance and the suite failed for no reason. A fixed key list is
+   * stricter anyway: a field nobody thought about fails it too.
+   */
+  assert.deepEqual(Object.keys(pass.card).sort(),
+    ['access_token', 'end_date', 'reference', 'start_date', 'state']);
+  for (const key of Object.keys(pass.card)) {
+    assert.equal(/qr|code|window|signing|secret/i.test(key), false, `the Pass carries "${key}"`);
   }
 });
 
@@ -518,7 +527,10 @@ test('nor into the register the browser is handed', () => {
   assert.deepEqual(publicPartners().map((p) => p.partner_id), activePartners().map((p) => p.partner_id));
   for (const partner of publicPartners()) {
     assert.equal(partner.active, true);
-    assert.ok(partner.eligibility && partner.benefits?.length, partner.partner_id);
+    assert.ok(partner.partnership_status, partner.partner_id);
+    assert.ok(Array.isArray(partner.benefits), partner.partner_id);
+    // A partnership that is agreed carries its rule; one being set up carries none.
+    assert.equal(Boolean(partner.eligibility), partner.benefits.length > 0, partner.partner_id);
   }
   assert.ok(published.includes('14R–16R'), 'with the address, which is what finds the door');
   assert.equal(publicPartner({ partner_id: 'x', notes: 'secret', name: 'X' }).notes, undefined);

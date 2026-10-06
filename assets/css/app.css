@@ -1485,6 +1485,19 @@ fieldset.field { border: 0; padding: 0; }
   background: var(--paper);
 }
 
+/* The identity row: the mark, where there is one, and the name, always.
+   A logo is recognition and never a replacement — the name is text under every
+   card, with or without an image beside it. */
+.partner__id { display: flex; align-items: center; gap: 12px; }
+.partner__who { min-width: 0; }
+.partner__logo { flex: none; width: 76px; height: 60px; }
+/* The image fills the slot and `object-fit` letterboxes the mark inside it:
+   contained, never covered, so nothing is cropped and nothing is stretched. The
+   first version left the image intrinsically sized with `max-height: 100%`, which
+   a grid row does not constrain — the portrait lock-up came out 76×91 in a 76×60
+   box and the parent quietly cut the bottom off it. */
+.partner__logo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
 .partner__name {
   font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-quiet);
 }
@@ -1536,6 +1549,47 @@ fieldset.field { border: 0; padding: 0; }
 .partner[data-access="unavailable"] .partner__name,
 .partner[data-access="unavailable"] .partner__meta { color: var(--ink-soft); }
 .partner[data-access="unavailable"] .benefit__headline { color: var(--ink-soft); }
+
+/* --- The network, as one list --------------------------------------------
+   Who LunArt works with, in one scroll: the venues with an agreement, one quiet
+   rule, then the ones being set up. The cards keep the same geometry on both
+   sides of it — a business that is not ready is not a broken card, it is the
+   same card further down. */
+.partners--network { gap: 8px; }
+.partner--network { padding: 12px 14px; }
+.partner--network .partner__kind {
+  margin-top: 8px;
+  font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-quiet);
+}
+.partner--network .partner__name {
+  font-family: var(--serif); font-size: var(--step-1); line-height: 1.25;
+  letter-spacing: 0; text-transform: none; color: var(--ink);
+}
+
+/* One transition, and only one. A rule with the word on it, not a heading: a
+   second heading would split the list into two catalogues. */
+.partners__turn {
+  display: flex; align-items: center; gap: 12px;
+  margin: 14px 2px 6px;
+  font-size: var(--micro); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-quiet);
+}
+.partners__turn::before,
+.partners__turn::after { content: ''; flex: 1; height: 1px; background: var(--ink-line); }
+
+/* Being set up: softer, not disabled. No padlock, no error colour, nothing that
+   says something went wrong — the agreement simply is not signed yet. Text stays
+   above AA on the deeper wash. */
+.partner[data-status="activating"] {
+  background: color-mix(in srgb, var(--paper-2) 60%, var(--paper));
+  border-color: var(--ink-faint);
+}
+.partner[data-status="activating"] .partner__name { color: var(--ink-soft); }
+.partner[data-status="activating"] .partner__logo img { opacity: .55; filter: saturate(.6); }
+.partner__soon {
+  display: inline-block; margin-top: 8px; padding: 4px 10px;
+  border: 1px solid var(--ink-line); border-radius: 999px;
+  font-size: var(--micro); letter-spacing: .08em; color: var(--ink-soft);
+}
 
 /* --- I miei acquisti ------------------------------------------------------
    What a guest checks here is "did it go through" — so the state is a pill they

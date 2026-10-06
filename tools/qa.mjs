@@ -123,7 +123,17 @@ for (const width of [360, 390, 430]) {
       screens: +(document.body.scrollHeight / window.innerHeight).toFixed(1),
       sliders: document.querySelectorAll('[data-slider]').length,
       h1: document.querySelectorAll('h1').length,
-      imgNoAlt: [...document.querySelectorAll('img')].filter((i) => !i.getAttribute('alt')).length,
+      /**
+       * An image with no `alt` attribute at all is a fault. `alt=""` is not — it is
+       * how an image is marked decorative, and this guide has one that genuinely
+       * is: a partner's logo, whose business name is written in text beside it.
+       * Announcing the mark as well would read the venue's name twice to somebody
+       * listening instead of looking.
+       */
+      imgNoAlt: [...document.querySelectorAll('img')].filter((i) => i.getAttribute('alt') === null).length,
+      /** And every decorative one has its meaning in the text next to it. */
+      imgDecorativeNamed: [...document.querySelectorAll('img[alt=""]')]
+        .every((i) => (i.closest('.partner, .pass, .privilege-card')?.innerText ?? '').trim().length > 0),
     };
   });
   note(counts.cards > 30, `the whole knowledge base is still in the document (${counts.cards} cards)`);
@@ -137,6 +147,7 @@ for (const width of [360, 390, 430]) {
   note(counts.offers > 0, `featured extras rendered (${counts.offers})`);
   note(counts.h1 === 1, `exactly one h1 (${counts.h1})`);
   note(counts.imgNoAlt === 0, `every image has alt (${counts.imgNoAlt} missing)`);
+  note(counts.imgDecorativeNamed, 'and every decorative one is named in the text beside it');
 
   await page.screenshot({ path: `${OUT}/home-${width}.png`, fullPage: false });
   await context.close();

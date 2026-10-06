@@ -29,8 +29,9 @@ export {
   ENTITLEMENTS, ENTITLEMENT_NAMES, ENTITLEMENTS_ON_SALE, PASS_STATES, ACCESS,
   STAY_ELIGIBILITY, PRIVILEGE_ELIGIBILITY,
   eligibilityOf, entitlementsRequiredBy, inclusionOf, benefitAccess, partnerAccess,
+  PARTNERSHIP_STATUS, statusOf, benefitPartners, activatingPartners, partnerNetwork,
   cardPartners, stayPartners, partnersRequiring,
-  partnerView, publicPartner, publicPartners, INTERNAL_PARTNER_FIELDS,
+  partnerView, benefitPartnerView, publicPartner, publicPartners, INTERNAL_PARTNER_FIELDS,
   cardBenefits, stayBenefits, allGuestBenefits, passContextOf,
   applyPartners, partnersInForce, validationPath, validationUrl, directionsUrl,
 } from './partners.js';

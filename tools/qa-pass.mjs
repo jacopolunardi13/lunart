@@ -121,8 +121,9 @@ const sheet = await page.evaluate(() => ({
   title: document.querySelector('.sheet__title')?.textContent.trim() ?? '',
   facts: [...document.querySelectorAll('.pass-facts__row')].map((r) => r.innerText.replace(/\s+/g,' ').trim()),
   cardInSheet: document.querySelectorAll('.sheet [data-pass]').length,
+  // Benefit cards only — the network catalogue below is counted separately.
   benefits: document.querySelectorAll('.sheet .benefit').length,
-  partners: document.querySelectorAll('.sheet .partner').length,
+  partners: document.querySelectorAll('.sheet .partner:not(.partner--network)').length,
   labels: [...document.querySelectorAll('.sheet .pass__label')].map((e) => e.textContent.trim()),
   locked: document.querySelectorAll('.sheet .partner[data-access="locked"]').length,
   available: document.querySelectorAll('.sheet .partner[data-access="available"]').length,
@@ -148,7 +149,8 @@ step('with a URL the back button can close', sheet.hash==='#/pass', sheet.hash);
    screen and is checked further down. The guest who needs to discover Privilege is
    the one standing in Florence tonight. */
 step('the Pass sheet separates what comes with the stay from what Privilege adds',
-  sheet.labels.length===2, sheet.labels.join(' | '));
+  sheet.labels.length===3 && sheet.labels.slice(0,2).join(' | ')==='Incluso nel tuo soggiorno LunArt | Vantaggi Privilege',
+  sheet.labels.join(' | '));
 step('a Pass that has not started yet offers nothing as claimable today',
   sheet.locked===0 && sheet.available===0, `${sheet.locked} locked, ${sheet.available} available`);
 step('the benefit is what the eye lands on, not the venue',
@@ -187,7 +189,8 @@ async function passSheetAt(width, url = liveLink) {
   await probe.waitForTimeout(400);
   const read = await probe.evaluate(() => {
     const sheet = document.querySelector('.sheet');
-    const cards = [...sheet.querySelectorAll('.partner')];
+    // The benefit cards only: the network list below is counted on its own.
+    const cards = [...sheet.querySelectorAll('.partner:not(.partner--network)')];
     const room = (sheet.querySelector('.sheet__body') ?? sheet).getBoundingClientRect();
     const labels = [...sheet.querySelectorAll('.pass__label')].map((e) => e.textContent.trim());
     // Everything between the Privilege *benefits* heading and the next one is its
@@ -202,9 +205,9 @@ async function passSheetAt(width, url = liveLink) {
       state: document.querySelector('[data-pass]')?.dataset.state ?? '',
       partners: cards.length,
       benefits: sheet.querySelectorAll('.benefit').length,
-      locked: sheet.querySelectorAll('.partner[data-access="locked"]').length,
-      available: sheet.querySelectorAll('.partner[data-access="available"]').length,
-      unavailable: sheet.querySelectorAll('.partner[data-access="unavailable"]').length,
+      locked: sheet.querySelectorAll('.partner:not(.partner--network)[data-access="locked"]').length,
+      available: sheet.querySelectorAll('.partner:not(.partner--network)[data-access="available"]').length,
+      unavailable: sheet.querySelectorAll('.partner:not(.partner--network)[data-access="unavailable"]').length,
       lockWords: [...sheet.querySelectorAll('.partner__lock')].map((e) => e.textContent.trim()),
       buy: sheet.querySelectorAll('[data-product="privilege-card"]').length,
       lead: sheet.querySelector('[data-privilege-lead]')?.textContent.trim() ?? '',
@@ -218,10 +221,58 @@ async function passSheetAt(width, url = liveLink) {
       privilegeText: section.map((n) => n.innerText).join(' '),
       directions: inSection('.partner__directions').map((a) => a.getAttribute('href')),
       overflowing: cards.filter((c) => c.getBoundingClientRect().right > room.right + 1).length,
-      clipped: [...sheet.querySelectorAll('.benefit__headline, .partner__meta, .partner__lock')]
+      clipped: [...sheet.querySelectorAll('.benefit__headline, .partner__lock')]
         .filter((e) => e.scrollWidth > e.clientWidth + 1).length,
       pageScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
       text: sheet.innerText,
+
+      /* ── The network, as one list ──────────────────────────────────────── */
+      network: (() => {
+        const list = sheet.querySelector('.partners--network');
+        if (!list) return null;
+        const cards = [...list.querySelectorAll('.partner--network')];
+        const room = (sheet.querySelector('.sheet__body') ?? sheet).getBoundingClientRect();
+        const logos = [...list.querySelectorAll('.partner__logo img')];
+        return {
+          cards: cards.length,
+          live: cards.filter((c) => c.dataset.status === 'active').length,
+          soon: cards.filter((c) => c.dataset.status === 'activating').length,
+          turns: list.querySelectorAll('[data-network-turn]').length,
+          /* Index of the turn among the cards, to prove nothing straddles it. */
+          beforeTurn: (() => {
+            const turn = list.querySelector('[data-network-turn]');
+            if (!turn) return -1;
+            return cards.filter((c) => c.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING).length;
+          })(),
+          names: cards.map((c) => c.querySelector('.partner__name')?.textContent.trim() ?? ''),
+          badges: list.querySelectorAll('.partner__soon').length,
+          logos: logos.length,
+          logosDecoded: logos.filter((i) => i.naturalWidth > 0).length,
+          logosLocal: logos.every((i) => new URL(i.src).origin === location.origin),
+          /**
+           * A mark is contained, never cropped and never stretched.
+           *
+           * `object-fit: contain` letterboxes it, so the element fills the slot and
+           * the painting keeps its own ratio inside. Checking the element's ratio
+           * was the wrong test: it passed while a grid row overflowed its parent and
+           * the bottom of the portrait lock-up was being cut off.
+           */
+          logoFit: logos.map((i) => {
+            const r = i.getBoundingClientRect();
+            const slot = i.parentElement.getBoundingClientRect();
+            return {
+              ok: getComputedStyle(i).objectFit === 'contain'
+                && r.width <= slot.width + 0.5 && r.height <= slot.height + 0.5
+                && i.naturalWidth > 0,
+              drawn: `${Math.round(r.width)}x${Math.round(r.height)} in ${Math.round(slot.width)}x${Math.round(slot.height)}`,
+            };
+          }),
+          overflowing: cards.filter((c) => c.getBoundingClientRect().right > room.right + 1).length,
+          clipped: [...list.querySelectorAll('.partner__name, .partner__meta, .partner__kind, .partner__soon')]
+            .filter((e) => e.scrollWidth > e.clientWidth + 1).length,
+          text: list.innerText,
+        };
+      })(),
     };
   });
   return { probe, read };
@@ -338,6 +389,54 @@ async function buyPrivilege(guideLink, { startIndex = 0 } = {}) {
     /opera caff/i.test(read.text) && !/opera/i.test(read.privilegeText),
     `in the sheet: ${/opera caff/i.test(read.text)}, inside Privilege: ${/opera/i.test(read.privilegeText)}`);
   await probe.screenshot({path:'tools/.qa-screens/pass-privilege-unlocked.png', fullPage:true});
+  await probe.close();
+}
+
+/* ── The network, as a guest scrolls it ────────────────────────────────────
+   Thirty-two businesses in one list: three with an agreement, one rule, then the
+   twenty-nine being set up. The checks are about the list staying one list, the
+   marks staying undistorted, and nothing down there reading as an offer. */
+{
+  const { probe, read } = await passSheetAt(390);
+  const n = read.network;
+  step('the whole network is one list in the Pass', Boolean(n) && n.cards === 32,
+    n ? `${n.cards} cards` : '(no network list)');
+  step('with the three agreements first and the rest after one turn',
+    n?.live === 3 && n?.soon === 29 && n?.turns === 1 && n?.beforeTurn === 3,
+    `${n?.live} live, ${n?.soon} being set up, ${n?.turns} turn(s) after ${n?.beforeTurn}`);
+  step('in the order LunArt curated them',
+    n?.names.slice(0, 5).join(' · ') === 'L’Opera Caffè · Le Firme · Blue Velvet · Babylon Club · La Petite'
+      && n?.names.at(-1) === 'Sartoria Rossi',
+    `${n?.names.slice(0, 4).join(' · ')} … ${n?.names.at(-1)}`);
+  step('each one being set up says so, once', n?.badges === 29, `${n?.badges} badge(s)`);
+  step('and nothing down there is a padlock, a price or a way to buy',
+    !/In attivazione.*(sconto|€|%|Acquista|Mostra la card)/s.test(n?.text ?? '')
+      && !/\d+\s*%/.test(n?.text ?? ''),
+    'no invented terms');
+
+  step('the official marks load, from this origin, undistorted',
+    n?.logos === 2 && n?.logosDecoded === 2 && n?.logosLocal === true
+      && n?.logoFit.every((f) => f.ok),
+    `${n?.logosDecoded}/${n?.logos} drawn at ${n?.logoFit.map((f) => f.drawn).join(', ')}`);
+  step('and never instead of the name: both are written out',
+    (n?.text ?? '').includes('L’Opera Caffè') && (n?.text ?? '').includes('Blue Velvet')
+      && (n?.text ?? '').includes('Le Firme'),
+    'logo and name, not logo or name');
+  step('a business with no agreement has no internal note on its card',
+    !/Mirko|Massimiliano|Mary|Mauro|Jacopo|confermare|confirm/i.test(n?.text ?? ''),
+    'contacts and uncertainty stay off the screen');
+
+  await probe.screenshot({ path: 'tools/.qa-screens/pass-network.png', fullPage: true });
+  await probe.close();
+}
+
+for (const width of [360, 390, 430, 820]) {
+  const { probe, read } = await passSheetAt(width);
+  const n = read.network;
+  step(`at ${width}px the network cards fit, nothing clipped, logos in proportion`,
+    n?.overflowing === 0 && n?.clipped === 0 && !read.pageScroll && n?.logoFit.every((f) => f.ok),
+    `${n?.overflowing} overflowing, ${n?.clipped} clipped, logos ${n?.logoFit.map((f) => f.drawn).join(' ')}`);
+  if (width === 360) await probe.screenshot({ path: 'tools/.qa-screens/pass-network-360.png', fullPage: true });
   await probe.close();
 }
 
@@ -799,7 +898,8 @@ if (sellableCard) {
       };
     });
     step('the Privilege sheet keeps the card, what it unlocks and what the stay gives apart',
-      privSheet.labels.length === 3, privSheet.labels.join(' | '));
+      privSheet.labels.length === 4 && /Privilege Card/i.test(privSheet.labels[0]),
+      privSheet.labels.join(' | '));
     step('a guest who paid for it is shown the card first of all',
       /Privilege Card/i.test(privSheet.labels[0] ?? ''), privSheet.labels[0]);
     /**

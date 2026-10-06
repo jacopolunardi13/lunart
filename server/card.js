@@ -26,7 +26,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomRef, opaqueToken } from './store.js';
 import { propertyDate, lastDayOf, endOfPropertyDay, propertyTimeToInstant, isValidDate } from '../commerce/time.js';
-import { allGuestBenefits, cardBenefits, partnerView } from '../commerce/partners.js';
+import { allGuestBenefits, cardBenefits, benefitPartnerView } from '../commerce/partners.js';
 
 export const CARD_STATUS = {
   active: 'active',
@@ -163,7 +163,8 @@ export async function validateCode({
   }
   if (!matched) return { valid: false, reason: 'invalid-code', card: publicView(card) };
 
-  const scoped = partnerId ? partnerView(partnerId) : null;
+  // Only a venue with an agreement is shown one. See `benefitPartnerView`.
+  const scoped = partnerId ? benefitPartnerView(partnerId) : null;
   return {
     valid: true,
     card: publicView(card),

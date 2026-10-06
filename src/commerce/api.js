@@ -12,7 +12,7 @@
 
 import { applyPriceOverrides } from '../../commerce/prices.js';
 import { applySchedule } from '../../commerce/schedule.js';
-import { applyPartners } from '../../commerce/partners.js';
+import { applyPartners, partnerNetwork as registerNetwork } from '../../commerce/partners.js';
 import { guideToken } from '../guest.js';
 
 const BASE = '/api';
@@ -75,6 +75,15 @@ export const fetchSlots = (productId, date) =>
 /** What comes with the stay, and what the card adds. Two different promises. */
 export const stayBenefits = () => catalogue?.stayBenefits ?? [];
 export const cardBenefits = () => catalogue?.cardBenefits ?? [];
+
+/**
+ * The whole network, built from the register the server published.
+ *
+ * Not a third list on the wire: `/api/catalog` already sends the partners in force
+ * and `loadCatalogue` applies them, so the browser runs the same selector the
+ * server would and gets the same order.
+ */
+export const partnerNetwork = () => registerNetwork();
 
 export const priceCartRemotely = (lines) =>
   request('/cart/price', { method: 'POST', body: { lines, guideToken: guideToken() } });

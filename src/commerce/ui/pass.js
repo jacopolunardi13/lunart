@@ -22,8 +22,8 @@ import { icon } from '../../ui/icons.js';
 import { UI, fill } from '../../i18n.js';
 import { guestPass } from '../../guest.js';
 import { openCustomSheet } from '../../ui/sheet.js';
-import { stayBenefits, cardBenefits } from '../api.js';
-import { privilegeSection, stayBenefitsSection } from './partners.js';
+import { stayBenefits, cardBenefits, partnerNetwork } from '../api.js';
+import { privilegeSection, stayBenefitsSection, networkSection } from './partners.js';
 import { longDate } from './format.js';
 
 /**
@@ -466,6 +466,13 @@ export function openPassSheet({ lang }) {
            ${stayBenefitsSection(stay, pass, lang)}`
         : `${stayBenefitsSection(stay, pass, lang)}
            ${privilegeSection(privilegePartners, pass, lang)}`}
+
+      ${/**
+        * And under the guest's own benefits, the network they are part of: who
+        * LunArt works with today, and who is being set up. A catalogue, last,
+        * because what a guest opens their Pass for is what they can use.
+        */''}
+      ${networkSection(partnerNetwork(), lang)}
 
       <p class="terms">${esc(passNote(pass, lang))}</p>`,
   });

@@ -22,7 +22,7 @@ import {
 } from '../commerce/wine.js';
 import { PRODUCTS } from '../commerce/catalog.js';
 import {
-  PARTNERS, activePartners, partnerView, validationPath,
+  PARTNERS, activePartners, benefitPartners, activatingPartners, partnerView, validationPath,
   BENEFIT_KINDS, PARTNER_CATEGORIES,
 } from '../commerce/partners.js';
 import { propertyTimeToInstant, propertyDate, addDays, lastDayOf } from '../commerce/time.js';
@@ -604,7 +604,8 @@ test('partner benefits are not assumed to be a house percentage', () => {
     assert.ok(partner.partner_id, 'every partner has an id');
     assert.ok(partner.name, `${partner.partner_id} has a name`);
     assert.ok(categories.has(partner.category), `${partner.partner_id} has a known category`);
-    assert.ok(partner.benefits?.length, `${partner.partner_id} gives at least one thing`);
+    // A business in the network being set up has no benefit yet, by construction.
+    assert.ok(Array.isArray(partner.benefits), `${partner.partner_id} keeps a benefits list`);
     for (const benefit of partner.benefits) {
       assert.ok(BENEFIT_KINDS.includes(benefit.kind), `${partner.partner_id}/${benefit.benefit_id}`);
       assert.ok(benefit.headline?.it && benefit.headline?.en, `${benefit.benefit_id} headline`);
@@ -616,11 +617,16 @@ test('partner benefits are not assumed to be a house percentage', () => {
   assert.equal(partnerView('example-bar'), null, 'inactive partners give nothing');
 });
 
-test('every active partner has its own scanner page', () => {
-  for (const partner of activePartners()) {
+test('every partner with a benefit has its own scanner page, and no other does', () => {
+  for (const partner of benefitPartners()) {
     assert.equal(validationPath(partner.partner_id), `/partner/${partner.partner_id}`);
     const view = partnerView(partner.partner_id, 'https://guide.example');
     assert.equal(view.validation_url, `https://guide.example/partner/${partner.partner_id}`);
+  }
+  // A venue LunArt has not agreed terms with has no door to check a card against.
+  for (const partner of activatingPartners()) {
+    assert.equal(partnerView(partner.partner_id, 'https://guide.example').validation_url, null,
+      partner.partner_id);
   }
 });
 

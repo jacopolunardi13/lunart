@@ -192,6 +192,12 @@ export const UI = {
     privilegeWhenActive: 'I vantaggi valgono mentre la tua Pass è attiva.',
     privilegeWhenCardActive: 'I vantaggi valgono mentre la tua Privilege Card è attiva.',
     directions: 'Indicazioni',
+    // ── La rete LunArt ────────────────────────────────────────────────────
+    partnerNetwork: 'La rete LunArt',
+    partnerNetworkBlurb: 'I locali e le attività con cui lavoriamo a Firenze.',
+    /** The one rule between what works today and what is being set up. */
+    partnerActivating: 'In attivazione',
+    partnerComingSoon: 'Il vantaggio LunArt è in attivazione.',
     // ── La Privilege Card ─────────────────────────────────────────────────
     privilegeCard: 'La tua Privilege Card',
     openPrivilegeCard: 'Apri la card',
@@ -390,6 +396,12 @@ export const UI = {
     privilegeWhenActive: 'The benefits apply while your Pass is active.',
     privilegeWhenCardActive: 'The benefits apply while your Privilege Card is active.',
     directions: 'Directions',
+    // ── The LunArt network ────────────────────────────────────────────────
+    partnerNetwork: 'The LunArt network',
+    partnerNetworkBlurb: 'The venues and shops we work with in Florence.',
+    /** The one rule between what works today and what is being set up. */
+    partnerActivating: 'Coming soon',
+    partnerComingSoon: 'The LunArt benefit is coming soon.',
     // ── The Privilege Card ────────────────────────────────────────────────
     privilegeCard: 'Your Privilege Card',
     openPrivilegeCard: 'Open card',

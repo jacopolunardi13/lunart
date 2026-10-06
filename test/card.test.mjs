@@ -290,7 +290,7 @@ test('a venue asking from its own page is told its own benefit', async () => {
     now: during, partnerId: 'opera-caffe',
   });
   assert.equal(scoped.valid, true);
-  assert.equal(scoped.partner.partner, 'Opera Caffè');
+  assert.equal(scoped.partner.partner, 'L\u2019Opera Caffè');
   assert.equal(scoped.partner.benefits[0].headline.it, '30% sul menù al tavolo');
   assert.equal(scoped.benefits.length, 1, 'one venue, not a list to choose from');
 });

@@ -14,6 +14,7 @@ import { chromium, devices } from 'playwright';
 import { mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { propertyDate } from '../commerce/time.js';
 
 const OUT = new URL('.qa-screens/', import.meta.url).pathname;
 const BASE = process.env.BASE_URL ?? 'http://localhost:4173/';
@@ -33,7 +34,16 @@ async function launch() {
 
 let failures = 0;
 const note = (ok, message) => { if (!ok) failures++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${message}`); };
-const today = new Date().toISOString().slice(0, 10);
+/**
+ * Today in Florence, not today in UTC.
+ *
+ * This was `new Date().toISOString().slice(0, 10)`, and between 22:00 UTC and
+ * midnight it named yesterday: the server validates a card's start date against
+ * the property day, so for two hours every evening the harness typed a date the
+ * server had already passed and the form answered "That date has gone." A QA run
+ * that fails by the clock teaches nobody anything.
+ */
+const today = propertyDate();
 const inDays = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
 const browser = await launch();
