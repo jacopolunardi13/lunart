@@ -56,7 +56,9 @@ export const accessFor = (view, pass) => {
     benefit,
     access: pass
       ? benefitAccess(benefit.eligibility ?? eligibilityOf(view), context)
-      : { state: INFORMATIONAL, missing: [], passState: null },
+      // The same shape a verdict has, so a caller reading `missing` or `dormant`
+      // gets an empty list rather than an exception it never asked for.
+      : { state: INFORMATIONAL, missing: [], dormant: [], passState: null },
   }));
 };
 
@@ -117,7 +119,6 @@ export function partnerCard(view, pass, lang) {
 
   const state = partnerState(rows);
   const missing = missingFrom(rows);
-  const note = text(view.note, lang);
   /**
    * The address, and not the category next to it.
    *
@@ -144,8 +145,6 @@ export function partnerCard(view, pass, lang) {
     <ul class="partner__benefits">
       ${rows.map((row) => benefitRow(row, lang)).join('')}
     </ul>
-
-    ${note ? `<p class="partner__note">${esc(note)}</p>` : ''}
 
     ${missing.length || directions ? `<p class="partner__actions">
       ${missing.length

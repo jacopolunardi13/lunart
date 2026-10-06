@@ -26,7 +26,7 @@ import {
 } from '../commerce/index.js';
 import { applySchedule, scheduleInForce, slotsFor, daysWithSlots } from '../commerce/schedule.js';
 import {
-  activePartners, getPartner, partnerView, cardPartners,
+  activePartners, getPartner, partnerView, cardPartners, publicPartners,
   cardBenefits, stayBenefits,
 } from '../commerce/partners.js';
 import { publicProduct } from '../commerce/catalog.js';
@@ -147,7 +147,13 @@ export async function createApp(overrides = {}) {
        * source, published, rather than two copies that drift.
        */
       schedule: scheduleInForce(),
-      partners: activePartners(),
+      /**
+       * The register in force, so the browser's selectors and the server's run over
+       * one list. Redacted: a partner's internal notes are LunArt's working papers
+       * — what a venue conceded, what is still unconfirmed, which of two doors is
+       * open — and this endpoint is public.
+       */
+      partners: publicPartners(),
       /**
        * The two kinds of benefit, kept apart. What comes with the stay is not what
        * the card is for, and a guest who already has the 30% must not be sold it

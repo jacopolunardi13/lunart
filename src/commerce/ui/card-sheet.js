@@ -14,7 +14,7 @@
 
 import { esc } from '../../ui/dom.js';
 import { icon } from '../../ui/icons.js';
-import { UI } from '../../i18n.js';
+import { UI, fill } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
 import { longDate, shortDate } from './format.js';
 import { propertyTimeToInstant } from '../../../commerce/time.js';
@@ -108,7 +108,7 @@ const CARD_AS_PASS = {
  * today, and the benefits dim with it rather than being listed as usable on a card
  * that would be turned away.
  */
-function privileges(card, lang) {
+export function cardBenefitsBlock(card, lang) {
   const views = card.benefits ?? [];
   if (views.length === 0) return '';
 
@@ -121,11 +121,30 @@ function privileges(card, lang) {
     live_entitlements: live ? ['privilege'] : [],
   };
 
+  /**
+   * One line, when the venues below are not usable today.
+   *
+   * Without it the partner cards read as an offer: "10% di sconto" set large in
+   * the serif says "use me" however carefully the QR above it is sealed. The seal
+   * is about the code; this is about the benefits, and a guest should not have to
+   * join those two facts up herself.
+   *
+   * Nothing is added when the card is live. The code is on the screen and the hint
+   * under it already says to show it; a third sentence would be the repetition this
+   * file keeps being trimmed of.
+   */
+  const when = live
+    ? ''
+    : card.state === 'not-started'
+      ? fill(UI[lang].cardBenefitsFrom, { date: longDate(card.start_date, lang) })
+      : fill(UI[lang].cardBenefitsEnded, { date: longDate(card.end_date, lang) });
+
   return `<details class="privileges" open>
     <summary class="privileges__summary">
       <span>${esc(UI[lang].viewPrivileges)}</span>
       ${icon('chevron', 16)}
     </summary>
+    ${when ? `<p class="privileges__when" data-benefits-when>${esc(when)}</p>` : ''}
     ${partnerList(views, pass, lang)}
   </details>`;
 }
@@ -212,7 +231,7 @@ function body(card, lang) {
 
     ${qrArea(card, lang)}
 
-    ${privileges(card, lang)}
+    ${cardBenefitsBlock(card, lang)}
 
     <p class="terms">${esc(UI[lang].cardTerms)}</p>
   `;

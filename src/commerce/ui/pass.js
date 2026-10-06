@@ -19,7 +19,7 @@
 
 import { esc } from '../../ui/dom.js';
 import { icon } from '../../ui/icons.js';
-import { UI } from '../../i18n.js';
+import { UI, fill } from '../../i18n.js';
 import { guestPass } from '../../guest.js';
 import { openCustomSheet } from '../../ui/sheet.js';
 import { stayBenefits, cardBenefits } from '../api.js';
@@ -307,8 +307,31 @@ export function passBlock(lang) {
       ${icon('card', 16)}${esc(UI[lang].openPass)}
     </button>
 
-    <p class="pass__note">${esc(privilege ? UI[lang].passNotePrivilege : UI[lang].passNote)}</p>
+    <p class="pass__note">${esc(passNote(pass, lang))}</p>
   </section>`;
+}
+
+/**
+ * What the Pass is, in one line, for the guest holding this one.
+ *
+ * It used to be two lines for two tiers, and the Privilege one said the benefits
+ * were unlocked. For a guest who bought the upgrade in October for a stay in
+ * November that was simply untrue — she had paid, and the one sentence on her home
+ * screen told her she could walk into a club that would turn her away. Owning is
+ * not using, and the line has to know the difference.
+ *
+ * The date is the card's, not the stay's: what she is waiting for is the card.
+ */
+export function passNote(pass, lang) {
+  if (pass.tier !== 'privilege' || !pass.card) return UI[lang].passNote;
+
+  if (pass.card.state === 'not-started') {
+    return fill(UI[lang].passNotePrivilegeSoon, { date: longDate(pass.card.start_date, lang) });
+  }
+  if (pass.card.state !== 'active') {
+    return fill(UI[lang].passNotePrivilegeOver, { date: longDate(pass.card.end_date, lang) });
+  }
+  return UI[lang].passNotePrivilege;
 }
 
 /**
@@ -426,7 +449,7 @@ export function openPassSheet({ lang }) {
         : `${stayBenefitsSection(stay, pass, lang)}
            ${privilegeSection(privilegePartners, pass, lang)}`}
 
-      <p class="terms">${esc(privilege ? UI[lang].passNotePrivilege : UI[lang].passNote)}</p>`,
+      <p class="terms">${esc(passNote(pass, lang))}</p>`,
   });
   return true;
 }

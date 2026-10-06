@@ -936,6 +936,11 @@ fieldset.field { border: 0; padding: 0; }
 .privileges__summary svg { flex: none; color: var(--ink-quiet); transition: transform 0.2s var(--ease); }
 .privileges[open] .privileges__summary svg { transform: rotate(90deg); }
 
+/* Why the venues under a card that is not running are dimmed, said once. */
+.privileges__when {
+  margin: 0 0 10px; font-size: var(--small); line-height: 1.6; color: var(--ink-soft);
+}
+
 /* A partner inside the disclosure is drawn by `.partner` like everywhere else.
    There used to be a second set of rules here — `.privilege`, `.privilege__map` —
    for the same thing in a different place, which is how a benefit ended up looking
@@ -1490,8 +1495,6 @@ fieldset.field { border: 0; padding: 0; }
 .benefit__detail { margin-top: 6px; font-size: var(--small); line-height: 1.6; color: var(--ink-soft); }
 .benefit__note { margin-top: 6px; font-size: var(--micro); line-height: 1.6; color: var(--ink-quiet); }
 
-.partner__note { margin-top: 10px; font-size: var(--micro); line-height: 1.6; color: var(--ink-quiet); }
-
 /* One row where the words fit, two where they do not — rather than a sibling
    margin that leaves the second one indented after it wraps. */
 .partner__actions {
@@ -1514,9 +1517,18 @@ fieldset.field { border: 0; padding: 0; }
 .partner[data-access="locked"] { background: color-mix(in srgb, var(--paper-2) 55%, var(--paper)); }
 .partner[data-access="locked"] .benefit__headline { color: var(--ink-soft); }
 
-/* The Pass is not live — not started, over, or called off. Nothing here is
-   claimable today, by anybody, so nothing pretends otherwise. */
-.partner[data-access="unavailable"] { background: color-mix(in srgb, var(--paper-2) 55%, var(--paper)); }
+/* Nothing here is claimable today, by anybody — the Pass is not live, or the
+   card is not running yet, or it has run its course. Dimmed properly rather than
+   faintly: a 22px serif discount at full strength reads as an offer you can use,
+   whatever the sentence above it says. The ink stays above AA on the deeper wash
+   (5.57:1), because a benefit a guest will be able to use in two days is still
+   something they should be able to read. */
+.partner[data-access="unavailable"] {
+  background: var(--paper-2);
+  border-color: var(--ink-faint);
+}
+.partner[data-access="unavailable"] .partner__name,
+.partner[data-access="unavailable"] .partner__meta { color: var(--ink-soft); }
 .partner[data-access="unavailable"] .benefit__headline { color: var(--ink-soft); }
 
 /* --- I miei acquisti ------------------------------------------------------

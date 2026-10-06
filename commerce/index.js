@@ -30,7 +30,8 @@ export {
   STAY_ELIGIBILITY, PRIVILEGE_ELIGIBILITY,
   eligibilityOf, entitlementsRequiredBy, inclusionOf, benefitAccess, partnerAccess,
   cardPartners, stayPartners, partnersRequiring,
-  partnerView, cardBenefits, stayBenefits, allGuestBenefits, passContextOf,
+  partnerView, publicPartner, publicPartners, INTERNAL_PARTNER_FIELDS,
+  cardBenefits, stayBenefits, allGuestBenefits, passContextOf,
   applyPartners, partnersInForce, validationPath, validationUrl, directionsUrl,
 } from './partners.js';
 export {

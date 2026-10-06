@@ -110,6 +110,22 @@ export const STAY_ELIGIBILITY = { passState: 'active', entitlementsAll: [] };
 /** The paid tier: an active Pass plus the Privilege entitlement. */
 export const PRIVILEGE_ELIGIBILITY = { passState: 'active', entitlementsAll: [ENTITLEMENTS.privilege] };
 
+/**
+ * Fields that never leave the server.
+ *
+ * `partnerView` builds the guest's copy field by field rather than spreading the
+ * record, so nothing reaches a screen unless somebody wrote it down there — this
+ * list is what a test walks to prove it, and the place to add to when a new
+ * internal field appears.
+ *
+ * The register itself is a second route, and the one that was open: `/api/catalog`
+ * publishes the partners in force so the browser renders from the same list the
+ * server honours, and it was publishing them whole. Nobody saw a venue's
+ * negotiation notes on a screen, but they were a view-source away. `publicPartner`
+ * is what goes on the wire now.
+ */
+export const INTERNAL_PARTNER_FIELDS = ['notes', 'verify', 'staff_note'];
+
 export const PARTNER_CATEGORIES = {
   restaurants: { it: 'Ristoranti', en: 'Restaurants' },
   bars: { it: 'Bar e aperitivo', en: 'Bars and aperitivo' },
@@ -224,7 +240,18 @@ export const PARTNERS = [
      */
     address: 'Via del Castello d\'Altafronte 14R–16R, Firenze',
     directions: true,
-    note: {
+    /**
+     * Operational, and deliberately not on the guest's screen.
+     *
+     * Which of two doors is open on a Tuesday is LunArt's problem and the club's,
+     * not something a guest should be reading on their phone — the address already
+     * carries both numbers, and anything more is a caveat where a benefit should
+     * be. It stays in the register because staff and a future partner sheet want
+     * it. `staff_note` rather than `note` because `benefit.note` *is* guest-facing,
+     * and two fields a letter apart meaning opposite things is how one of them
+     * ends up in the wrong place.
+     */
+    staff_note: {
       it: '14R e 16R sono due ingressi adiacenti dello stesso locale: a volte è aperto solo uno dei due.',
       en: '14R and 16R are two adjacent entrances to the same venue: sometimes only one of them is open.',
     },
@@ -317,6 +344,23 @@ export const partnersInForce = () => inForce;
 
 export const activePartners = () => inForce.filter((p) => p.active);
 export const getPartner = (id) => inForce.find((p) => p.partner_id === id) ?? null;
+
+/**
+ * A partner record as the browser may hold it: everything the rendering needs,
+ * nothing LunArt wrote down for itself.
+ *
+ * A subtraction rather than a reconstruction, because the browser applies this list
+ * through `applyPartners` and then runs the same selectors the server does — so it
+ * has to be the same shape, minus the prose.
+ */
+export function publicPartner(partner) {
+  const copy = { ...partner };
+  for (const field of INTERNAL_PARTNER_FIELDS) delete copy[field];
+  return copy;
+}
+
+/** The register in force, as it is published. */
+export const publicPartners = () => activePartners().map(publicPartner);
 
 /* ── Eligibility ─────────────────────────────────────────────────────────── */
 
@@ -515,7 +559,6 @@ export function partnerView(partnerId, origin = '') {
     area: partner.area ?? null,
     address: partner.address ?? null,
     short_description: partner.shortDescription ?? null,
-    note: partner.note ?? null,
     maps: partner.maps ?? null,
     directions_url: directionsUrl(partner),
     eligibility: eligibilityOf(partner),

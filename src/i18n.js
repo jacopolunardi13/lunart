@@ -170,6 +170,18 @@ export const UI = {
     passState: 'Stato',
     passNote: 'Compresa nel soggiorno. Mostrala insieme al bollino della colazione: vale finché la Pass è attiva.',
     passNotePrivilege: 'La tua Pass, con i vantaggi Privilege sbloccati. Mostrala insieme al bollino della colazione.',
+    /**
+     * Owned and not yet running. True before activation, where the line above is not.
+     *
+     * `da` and `fino a` rather than `dal` and `fino al`, because `{date}` is a full
+     * date with its weekday — and `il 8 novembre` is wrong Italian where
+     * `l'8 novembre` is right. Every Italian weekday begins with a consonant, so a
+     * bare preposition in front of one is grammatical for every date there is.
+     */
+    passNotePrivilegeSoon: 'Hai già LunArt Privilege. I vantaggi saranno disponibili da {date}.',
+    passNotePrivilegeOver: 'La tua LunArt Privilege era valida fino a {date}.',
+    cardBenefitsFrom: 'I vantaggi si attiveranno insieme alla tua Privilege Card, da {date}.',
+    cardBenefitsEnded: 'I vantaggi di questa card erano validi fino a {date}.',
     // ── Vantaggi Privilege ────────────────────────────────────────────────
     privilegeBenefits: 'Vantaggi Privilege',
     /** Detta una volta per sezione, non su ogni vantaggio. */
@@ -363,6 +375,11 @@ export const UI = {
     passState: 'Status',
     passNote: 'Included with your stay. Show it with your breakfast token: it counts while the Pass is active.',
     passNotePrivilege: 'Your Pass, with the Privilege benefits unlocked. Show it with your breakfast token.',
+    /** Owned and not yet running. True before activation, where the line above is not. */
+    passNotePrivilegeSoon: 'You already have LunArt Privilege. Your benefits will be available from {date}.',
+    passNotePrivilegeOver: 'Your LunArt Privilege was valid until {date}.',
+    cardBenefitsFrom: 'These benefits become available with your Privilege Card, from {date}.',
+    cardBenefitsEnded: 'The benefits on this card were valid until {date}.',
     // ── Privilege benefits ────────────────────────────────────────────────
     privilegeBenefits: 'Privilege benefits',
     /** Said once per section, not on every benefit. */

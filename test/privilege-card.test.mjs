@@ -31,8 +31,16 @@ import {
   passFor, passForReservation, cardsForReservation, PASS_TIER, PASS_STATE, entitlementsOf,
 } from '../server/pass.js';
 import { buildCard, cardState, revoke } from '../server/card.js';
-import { ENTITLEMENTS, cardBenefits, stayBenefits } from '../commerce/partners.js';
-import { privilegeSection, stayBenefitsSection } from '../src/commerce/ui/partners.js';
+import {
+  ENTITLEMENTS, INTERNAL_PARTNER_FIELDS, PARTNERS, cardBenefits, stayBenefits,
+  partnerView, activePartners, publicPartner, publicPartners,
+} from '../commerce/partners.js';
+import { privilegeSection, stayBenefitsSection, partnerCard } from '../src/commerce/ui/partners.js';
+import { passNote } from '../src/commerce/ui/pass.js';
+import { cardBenefitsBlock } from '../src/commerce/ui/card-sheet.js';
+import { fill } from '../src/i18n.js';
+import { longDate } from '../src/commerce/ui/format.js';
+import { esc } from '../src/ui/dom.js';
 import { UI } from '../src/i18n.js';
 
 const KEY = 'k'.repeat(32);
@@ -346,6 +354,171 @@ test('the three states are ownership, the stay, and the card — and all three a
   // The pair a screen needs, always both present on a Pass the server built.
   assert.ok(Array.isArray(pass.entitlements) && Array.isArray(pass.live_entitlements),
     'a Pass states ownership and liveness, so no screen has to infer one from the other');
+});
+
+/* ── Owned is not usable, and the words have to say so ───────────────────── */
+
+/**
+ * The line on the home screen used to say the Privilege benefits were unlocked to
+ * anybody holding a card, which for a guest who bought the upgrade weeks early was
+ * flatly untrue — she had paid, and the one sentence on her home screen told her
+ * she could walk into a club that would turn her away.
+ */
+test('the home says what is true of this card, not of the tier', () => {
+  const before = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at('2026-11-01') });
+  const during = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at('2026-11-03') });
+  const after = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at('2026-11-05') });
+  const plain = passFor(LONG_STAY(), { now: at('2026-11-01') });
+
+  for (const lang of ['it', 'en']) {
+    assert.equal(passNote(before, lang),
+      fill(UI[lang].passNotePrivilegeSoon, { date: longDate('2026-11-03', lang) }));
+    assert.ok(passNote(before, lang).includes(longDate('2026-11-03', lang)),
+      'with the card\'s own start date, not the stay\'s');
+    assert.equal(passNote(before, lang).includes(UI[lang].passNotePrivilege), false,
+      'and never "unlocked" before anything is');
+
+    assert.equal(passNote(during, lang), UI[lang].passNotePrivilege, 'unlocked once it is');
+    assert.equal(passNote(after, lang),
+      fill(UI[lang].passNotePrivilegeOver, { date: longDate('2026-11-04', lang) }));
+    assert.equal(passNote(plain, lang), UI[lang].passNote, 'and a standard Pass is untouched');
+  }
+});
+
+/**
+ * Inside the card, the same problem one level down: the QR was sealed and the
+ * venues under it were not, so "10% di sconto" set large in the serif read as an
+ * offer a guest could take up that evening.
+ */
+test('the card says when its benefits start, and stops saying it once they have', () => {
+  const dormant = { state: 'not-started', start_date: '2026-11-03', end_date: '2026-11-04', benefits: cardBenefits() };
+  const live = { ...dormant, state: 'active' };
+  const over = { ...dormant, state: 'expired' };
+
+  for (const lang of ['it', 'en']) {
+    const soon = cardBenefitsBlock(dormant, lang);
+    assert.ok(soon.includes(esc(fill(UI[lang].cardBenefitsFrom, { date: longDate('2026-11-03', lang) }))), lang);
+    assert.equal(venues(soon, 'unavailable'), 2, 'and the venues are visibly not usable');
+    assert.equal(count(soon, 'partner__lock'), 0, 'but never locked: they are hers');
+    assert.equal(count(soon, 'data-product='), 0, 'and never sold to her twice');
+
+    const running = cardBenefitsBlock(live, lang);
+    assert.equal(count(running, 'data-benefits-when'), 0, 'nothing extra once the code is on screen');
+    assert.equal(venues(running, 'available'), 2);
+
+    const ended = cardBenefitsBlock(over, lang);
+    assert.ok(ended.includes(esc(fill(UI[lang].cardBenefitsEnded, { date: longDate('2026-11-04', lang) }))), lang);
+    assert.equal(venues(ended, 'unavailable'), 2, 'kept, as a record, and plainly over');
+  }
+});
+
+/* ── Internal notes stay internal ────────────────────────────────────────── */
+
+/**
+ * Which of Blue Velvet's two doors is open tonight is LunArt's problem and the
+ * club's. It was on the guest's screen, under a benefit, where a caveat competes
+ * with the thing she is there to read — so it moved to `staff_note`, and this is
+ * the test that stops it, or anything like it, coming back.
+ *
+ * It walks `INTERNAL_PARTNER_FIELDS` rather than naming a string, so a new internal
+ * field is covered the moment it is declared.
+ */
+const internalStrings = () => {
+  const out = [];
+  const walk = (value) => {
+    if (typeof value === 'string' && value.trim().length > 12) out.push(value.trim());
+    else if (value && typeof value === 'object') Object.values(value).forEach(walk);
+  };
+  for (const partner of PARTNERS) {
+    for (const field of INTERNAL_PARTNER_FIELDS) walk(partner[field]);
+  }
+  return out;
+};
+
+test('internal partner fields never reach the guest view', () => {
+  const secrets = internalStrings();
+  assert.ok(secrets.length >= 3, 'there is something to leak in the first place');
+
+  for (const partner of activePartners()) {
+    const view = JSON.stringify(partnerView(partner.partner_id, 'https://guide.example'));
+    for (const field of [...INTERNAL_PARTNER_FIELDS, 'active', 'example']) {
+      assert.equal(field in JSON.parse(view), false, `${partner.partner_id}.${field}`);
+    }
+    for (const secret of secrets) {
+      assert.equal(view.includes(secret.slice(0, 40)), false,
+        `${partner.partner_id} carries an internal line`);
+    }
+  }
+});
+
+/**
+ * The second route, and the one that was open.
+ *
+ * `/api/catalog` publishes the register so the browser's selectors and the
+ * server's run over one list, and it published the records whole. Nobody saw a
+ * venue's negotiation notes on a screen; they were a view-source away on a public
+ * endpoint.
+ */
+test('nor into the register the browser is handed', () => {
+  const secrets = internalStrings();
+  const published = JSON.stringify(publicPartners());
+
+  for (const field of INTERNAL_PARTNER_FIELDS) {
+    assert.equal(published.includes(`"${field}"`), false, `the wire carries ${field}`);
+  }
+  for (const secret of secrets) {
+    assert.equal(published.includes(secret.slice(0, 40)), false, `leaked: ${secret.slice(0, 60)}…`);
+  }
+
+  // And it is still the register: same partners, and everything the selectors read.
+  assert.deepEqual(publicPartners().map((p) => p.partner_id), activePartners().map((p) => p.partner_id));
+  for (const partner of publicPartners()) {
+    assert.equal(partner.active, true);
+    assert.ok(partner.eligibility && partner.benefits?.length, partner.partner_id);
+  }
+  assert.ok(published.includes('14R–16R'), 'with the address, which is what finds the door');
+  assert.equal(publicPartner({ partner_id: 'x', notes: 'secret', name: 'X' }).notes, undefined);
+});
+
+test('nor into any HTML a guest is drawn', () => {
+  const secrets = internalStrings();
+  const passes = [
+    { state: 'active', entitlements: [], live_entitlements: [] },
+    { state: 'active', entitlements: ['privilege'], live_entitlements: ['privilege'] },
+    { state: 'active', entitlements: ['privilege'], live_entitlements: [] },
+    { state: 'not-started', entitlements: ['privilege'], live_entitlements: [] },
+    { state: 'expired', entitlements: ['privilege'], live_entitlements: [] },
+    null,
+  ];
+
+  const surfaces = [];
+  for (const lang of ['it', 'en']) {
+    for (const pass of passes) {
+      surfaces.push(privilegeSection(cardBenefits(), pass, lang));
+      surfaces.push(stayBenefitsSection(stayBenefits(), pass, lang));
+      for (const view of [...cardBenefits(), ...stayBenefits()]) {
+        surfaces.push(partnerCard(view, pass, lang));
+      }
+    }
+    for (const state of ['not-started', 'active', 'expired', 'revoked']) {
+      surfaces.push(cardBenefitsBlock({
+        state, start_date: '2026-11-03', end_date: '2026-11-04', benefits: cardBenefits(),
+      }, lang));
+    }
+  }
+
+  const html = surfaces.join('\n');
+  assert.ok(html.includes('Blue Velvet') && html.includes('Le Firme'), 'the partners are drawn');
+  assert.ok(html.includes('14R–16R'), 'and the address keeps both numbers, which is what finds the door');
+
+  for (const secret of secrets) {
+    assert.equal(html.includes(secret.slice(0, 40)), false, `leaked: ${secret.slice(0, 60)}…`);
+  }
+  // The one that was actually on screen, named so the failure is unmistakable.
+  assert.equal(/ingressi adiacenti|adjacent entrances/.test(html), false,
+    'the door note is operational and belongs nowhere near a guest');
+  assert.equal(/listino|fino all.01:00/i.test(html), false,
+    'and neither do the house prices behind a negotiation');
 });
 
 /* ── The binding, and the hole it used to leave ──────────────────────────── */

@@ -119,8 +119,10 @@ test('Blue Velvet is one venue, with one address, however many doors it has', ()
   assert.equal(view.address, 'Via del Castello d\'Altafronte 14R–16R, Firenze');
   assert.equal(view.benefits.length, 2);
   assert.equal(new Set([view.directions_url]).size, 1, 'and one place to be sent to');
-  assert.ok(view.note.it.includes('14R') && view.note.it.includes('16R'),
-    'the guest is told the two doors are the same place');
+  // Both numbers on one line, which is what gets a guest to the door. Which of the
+  // two is open tonight is operational, lives in `staff_note`, and stays there.
+  assert.ok(view.address.includes('14R') && view.address.includes('16R'));
+  assert.equal('note' in view, false, 'a partner has no guest-facing note of its own');
 });
 
 test('Le Firme gives ten per cent, in both languages', () => {

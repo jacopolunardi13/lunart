@@ -158,6 +158,9 @@ step('Blue Velvet is one venue with two benefits', sheet.partners===3 && sheet.b
   `${sheet.partners} venues, ${sheet.benefits} benefits`);
 step('the "show your card" sentence is said once for the section, not per venue',
   (sheet.text.match(/Mostra la tua LunArt Privilege/g)??[]).length<=1);
+step('and no internal partner note is anywhere in the Pass',
+  !/ingressi adiacenti|listino/i.test(sheet.text) && /14R–16R/.test(sheet.text),
+  'address kept, operational note gone');
 await page.screenshot({path:'tools/.qa-screens/pass-sheet.png'});
 
 console.log('');
@@ -699,6 +702,12 @@ if (sellableCard) {
       section: document.querySelector('[data-pass-block]')?.innerText ?? '',
     }));
     step('the upgrade turns the same Pass into Privilege', /privilege/.test(after.tier), after.tier.trim());
+    /* The line under the Pass on the home. It used to say the benefits were
+       unlocked to anybody holding a card; this stay is a month away. */
+    step('and the home says she owns it, not that she can use it',
+      /Hai già LunArt Privilege/.test(after.section)
+        && !/vantaggi Privilege sbloccati/.test(after.section),
+      (after.section.match(/Hai già[^\n]*/) ?? ['(not found)'])[0]);
     step('and there is still exactly one card, not two', after.passes === 1, `${after.passes}`);
     step('the heading says Privilege', /privilege/i.test(after.heading), after.heading);
     step('Opera stays under what the stay includes, even on an upgraded Pass',
@@ -825,6 +834,12 @@ if (sellableCard) {
         seal: document.querySelector('.sheet .card-qr__seal')?.textContent.trim() ?? '',
         slotText: document.querySelector('.sheet .card-qr')?.innerText.replace(/\s+/g, ' ').trim() ?? '',
         pill: document.querySelector('.sheet .status-pill')?.textContent.trim() ?? '',
+        // The venues under the code, and what is said about them.
+        benefitsWhen: document.querySelector('.sheet [data-benefits-when]')?.textContent.trim() ?? '',
+        dormantVenues: document.querySelectorAll('.sheet .partner[data-access="unavailable"]').length,
+        lockedVenues: document.querySelectorAll('.sheet .partner__lock').length,
+        buy: document.querySelectorAll('.sheet [data-product]').length,
+        sheetText: document.querySelector('.sheet')?.innerText ?? '',
         face: el.innerText.replace(/\s+/g, ' ').trim(),
         mark: document.querySelectorAll('.privilege-card .pass__mark').length,
       };
@@ -857,6 +872,18 @@ if (sellableCard) {
         && !/token|rotante|crittograf/i.test(venue?.slotText ?? ''),
       (venue?.slotText ?? '').slice(0, 110));
     step('and the state is said once, not twice', venue?.pill === '', venue?.pill || 'no pill');
+    /* ── The venues under a dormant card ───────────────────────────────────
+       The QR says NON ANCORA ATTIVA; the benefits under it used to say nothing at
+       all, and "10% di sconto" set large in the serif reads as an offer. */
+    step('the benefits under a dormant card say when they start',
+      /si attiveranno insieme alla tua Privilege Card/.test(venue?.benefitsWhen ?? ''),
+      venue?.benefitsWhen || '(no line)');
+    step('and are visibly not usable, without being locked or sold again',
+      venue?.dormantVenues === 2 && venue?.lockedVenues === 0 && venue?.buy === 0,
+      `${venue?.dormantVenues} dimmed, ${venue?.lockedVenues} locked, ${venue?.buy} buy`);
+    step('and the internal door note is nowhere on the card screen',
+      !/ingressi adiacenti/i.test(venue?.sheetText ?? '') && /14R–16R/.test(venue?.sheetText ?? ''),
+      'address kept, operational note gone');
     step('and the real card underneath it: holder, dates and number',
       /Flow/.test(venue?.face ?? '') && /N\./.test(venue?.face ?? '') && /nov/.test(venue?.face ?? ''),
       venue?.face);
