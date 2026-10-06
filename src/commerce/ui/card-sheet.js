@@ -17,7 +17,7 @@ import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
 import { longDate, shortDate } from './format.js';
-import { PASS_MARK } from './pass.js';
+import { PASS_MARK, cardStateText } from './pass.js';
 import { qrSvg } from '../qr.js';
 import { fetchCard, stayBenefits, cardBenefits } from '../api.js';
 import { partnerList } from './partners.js';
@@ -40,10 +40,14 @@ export function rememberCard(token) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens.slice(0, 10))); } catch { /* ignore */ }
 }
 
-const STATE_TEXT = {
-  it: { active: 'Attiva', 'not-started': 'Non ancora attiva', expired: 'Scaduta', revoked: 'Non valida' },
-  en: { active: 'Active', 'not-started': 'Not yet active', expired: 'Expired', revoked: 'Not valid' },
-};
+/**
+ * The card's state in words comes from `pass.js`, which is the only copy.
+ *
+ * There used to be a private map here. The Pass now has to say the same four words
+ * — it carries `pass.card.state` so it can tell a guest when their card starts — and
+ * two copies of a vocabulary is how one screen ends up saying "Non ancora attiva"
+ * while another says something slightly different about the same card.
+ */
 
 /**
  * The face of the Privilege Card, in the same family as the Pass.
@@ -125,7 +129,7 @@ function body(card, lang) {
     ${cardFace(card, lang)}
 
     <p class="status-pill" data-tone="${card.state === 'active' ? 'good' : 'muted'}">
-      ${esc(STATE_TEXT[lang]?.[card.state] ?? card.state)}
+      ${esc(cardStateText(card.state, lang) || card.state)}
     </p>
 
     ${usable
@@ -134,9 +138,21 @@ function body(card, lang) {
            <p class="card-qr__hint">${esc(UI[lang].showAtVenue)}</p>
          </div>`
       : `<div class="notice">
-           <p>${esc(card.state === 'not-started'
-             ? `${UI[lang].cardStartsOn} ${longDate(card.start_date, lang)}`
-             : UI[lang].cardNotUsable)}</p>
+           ${/**
+             * A card that cannot be honoured yet, explained rather than left blank.
+             *
+             * The guest owns this card; what they do not have is a code, because a
+             * code that works before the card does would be a code that works. So
+             * the screen says the date it starts and that the QR arrives with it —
+             * an information state, not an authorisation one. Nothing here asks the
+             * server for a code, and the server would refuse if it did.
+             */''}
+           ${card.state === 'not-started'
+             ? `<span class="notice__lines">
+                  <span>${esc(UI[lang].cardStartsOn)} ${esc(longDate(card.start_date, lang))}.</span>
+                  <span>${esc(UI[lang].cardQrFromActivation)}</span>
+                </span>`
+             : `<span>${esc(UI[lang].cardNotUsable)}</span>`}
          </div>`}
 
     ${privileges(card, lang)}
@@ -262,7 +278,7 @@ export async function cardBlock(lang) {
           <span class="card__icon">${icon('card', 22)}</span>
           <span class="card__body">
             <span class="card__title">${esc(card.holder)}</span>
-            <span class="card__summary">${esc(STATE_TEXT[lang]?.[card.state] ?? card.state)} · ${esc(UI[lang].validUntil)} ${esc(longDate(card.end_date, lang))}</span>
+            <span class="card__summary">${esc(cardStateText(card.state, lang) || card.state)} · ${esc(UI[lang].validUntil)} ${esc(longDate(card.end_date, lang))}</span>
           </span>
           <span class="card__chevron">${icon('chevron', 16)}</span>
         </button>`).join('')}

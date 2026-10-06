@@ -440,19 +440,52 @@ test('Blue Velvet renders as one venue with two benefits and one set of directio
   assert.ok(after.includes('maps/dir/?api=1&amp;destination=Via%20del%20Castello'));
 });
 
-test('a Pass that is not live says so instead of offering a button', () => {
+/**
+ * Not usable is said to everybody; what to do about it depends on who is asking.
+ *
+ * A Pass that is not live makes nothing claimable, whether or not the upgrade was
+ * bought — so neither guest is ever shown the "show your card" line. What differs
+ * is the sentence and the button: an owner is told when their benefits start, and a
+ * guest who has not upgraded is told what Privilege is and offered it, as long as
+ * the stay still has a future. `test/privilege-card.test.mjs` holds that matrix in
+ * full; this is the half of it the partner section is responsible for.
+ */
+test('a Pass that is not live never reads as usable, whoever owns it', () => {
   for (const state of ['not-started', 'expired', 'cancelled']) {
-    const html = privilegeSection(cardBenefits(), standardPass(state), 'it');
-    assert.ok(html.includes(UI.it.privilegeWhenActive), state);
-    assert.equal(html.includes(UI.it.privilegeBenefitsNote), false,
-      `${state}: nothing may read as usable today`);
-    assert.equal(html.split('data-access="unavailable"').length - 1 >= 2, true, state);
+    for (const pass of [standardPass(state), privilegePass(state)]) {
+      const html = privilegeSection(cardBenefits(), pass, 'it');
+      assert.equal(html.includes(UI.it.privilegeBenefitsNote), false,
+        `${state}: nothing may read as usable today`);
+      assert.equal(html.split('class="partner" data-access="unavailable"').length - 1, 2, state);
+    }
   }
-  assert.equal(
-    privilegeSection(cardBenefits(), standardPass('cancelled'), 'it').includes('data-product='),
-    false,
-    'a called-off booking is not a sales opportunity',
-  );
+});
+
+test('an owner is told when their benefits start; everyone else is told what they are', () => {
+  for (const state of ['not-started', 'expired', 'cancelled']) {
+    const owner = privilegeSection(cardBenefits(), privilegePass(state), 'it');
+    assert.ok(owner.includes(UI.it.privilegeWhenActive), state);
+    assert.equal(owner.includes('data-product='), false, 'and never sold it twice');
+
+    const guest = privilegeSection(cardBenefits(), standardPass(state), 'it');
+    assert.ok(guest.includes(UI.it.privilegeBenefitsDiscover), state);
+  }
+});
+
+test('the upgrade is offered while the stay has a future, and not afterwards', () => {
+  // Buying before arrival is legitimate: the card is sold inside the stay and its
+  // start dates are the stay's own.
+  for (const state of ['not-started', 'active']) {
+    assert.ok(privilegeSection(cardBenefits(), standardPass(state), 'it').includes('data-product='), state);
+  }
+  // A stay that is over, or was called off, has nothing left to buy an upgrade for.
+  for (const state of ['expired', 'cancelled']) {
+    assert.equal(
+      privilegeSection(cardBenefits(), standardPass(state), 'it').includes('data-product='),
+      false,
+      state,
+    );
+  }
 });
 
 test('Opera Caffè is never drawn inside the Privilege section', () => {

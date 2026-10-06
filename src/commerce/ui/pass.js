@@ -131,6 +131,24 @@ const STATE_WORD = {
   },
 };
 
+/**
+ * A Privilege Card's own state, in words.
+ *
+ * Lives here rather than beside the card sheet because the Pass now carries
+ * `pass.card.state` and has to say it too, and two private copies of four words is
+ * how the same card ends up described differently on two screens. `card-sheet.js`
+ * already imports from this module, so this is the direction that does not make a
+ * circle.
+ */
+export const cardStateText = (state, lang) => (
+  UI[lang]?.[`cardState${{
+    active: 'Active',
+    'not-started': 'NotStarted',
+    expired: 'Expired',
+    revoked: 'Revoked',
+  }[state] ?? ''}`] ?? ''
+);
+
 const STATE_TEXT = {
   it: {
     'not-started': 'Attiva dal giorno dell’arrivo',
@@ -294,6 +312,45 @@ export function passBlock(lang) {
 }
 
 /**
+ * The Privilege Card, from the Pass.
+ *
+ * The bug this fixes: a guest who had bought Privilege for a stay still weeks away
+ * opened their Pass and found no way at all to look at the card they had paid for.
+ * The only affordance was a button at the very foot of the sheet, under three
+ * partner blocks, labelled "Mostra il codice al locale" — which is the right words
+ * for a guest standing at a till and the wrong words for a guest at home in
+ * September, since there is no code yet and will not be until November.
+ *
+ * So the card gets a heading of its own, directly under the Pass's own facts and
+ * above the partners, and the button says what it will actually do. The screen it
+ * opens is the existing one: `openCardSheet`, the same card a venue is shown, not a
+ * second implementation of it.
+ *
+ * It is rendered whenever the stay owns a card. Owning is not using — a card bought
+ * ahead of the stay is real, and its state line says plainly when it starts.
+ */
+function privilegeCardBlock(card, lang) {
+  const live = card.state === 'active';
+
+  // The state, then the date it turns on: "Non ancora attiva · da sabato 7 novembre".
+  // A card that is over says only that it is over — there is no date left to offer.
+  const when = card.state === 'not-started'
+    ? `${UI[lang].cardFrom} ${longDate(card.start_date, lang)}`
+    : live
+      ? `${UI[lang].cardUntil} ${longDate(card.end_date, lang)}`
+      : '';
+  const line = [cardStateText(card.state, lang), when].filter(Boolean).join(' · ');
+
+  return `
+    <p class="pass__label" data-section="privilege-card">${esc(UI[lang].privilegeCard)}</p>
+    <p class="pass__lead" data-card-state="${esc(card.state)}">${esc(line)}</p>
+    <button class="action action--wide${live ? ' action--primary' : ''}" type="button"
+      data-card="${esc(card.access_token)}">
+      ${icon('card', 16)}${esc(live ? UI[lang].openCard : UI[lang].openPrivilegeCard)}
+    </button>`;
+}
+
+/**
  * The Pass, in full.
  *
  * Everything a guest might want to check while standing somewhere: the card, whose
@@ -353,6 +410,8 @@ export function openPassSheet({ lang }) {
           </div>`).join('')}
       </dl>
 
+      ${pass.card ? privilegeCardBlock(pass.card, lang) : ''}
+
       ${/**
         * Order by what this guest owns.
         *
@@ -366,13 +425,6 @@ export function openPassSheet({ lang }) {
            ${stayBenefitsSection(stay, pass, lang)}`
         : `${stayBenefitsSection(stay, pass, lang)}
            ${privilegeSection(privilegePartners, pass, lang)}`}
-
-      ${privilege && pass.card
-        ? `<button class="action action--wide action--primary" type="button"
-             data-card="${esc(pass.card.access_token)}">
-            ${icon('card', 16)}${esc(UI[lang].openCard)}
-          </button>`
-        : ''}
 
       <p class="terms">${esc(privilege ? UI[lang].passNotePrivilege : UI[lang].passNote)}</p>`,
   });

@@ -687,6 +687,9 @@ fieldset.field { border: 0; padding: 0; }
   background: var(--paper-2); border-radius: var(--radius-sm);
   font-size: var(--small); line-height: 1.6; color: var(--ink-soft);
 }
+/* `.notice` is a row because it was built for an icon beside one line. A notice
+   with two sentences in it stacks them instead of setting them in two columns. */
+.notice__lines { display: grid; gap: 6px; }
 .notice--attention { background: #f3e6d4; color: #6b4512; }
 .notice--attention svg { flex: none; margin-top: 2px; }
 

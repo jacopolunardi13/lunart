@@ -187,8 +187,10 @@ async function passSheetAt(width, url = liveLink) {
     const cards = [...sheet.querySelectorAll('.partner')];
     const room = (sheet.querySelector('.sheet__body') ?? sheet).getBoundingClientRect();
     const labels = [...sheet.querySelectorAll('.pass__label')].map((e) => e.textContent.trim());
-    // Everything between the Privilege heading and the next one is its section.
-    const head = [...sheet.querySelectorAll('.pass__label')].find((e) => /privilege/i.test(e.textContent));
+    // Everything between the Privilege *benefits* heading and the next one is its
+    // section. By its own hook, not by matching "privilege" — the card section's
+    // heading says Privilege too.
+    const head = sheet.querySelector('.pass__label[data-section="privilege-benefits"]');
     const section = [];
     for (let n = head?.nextElementSibling; n && !n.classList.contains('pass__label'); n = n.nextElementSibling) section.push(n);
     const inSection = (sel) => section.flatMap((n) => [...n.querySelectorAll(sel)]);
@@ -203,6 +205,11 @@ async function passSheetAt(width, url = liveLink) {
       lockWords: [...sheet.querySelectorAll('.partner__lock')].map((e) => e.textContent.trim()),
       buy: sheet.querySelectorAll('[data-product="privilege-card"]').length,
       lead: sheet.querySelector('[data-privilege-lead]')?.textContent.trim() ?? '',
+      cardLabel: labels.find((l) => /privilege card/i.test(l)) ?? '',
+      cardLine: sheet.querySelector('[data-card-state]')?.textContent.trim() ?? '',
+      cardState: sheet.querySelector('[data-card-state]')?.dataset.cardState ?? '',
+      cardAction: sheet.querySelector('[data-card]')?.innerText.trim() ?? '',
+      cardActions: sheet.querySelectorAll('[data-card]').length,
       headlines: [...sheet.querySelectorAll('.benefit__headline')].map((e) => e.textContent.trim()),
       privilegeVenues: inSection('.partner').length,
       privilegeText: section.map((n) => n.innerText).join(' '),
@@ -215,6 +222,21 @@ async function passSheetAt(width, url = liveLink) {
     };
   });
   return { probe, read };
+}
+
+/* ── A guest whose stay has not started ────────────────────────────────────
+   The screen Irene actually had. Checked before the upgrade and after it, because
+   the reported bug was that the two looked the same. */
+{
+  const { probe, read } = await passSheetAt(390, link);
+  step('before arrival a standard Pass has no card section', read.cardActions===0 && !read.cardLabel,
+    read.cardLabel || 'none');
+  step('and the Privilege partners are still offered, marked as an upgrade',
+    read.lockWords.length===2 && read.unavailable===3,
+    `${read.lockWords.length} marked, ${read.unavailable} not usable yet`);
+  step('with the purchase reachable before arrival, not only on the day',
+    read.buy===1, `${read.buy} button(s)`);
+  await probe.close();
 }
 
 {
@@ -303,6 +325,12 @@ async function buyPrivilege(guideLink) {
     /Mostra la tua LunArt Privilege attiva/.test(read.lead), read.lead.slice(0,60));
   step('with nothing left to buy', read.buy===0, `${read.buy} button(s)`);
   // `innerText` carries the rendered case, and the venue line is uppercased.
+  step('and the Privilege Card has a section of its own in the Pass',
+    /Privilege Card/i.test(read.cardLabel) && read.cardActions===1,
+    `${read.cardLabel} · ${read.cardActions} action(s)`);
+  step('whose button offers the code, because this card is live now',
+    read.cardState==='active' && /codice/i.test(read.cardAction),
+    `${read.cardState} · ${read.cardAction}`);
   step('and Opera Caffè still on the stay side of the line',
     /opera caff/i.test(read.text) && !/opera/i.test(read.privilegeText),
     `in the sheet: ${/opera caff/i.test(read.text)}, inside Privilege: ${/opera/i.test(read.privilegeText)}`);
@@ -658,8 +686,8 @@ if (sellableCard) {
     await up.waitForTimeout(900);
     const privSheet = await up.evaluate(() => {
       const labels = [...document.querySelectorAll('.sheet .pass__label')].map((e) => e.textContent.trim());
-      const first = document.querySelector('.sheet .pass__label');
-      // Everything between the first heading and the second belongs to Privilege.
+      const first = document.querySelector('.sheet .pass__label[data-section="privilege-benefits"]');
+      // Everything under the Privilege benefits heading, up to the next one.
       const privilegeBlock = [];
       for (let node = first?.nextElementSibling; node && !node.classList.contains('pass__label'); node = node.nextElementSibling) {
         privilegeBlock.push(node);
@@ -667,7 +695,6 @@ if (sellableCard) {
       const within = (sel) => privilegeBlock.flatMap((n) => [...n.querySelectorAll(sel)]);
       return {
         labels,
-        firstLabel: labels[0] ?? '',
         privilegeVenues: within('.partner').length,
         privilegeText: privilegeBlock.map((n) => n.innerText).join(' '),
         locked: document.querySelectorAll('.sheet .partner[data-access="locked"]').length,
@@ -676,12 +703,16 @@ if (sellableCard) {
         buy: document.querySelectorAll('.sheet [data-product="privilege-card"]').length,
         howTo: document.querySelector('.sheet [data-privilege-lead]')?.textContent.trim() ?? '',
         hasQrAction: document.querySelectorAll('.sheet [data-card]').length,
+        cardLabel: labels.find((l) => /privilege card/i.test(l)) ?? '',
+        cardLine: document.querySelector('.sheet [data-card-state]')?.textContent.trim() ?? '',
+        cardState: document.querySelector('.sheet [data-card-state]')?.dataset.cardState ?? '',
+        cardAction: document.querySelector('.sheet [data-card]')?.innerText.trim() ?? '',
       };
     });
-    step('the Privilege sheet separates what was bought from what comes with the stay',
-      privSheet.labels.length === 2, privSheet.labels.join(' | '));
-    step('a guest who paid for it sees Privilege first', /privilege/i.test(privSheet.firstLabel),
-      privSheet.firstLabel);
+    step('the Privilege sheet keeps the card, what it unlocks and what the stay gives apart',
+      privSheet.labels.length === 3, privSheet.labels.join(' | '));
+    step('a guest who paid for it is shown the card first of all',
+      /Privilege Card/i.test(privSheet.labels[0] ?? ''), privSheet.labels[0]);
     /**
      * This stay is a month away, so nothing is claimable tonight — and that is the
      * point of the check. A Privilege Pass is not a licence that begins when the
@@ -696,7 +727,21 @@ if (sellableCard) {
     step('Opera Caffè is never drawn inside the Privilege section',
       privSheet.privilegeVenues === 2 && !/opera/i.test(privSheet.privilegeText),
       `${privSheet.privilegeVenues} venues under Privilege`);
-    step('and the venue code one tap away', privSheet.hasQrAction === 1);
+    /* ── The bug this file now guards ──────────────────────────────────────
+       A guest who had bought Privilege weeks before her stay opened her Pass and
+       found no way at all to look at the card she had paid for: the only
+       affordance was a button at the foot of the sheet, under three partner
+       blocks, promising a code that would not exist until November. */
+    step('the card she paid for has a section of its own, not a button at the foot',
+      /Privilege Card/i.test(privSheet.cardLabel) && privSheet.hasQrAction === 1,
+      `${privSheet.cardLabel} · ${privSheet.hasQrAction} action(s)`);
+    step('saying plainly that it is not active yet, and from when',
+      privSheet.cardState === 'not-started'
+        && /Non ancora attiva/.test(privSheet.cardLine) && /\bda\b/.test(privSheet.cardLine),
+      privSheet.cardLine);
+    step('and the button offers to open it, not to show a code that does not exist',
+      /Apri la card/i.test(privSheet.cardAction) && !/codice/i.test(privSheet.cardAction),
+      privSheet.cardAction);
     await up.screenshot({ path: 'tools/.qa-screens/pass-privilege-sheet.png' });
 
     // The gold plate is the harder of the two to read over, and it carries the one
@@ -722,6 +767,9 @@ if (sellableCard) {
         // correct; what would be wrong is neither.
         qr: document.querySelectorAll('.card-qr').length,
         notice: document.querySelectorAll('.sheet .notice').length,
+        noticeText: document.querySelector('.sheet .notice')?.innerText.replace(/\s+/g, ' ').trim() ?? '',
+        pill: document.querySelector('.sheet .status-pill')?.textContent.trim() ?? '',
+        face: el.innerText.replace(/\s+/g, ' ').trim(),
         mark: document.querySelectorAll('.privilege-card .pass__mark').length,
       };
     });
@@ -736,6 +784,20 @@ if (sellableCard) {
     await measureCard(up, 'Venue card', '.privilege-card');
     step('with either its code or the date it starts, never neither',
       (venue?.qr ?? 0) + (venue?.notice ?? 0) > 0, `qr ${venue?.qr}, notice ${venue?.notice}`);
+
+    /* ── A card that is owned and not yet usable ───────────────────────────
+       An information state, not an authorisation one. The guest gets the real card
+       — her name, the dates, the number — and a sentence saying when the code
+       appears. What she does not get, and what the server would refuse to issue,
+       is a code. */
+    step('a card bought ahead of the stay shows no QR at all', venue?.qr === 0, `${venue?.qr} QR`);
+    step('and says when it starts and when the code will appear',
+      /Diventa attiva/.test(venue?.noticeText ?? '') && /QR sarà disponibile/.test(venue?.noticeText ?? ''),
+      (venue?.noticeText ?? '').slice(0, 96));
+    step('with the state said as a word as well', /Non ancora attiva/.test(venue?.pill ?? ''), venue?.pill);
+    step('and the real card underneath it: holder, dates and number',
+      /Flow/.test(venue?.face ?? '') && /N\./.test(venue?.face ?? '') && /nov/.test(venue?.face ?? ''),
+      venue?.face);
     await up.screenshot({ path: 'tools/.qa-screens/pass-venue-card.png' });
     await upgradeCtx.close();
   }

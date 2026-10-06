@@ -28,6 +28,7 @@ import { propertyDate, isValidDate, endOfPropertyDay, propertyTimeToInstant } fr
 import { stayDates } from '../commerce/stay.js';
 import { stayBenefits, cardBenefits, ENTITLEMENTS } from '../commerce/partners.js';
 import { RESERVATION_STATUS } from './reservations.js';
+import { cardState } from './card.js';
 
 /** The two tiers one Pass can be in. There is no third, and no second card. */
 export const PASS_TIER = {
@@ -162,14 +163,70 @@ export function passFor(reservation, { card = null, now = new Date() } = {}) {
      */
     privileges: upgraded ? cardBenefits() : [],
 
-    /** Present only on an upgraded Pass, so the QR screen can be opened. */
+    /**
+     * Present on an upgraded Pass, whether or not the card can be used yet.
+     *
+     * Owning the upgrade and being able to use it tonight are two different
+     * questions, and the card's own `state` is the answer to the second one. A
+     * guest who bought Privilege in September for a stay in November owns a card
+     * that says `not-started`, and the screen that opens from here says so and
+     * explains when the code appears — which is a great deal better than a Pass
+     * that quietly pretends nothing was bought.
+     *
+     * No code travels with this. The QR is issued by `/api/card/:token` and only
+     * for a card that is actually active; nothing here changes that.
+     */
     card: upgraded
-      ? { access_token: card.access_token, reference: card.public_ref, end_date: card.end_date }
+      ? {
+        access_token: card.access_token,
+        reference: card.public_ref,
+        start_date: card.start_date,
+        end_date: card.end_date,
+        state: cardState(card, now),
+      }
       : null,
 
     /** Today in Florence, so the phone does not have to be right about it. */
     today: propertyDate(now),
   };
+}
+
+/**
+ * Every live card this stay owns, found two ways because there are two ways to
+ * have been written down.
+ *
+ * The direct one is `card.reservation_id`, set when the card is issued. The other
+ * is through the order: a card belongs to the order that paid for it, and an order
+ * belongs to a reservation, so a card whose own binding is missing is still
+ * unambiguously this stay's. That second route is not a nicety — cards issued
+ * before the Pass existed were written with `reservation_id: null`, and the symptom
+ * is nasty precisely because it is half-right: the purchase shows up in "I miei
+ * acquisti" (orders *are* bound) while the Pass renders as a plain Pass, so a guest
+ * is looking at a receipt for something their card says they do not have.
+ *
+ * Found that way, the binding is written back. The card really is owned by this
+ * reservation; recording it is writing down a fact rather than inventing one, it
+ * happens once per card, and leaving it would mean every future query that joins on
+ * `reservation_id` rediscovering the same hole.
+ */
+export async function cardsForReservation({ store, reservation }) {
+  if (!reservation?.id) return [];
+
+  const orders = await store.orders.filter((order) => order.reservation_id === reservation.id);
+  const orderIds = new Set(orders.map((order) => order.id));
+
+  const cards = await store.cards.filter((card) => card.status !== 'revoked' && (
+    card.reservation_id === reservation.id
+    || (!card.reservation_id && card.order_id && orderIds.has(card.order_id))
+  ));
+
+  const repaired = [];
+  for (const card of cards) {
+    if (card.reservation_id === reservation.id) { repaired.push(card); continue; }
+    console.warn('[pass] card', card.public_ref, 'was bound to no stay; binding it to', reservation.id);
+    repaired.push(await store.cards.update(card.id, { reservation_id: reservation.id }) ?? card);
+  }
+  return repaired;
 }
 
 /**
@@ -181,9 +238,7 @@ export function passFor(reservation, { card = null, now = new Date() } = {}) {
  */
 export async function passForReservation({ store, reservation, now = new Date() }) {
   if (!reservation) return null;
-  const cards = await store.cards.filter((card) => (
-    card.reservation_id === reservation.id && card.status !== 'revoked'
-  ));
+  const cards = await cardsForReservation({ store, reservation });
   // The longest-lived one, so an upgrade bought twice shows the one still running.
   const card = cards.sort((a, b) => String(b.end_date).localeCompare(String(a.end_date)))[0] ?? null;
   return passFor(reservation, { card, now });

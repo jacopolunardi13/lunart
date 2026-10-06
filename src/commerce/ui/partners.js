@@ -69,6 +69,19 @@ function partnerState(rows) {
 }
 
 /**
+ * Whether this guest is missing an entitlement, which is a different question from
+ * whether they can use the benefit tonight.
+ *
+ * `benefitAccess` reports `unavailable` the moment the Pass is not live, because
+ * that is the honest answer to "can I use this now" whoever is asking. But it also
+ * hands back `missing`, and that is the answer to "is this mine" — which is the one
+ * that decides whether a guest is shown a lock and a way to buy. A guest arriving in
+ * November who has not upgraded still needs both; a guest arriving in November who
+ * has needs neither.
+ */
+const missingFrom = (rows) => [...new Set(rows.flatMap((row) => row.access.missing))];
+
+/**
  * One benefit.
  *
  * `headline` is the primary line and `subline` the secondary, in the guest's own
@@ -103,6 +116,7 @@ export function partnerCard(view, pass, lang) {
   if (rows.length === 0) return '';
 
   const state = partnerState(rows);
+  const missing = missingFrom(rows);
   const note = text(view.note, lang);
   /**
    * The address, and not the category next to it.
@@ -133,8 +147,8 @@ export function partnerCard(view, pass, lang) {
 
     ${note ? `<p class="partner__note">${esc(note)}</p>` : ''}
 
-    ${state === ACCESS.locked || directions ? `<p class="partner__actions">
-      ${state === ACCESS.locked
+    ${missing.length || directions ? `<p class="partner__actions">
+      ${missing.length
         ? `<span class="partner__lock">${icon('key', 14)}<span>${esc(UI[lang].privilegeLocked)}</span></span>`
         : ''}
       ${directions
@@ -168,29 +182,41 @@ export function privilegeSection(views, pass, lang) {
 
   const context = passContextOf(pass);
   const rows = views.flatMap((view) => accessFor(view, pass));
-  const anyAvailable = rows.some((row) => row.access.state === ACCESS.available);
-  const anyLocked = rows.some((row) => row.access.state === ACCESS.locked);
 
   /**
-   * One line, chosen by what is actually true of this Pass.
+   * Two independent questions, and the screen has to answer both.
    *
-   *   available   the guest has it: how to use it.
-   *   locked      the guest does not: what it is, and that it is an upgrade.
-   *   otherwise   the Pass itself is not live — not started, over, or called off —
-   *               so nothing here is claimable today whoever owns it, and saying so
-   *               is more honest than a button.
+   *   owns   does this reservation carry the entitlement? Nothing to do with dates.
+   *   live   is the Pass active today? Nothing to do with what was bought.
+   *
+   * Running them together is the bug this replaces: a guest who had bought
+   * Privilege for a stay in November was shown the same "these unlock with
+   * Privilege" line as a guest who had not, because in October neither of them
+   * could use anything. One of them had paid.
    */
-  const lead = anyAvailable
-    ? UI[lang].privilegeBenefitsNote
-    : anyLocked
-      ? UI[lang].privilegeBenefitsDiscover
-      : UI[lang].privilegeWhenActive;
+  const owns = rows.length > 0 && rows.every((row) => row.access.missing.length === 0);
+  const live = context.passState === 'active';
+
+  const lead = owns
+    ? (live ? UI[lang].privilegeBenefitsNote : UI[lang].privilegeWhenActive)
+    : UI[lang].privilegeBenefitsDiscover;
+
+  /**
+   * Offered to a guest who does not own it and whose stay still has a future.
+   *
+   * Before arrival is a perfectly good time to buy — the card is sold inside the
+   * stay and `cardStartDates` already offers the days it may begin — so this is not
+   * gated on the Pass being live today. It goes away once the stay is over or
+   * called off, because there would be nothing left to buy it for, and it is never
+   * shown to somebody who already paid.
+   */
+  const canStillBuy = !owns && ['not-started', 'active'].includes(context.passState);
 
   return `
-    <p class="pass__label">${esc(UI[lang].privilegeBenefits)}</p>
-    <p class="pass__lead" data-privilege-lead>${esc(lead)}</p>
+    <p class="pass__label" data-section="privilege-benefits">${esc(UI[lang].privilegeBenefits)}</p>
+    <p class="pass__lead" data-privilege-lead data-owns="${owns}">${esc(lead)}</p>
     ${partnerList(views, pass, lang)}
-    ${anyLocked && context.passState !== 'cancelled'
+    ${canStillBuy
       ? `<button class="action action--wide action--primary" type="button" data-product="privilege-card">
            ${icon('card', 16)}${esc(UI[lang].privilegeGet)}
          </button>`
@@ -205,6 +231,6 @@ export function privilegeSection(views, pass, lang) {
  * Privilege, and the two headings are what say so.
  */
 export const stayBenefitsSection = (views, pass, lang) => (views?.length
-  ? `<p class="pass__label">${esc(UI[lang].includedWithStay)}</p>
+  ? `<p class="pass__label" data-section="stay-benefits">${esc(UI[lang].includedWithStay)}</p>
      ${partnerList(views, pass, lang)}`
   : '');
