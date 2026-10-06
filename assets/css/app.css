@@ -57,6 +57,15 @@
   --paper-3: #e8e1d6;
   --accent: #8a6a3d;
   --accent-soft: #c9a86d;
+  /**
+   * The seal: a card that is not live yet, or no longer is.
+   *
+   * Burgundy rather than a warning red, because nothing is wrong — a card bought in
+   * October for November is working exactly as sold. 9.15:1 against the paper, so
+   * the word reads at a glance and the frame does not have to shout.
+   */
+  --seal: #7b2733;
+  --seal-line: rgba(123, 39, 51, 0.38);
 
   --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
   --sans: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -687,9 +696,6 @@ fieldset.field { border: 0; padding: 0; }
   background: var(--paper-2); border-radius: var(--radius-sm);
   font-size: var(--small); line-height: 1.6; color: var(--ink-soft);
 }
-/* `.notice` is a row because it was built for an icon beside one line. A notice
-   with two sentences in it stacks them instead of setting them in two columns. */
-.notice__lines { display: grid; gap: 6px; }
 .notice--attention { background: #f3e6d4; color: #6b4512; }
 .notice--attention svg { flex: none; margin-top: 2px; }
 
@@ -888,11 +894,36 @@ fieldset.field { border: 0; padding: 0; }
  */
 .card-qr { margin: 20px 0; text-align: center; }
 .card-qr__frame {
+  position: relative;
   width: min(260px, 70vw); margin: 0 auto;
   padding: 14px; background: #fff; border-radius: 14px; color: var(--ink);
   border: 1px solid var(--ink-faint);
 }
 .card-qr__hint { margin-top: 12px; font-size: var(--small); color: var(--ink-soft); }
+.card-qr__when { margin-top: 4px; font-size: var(--small); color: var(--seal); }
+
+/* --- A code that is not live ----------------------------------------------
+   The slot is the same size and the same shape whatever state the card is in,
+   so a guest who has paid can see what she will be holding up. What changes is
+   the seal across it and the burgundy edge around it.
+
+   The symbol stays dark on white rather than being tinted red: a red QR would
+   read as an error, and this is not one — the card is working exactly as it was
+   sold. It is softened instead, which says "not this one, not yet" without
+   either alarming anybody or pretending to be scannable.
+   ------------------------------------------------------------------------- */
+.card-qr--preview .card-qr__frame {
+  border-color: var(--seal-line);
+  color: color-mix(in srgb, var(--ink) 62%, #fff);
+}
+.card-qr__seal {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  max-width: calc(100% - 28px);
+  padding: 7px 14px; border-radius: 999px;
+  background: var(--seal); color: var(--paper);
+  font-size: var(--micro); letter-spacing: .14em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* --- Privileges ---------------------------------------------------------- */
 .privileges { margin-top: 22px; border-top: 1px solid var(--ink-line); }

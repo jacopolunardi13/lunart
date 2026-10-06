@@ -687,6 +687,9 @@ if (sellableCard) {
 
     const upgradeCtx = await b.newContext({ ...devices['iPhone 13'], locale: 'it-IT' });
     const up = await upgradeCtx.newPage();
+    /** Every call for a card, so "it does not poll" can be more than a claim. */
+    const cardCalls = [];
+    up.on('request', (r) => { if (r.url().includes('/api/card/')) cardCalls.push(Date.now()); });
     await up.goto(link, { waitUntil: 'networkidle' });
     await up.waitForTimeout(2500);
     const after = await up.evaluate(() => ({
@@ -813,9 +816,14 @@ if (sellableCard) {
         ratio: +(el.getBoundingClientRect().width / el.getBoundingClientRect().height).toFixed(3),
         // A card that has not started shows when it will instead of a code. Both are
         // correct; what would be wrong is neither.
-        qr: document.querySelectorAll('.card-qr').length,
-        notice: document.querySelectorAll('.sheet .notice').length,
-        noticeText: document.querySelector('.sheet .notice')?.innerText.replace(/\s+/g, ' ').trim() ?? '',
+        // The slot is always there. What matters is which of the two fills it.
+        slot: document.querySelectorAll('.sheet .card-qr').length,
+        slotState: document.querySelector('.sheet .card-qr')?.dataset.state ?? '',
+        liveQr: document.querySelectorAll('.sheet [data-qr]').length,
+        previewQr: document.querySelectorAll('.sheet [data-qr-preview]').length,
+        modules: document.querySelectorAll('.sheet .card-qr__frame svg path').length,
+        seal: document.querySelector('.sheet .card-qr__seal')?.textContent.trim() ?? '',
+        slotText: document.querySelector('.sheet .card-qr')?.innerText.replace(/\s+/g, ' ').trim() ?? '',
         pill: document.querySelector('.sheet .status-pill')?.textContent.trim() ?? '',
         face: el.innerText.replace(/\s+/g, ' ').trim(),
         mark: document.querySelectorAll('.privilege-card .pass__mark').length,
@@ -830,22 +838,36 @@ if (sellableCard) {
     // The venue card has its own type over the same painting, and its own wash — which
     // is exactly the copy that was missed when the washes were raised.
     await measureCard(up, 'Venue card', '.privilege-card');
-    step('with either its code or the date it starts, never neither',
-      (venue?.qr ?? 0) + (venue?.notice ?? 0) > 0, `qr ${venue?.qr}, notice ${venue?.notice}`);
-
     /* ── A card that is owned and not yet usable ───────────────────────────
        An information state, not an authorisation one. The guest gets the real card
-       — her name, the dates, the number — and a sentence saying when the code
-       appears. What she does not get, and what the server would refuse to issue,
-       is a code. */
-    step('a card bought ahead of the stay shows no QR at all', venue?.qr === 0, `${venue?.qr} QR`);
-    step('and says when it starts and when the code will appear',
-      /Diventa attiva/.test(venue?.noticeText ?? '') && /QR sarà disponibile/.test(venue?.noticeText ?? ''),
-      (venue?.noticeText ?? '').slice(0, 96));
-    step('with the state said as a word as well', /Non ancora attiva/.test(venue?.pill ?? ''), venue?.pill);
+       — her name, the dates, the number — the slot her code will occupy, and a
+       sentence saying when it starts. What she does not get, and what the server
+       would refuse to issue, is a code. */
+    step('the code has a place on the screen before the card starts',
+      venue?.slot === 1 && venue?.slotState === 'not-started' && venue?.modules === 1,
+      `${venue?.slot} slot(s), state ${venue?.slotState}, ${venue?.modules} symbol(s)`);
+    step('and it is the preview, never the live code',
+      venue?.previewQr === 1 && venue?.liveQr === 0,
+      `${venue?.previewQr} preview, ${venue?.liveQr} live`);
+    step('sealed with the state, across the symbol where it cannot be missed',
+      /NON ANCORA ATTIVA/i.test(venue?.seal ?? ''), venue?.seal);
+    step('saying what it is and when it starts, without a technical word in it',
+      /codice della tua Privilege Card/i.test(venue?.slotText ?? '')
+        && /Diventa attiva/.test(venue?.slotText ?? '')
+        && !/token|rotante|crittograf/i.test(venue?.slotText ?? ''),
+      (venue?.slotText ?? '').slice(0, 110));
+    step('and the state is said once, not twice', venue?.pill === '', venue?.pill || 'no pill');
     step('and the real card underneath it: holder, dates and number',
       /Flow/.test(venue?.face ?? '') && /N\./.test(venue?.face ?? '') && /nov/.test(venue?.face ?? ''),
       venue?.face);
+
+    /* A preview costs nothing to leave open. The rotation exists to keep a live
+       code current, and there is no live code here to keep — so the screen asks
+       once, draws, and goes quiet. */
+    const asked = cardCalls.length;
+    await up.waitForTimeout(12_000);
+    step('and a card that cannot be used asks the server for nothing more',
+      cardCalls.length === asked, `${cardCalls.length - asked} further call(s) in 12s`);
     await up.screenshot({ path: 'tools/.qa-screens/pass-venue-card.png' });
     await upgradeCtx.close();
   }

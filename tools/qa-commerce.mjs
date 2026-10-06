@@ -238,6 +238,16 @@ note(/privilege/i.test(await page.textContent('.privilege-card__kind')), 'with t
 note(/Jacopo Lunardi/.test(cardText), 'it shows the holder');
 note(/2 (persone|guests)/i.test(cardText), 'it says it is valid for two');
 note(await page.isVisible('.card-qr__frame svg'), 'a QR is drawn');
+// The same slot a card that has not started yet fills with a preview — here it
+// holds the real thing, and wears no seal across it.
+const qrSlot = await page.evaluate(() => ({
+  state: document.querySelector('.sheet .card-qr')?.dataset.state ?? '',
+  live: document.querySelectorAll('.sheet [data-qr]').length,
+  preview: document.querySelectorAll('.sheet [data-qr-preview]').length,
+  seal: document.querySelectorAll('.sheet .card-qr__seal').length,
+}));
+note(qrSlot.state === 'active' && qrSlot.live === 1, 'and it is the live code, in the same slot');
+note(qrSlot.preview === 0 && qrSlot.seal === 0, 'with no preview and nothing sealed across it');
 note((await page.locator('.sheet .status-pill').allTextContents()).some((t) => /Attiva|Active/.test(t)),
   'it shows the status');
 note(await page.isVisible('.privileges'), 'privileges are listed');

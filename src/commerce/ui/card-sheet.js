@@ -17,6 +17,7 @@ import { icon } from '../../ui/icons.js';
 import { UI } from '../../i18n.js';
 import { openCustomSheet, replaceSheetBody } from '../../ui/sheet.js';
 import { longDate, shortDate } from './format.js';
+import { propertyTimeToInstant } from '../../../commerce/time.js';
 import { PASS_MARK, cardStateText } from './pass.js';
 import { qrSvg } from '../qr.js';
 import { fetchCard, stayBenefits, cardBenefits } from '../api.js';
@@ -129,38 +130,87 @@ function privileges(card, lang) {
   </details>`;
 }
 
+/**
+ * What a card that cannot be honoured draws in the place of its code.
+ *
+ * A real QR symbol, encoding something that is deliberately not a credential: the
+ * card's public reference — already printed under it, and not secret — behind a
+ * marker that says it is inactive. It is there so the guest recognises the thing
+ * they will be holding up in November, not so anybody can scan it.
+ *
+ * Three independent reasons it cannot authorise anything, which is the point of
+ * listing them rather than relying on one:
+ *
+ *   1. It carries no code. `validateCode` refuses an empty code as `malformed`
+ *      before it has looked anything up.
+ *   2. It is not a URL. The live QR is a validation link, so a phone camera opens
+ *      the venue page; this opens nothing, because `lunart:` is not a scheme any
+ *      browser will follow.
+ *   3. Even with the right reference and a correct code, the server refuses a card
+ *      whose state is not `active` — which is the rule that was already there and
+ *      has not been touched.
+ *
+ * It never becomes valid. On activation the screen fetches a freshly issued code
+ * and replaces this; the preview is not a code waiting for a date.
+ */
+export const previewPayload = (reference) =>
+  `lunart:privilege:inactive:${String(reference ?? '').trim().toUpperCase()}`;
+
+/**
+ * The code, or the space where it will be.
+ *
+ * Before this, a card that was not yet active showed a paragraph of text where the
+ * QR goes, and the product read as unfinished — a guest who had paid could not see
+ * what she had bought. Now the slot is always there and always the same size: the
+ * card, the frame, the symbol. What changes is whether the symbol is live, and that
+ * is said across it in words rather than left to be inferred.
+ */
+function qrArea(card, lang) {
+  if (card.state === 'active' && card.qr) {
+    return `<div class="card-qr" data-state="active">
+      <div class="card-qr__frame" data-qr>${qrSvg(card.qr, { label: UI[lang].qrLabel })}</div>
+      <p class="card-qr__hint">${esc(UI[lang].showAtVenue)}</p>
+    </div>`;
+  }
+
+  const starting = card.state === 'not-started';
+
+  return `<div class="card-qr card-qr--preview" data-state="${esc(card.state)}">
+    ${/**
+      * The symbol itself is `aria-hidden`: announcing "the QR of your Privilege
+      * Card" would be announcing something that does not work. The seal and the
+      * lines under it are the text, and they say what is true.
+      */''}
+    <div class="card-qr__frame" data-qr-preview>
+      ${qrSvg(previewPayload(card.reference))}
+      <span class="card-qr__seal">${esc(cardStateText(card.state, lang) || card.state)}</span>
+    </div>
+    ${starting
+      ? `<p class="card-qr__hint">${esc(UI[lang].cardQrPreviewHint)}</p>
+         <p class="card-qr__when">${esc(UI[lang].cardStartsOn)} ${esc(longDate(card.start_date, lang))}.</p>`
+      : `<p class="card-qr__hint">${esc(UI[lang].cardNotUsable)}</p>`}
+  </div>`;
+}
+
 function body(card, lang) {
-  const usable = card.state === 'active' && card.qr;
+  /**
+   * The state is said once, where it belongs.
+   *
+   * A live card wears it as a pill under the card, because its code carries no
+   * mark. A card that is not live wears it as a seal across the code, which is
+   * both the stronger signal and the one in the right place — and printing
+   * "Non ancora attiva" twice inside two hundred pixels said it no better.
+   */
+  const live = card.state === 'active' && card.qr;
 
   return `
     ${cardFace(card, lang)}
 
-    <p class="status-pill" data-tone="${card.state === 'active' ? 'good' : 'muted'}">
-      ${esc(cardStateText(card.state, lang) || card.state)}
-    </p>
+    ${live
+      ? `<p class="status-pill" data-tone="good">${esc(cardStateText(card.state, lang) || card.state)}</p>`
+      : ''}
 
-    ${usable
-      ? `<div class="card-qr">
-           <div class="card-qr__frame" data-qr>${qrSvg(card.qr, { label: UI[lang].qrLabel })}</div>
-           <p class="card-qr__hint">${esc(UI[lang].showAtVenue)}</p>
-         </div>`
-      : `<div class="notice">
-           ${/**
-             * A card that cannot be honoured yet, explained rather than left blank.
-             *
-             * The guest owns this card; what they do not have is a code, because a
-             * code that works before the card does would be a code that works. So
-             * the screen says the date it starts and that the QR arrives with it —
-             * an information state, not an authorisation one. Nothing here asks the
-             * server for a code, and the server would refuse if it did.
-             */''}
-           ${card.state === 'not-started'
-             ? `<span class="notice__lines">
-                  <span>${esc(UI[lang].cardStartsOn)} ${esc(longDate(card.start_date, lang))}.</span>
-                  <span>${esc(UI[lang].cardQrFromActivation)}</span>
-                </span>`
-             : `<span>${esc(UI[lang].cardNotUsable)}</span>`}
-         </div>`}
+    ${qrArea(card, lang)}
 
     ${privileges(card, lang)}
 
@@ -175,12 +225,20 @@ export function stopRefreshing() {
   refreshTimer = null;
 }
 
+/** Half a day. Beyond that it is not a sheet somebody is holding open. */
+const ACTIVATION_WATCH_MS = 12 * 60 * 60 * 1000;
+
 /**
  * Keep the code current, invisibly.
  *
  * Only the QR image is replaced, and only when the one on screen is about to stop
  * working. Nothing else re-renders, nothing moves, and nothing counts down — a
  * guest holding the card up at a bar sees the same screen throughout.
+ *
+ * It attaches to `[data-qr]`, which only a live code has. The preview drawn for a
+ * card that is not active carries `[data-qr-preview]` instead, so this loop cannot
+ * find it and a card that cannot be used costs no requests at all — the thing it
+ * would be asking for does not exist yet.
  */
 function keepCurrent(accessToken, lang, container) {
   stopRefreshing();
@@ -196,7 +254,7 @@ function keepCurrent(accessToken, lang, container) {
         if (card.state !== 'active' || !card.qr) {
           // It lapsed or was withdrawn while open: redraw properly rather than
           // leaving a QR on screen that would be turned away at the door.
-          replaceSheetBody({ body: body(card, lang), onMount: (next) => keepCurrent(accessToken, lang, next) });
+          replaceSheetBody({ body: body(card, lang), onMount: (next) => mount(card, accessToken, lang, next) });
           return;
         }
         frame.innerHTML = qrSvg(card.qr, { label: UI[lang].qrLabel });
@@ -208,6 +266,73 @@ function keepCurrent(accessToken, lang, container) {
   };
 
   schedule(container.dataset.nextRefresh ? Number(container.dataset.nextRefresh) : 30);
+}
+
+/**
+ * How long to wait before asking again, or null for "do not wait at all".
+ *
+ * Separated out because it is the whole rule, and a rule that depends on the clock
+ * is worth being able to test without one.
+ *
+ *   not a waiting card    nothing to wait for.
+ *   already past          by this browser's clock. The server says otherwise and
+ *                         the server decides; reopening the sheet will ask again.
+ *   further than half     not a sheet somebody is holding open, and a timer that
+ *   a day off             long is not reliable anyway.
+ *
+ * The moment comes from `propertyTimeToInstant`, the same function the server uses
+ * to decide what day it is in Florence, so the browser is not guessing at a
+ * boundary the server will disagree with. Two seconds are added so the request
+ * lands after it, never on it.
+ */
+export function activationWaitMs(card, now = Date.now()) {
+  if (card?.state !== 'not-started' || !card.start_date) return null;
+  const starts = propertyTimeToInstant(card.start_date, '00:00');
+  if (!starts) return null;
+
+  const wait = starts.getTime() - now;
+  if (wait <= 0 || wait > ACTIVATION_WATCH_MS) return null;
+  return wait + 2000;
+}
+
+/**
+ * Wait for the card to start, once, and then ask for a real code.
+ *
+ * A guest who opens the card the evening before her stay should not have to close
+ * and reopen it at midnight. This is one `setTimeout` for the moment the card
+ * begins — not a poll: nothing is sent until that moment arrives, and if the sheet
+ * has been closed by then nothing is sent at all.
+ */
+function awaitActivation(card, accessToken, lang, container) {
+  const frame = container.querySelector('[data-qr-preview]');
+  if (!frame) return;
+
+  const wait = activationWaitMs(card);
+  if (wait === null) return;
+
+  refreshTimer = setTimeout(async () => {
+    if (!document.body.contains(frame)) { stopRefreshing(); return; }
+    try {
+      const fresh = await fetchCard(accessToken);
+      if (!document.body.contains(frame)) { stopRefreshing(); return; }
+      replaceSheetBody({ body: body(fresh, lang), onMount: (next) => mount(fresh, accessToken, lang, next) });
+    } catch {
+      // Offline at midnight. The preview is still correct; reopening will fetch.
+    }
+  }, wait);
+}
+
+/**
+ * Start whichever clock this card needs, and only that one.
+ *
+ * An active card rotates its code; a card waiting to start waits once; a card that
+ * is over or withdrawn does neither. One timer slot between them, so `stopRefreshing`
+ * closes whatever was running.
+ */
+function mount(card, accessToken, lang, container) {
+  container.dataset.nextRefresh = String(card.refreshIn ?? 30);
+  keepCurrent(accessToken, lang, container);
+  awaitActivation(card, accessToken, lang, container);
 }
 
 export function openCardSheet(accessToken, { lang }) {
@@ -226,10 +351,7 @@ export function openCardSheet(accessToken, { lang }) {
     .then((card) => replaceSheetBody({
       title: UI[lang].myCard,
       body: body(card, lang),
-      onMount: (container) => {
-        container.dataset.nextRefresh = String(card.refreshIn ?? 30);
-        keepCurrent(accessToken, lang, container);
-      },
+      onMount: (container) => mount(card, accessToken, lang, container),
     }))
     .catch(() => replaceSheetBody({
       title: UI[lang].myCard,

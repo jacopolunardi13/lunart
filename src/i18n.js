@@ -183,7 +183,7 @@ export const UI = {
     // ── La Privilege Card ─────────────────────────────────────────────────
     privilegeCard: 'La tua Privilege Card',
     openPrivilegeCard: 'Apri la card',
-    cardQrFromActivation: 'Il QR sarà disponibile dal giorno di attivazione della tua Privilege Card.',
+    cardQrPreviewHint: 'Questo è il codice della tua Privilege Card. Sarà utilizzabile dal giorno di attivazione.',
     cardStateActive: 'Attiva',
     cardStateNotStarted: 'Non ancora attiva',
     cardStateExpired: 'Scaduta',
@@ -376,7 +376,7 @@ export const UI = {
     // ── The Privilege Card ────────────────────────────────────────────────
     privilegeCard: 'Your Privilege Card',
     openPrivilegeCard: 'Open card',
-    cardQrFromActivation: 'The QR will be available from the day your Privilege Card becomes active.',
+    cardQrPreviewHint: 'This is your Privilege Card code. It becomes usable on the day it activates.',
     cardStateActive: 'Active',
     cardStateNotStarted: 'Not yet active',
     cardStateExpired: 'Expired',
