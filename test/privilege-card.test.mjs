@@ -32,7 +32,7 @@ import {
 } from '../server/pass.js';
 import { buildCard, cardState, revoke } from '../server/card.js';
 import { ENTITLEMENTS, cardBenefits, stayBenefits } from '../commerce/partners.js';
-import { privilegeSection } from '../src/commerce/ui/partners.js';
+import { privilegeSection, stayBenefitsSection } from '../src/commerce/ui/partners.js';
 import { UI } from '../src/i18n.js';
 
 const KEY = 'k'.repeat(32);
@@ -68,6 +68,12 @@ const DURING = new Date('2026-11-07T20:00:00Z');
 const AFTER = new Date('2026-11-20T10:00:00Z');
 
 const section = (pass, lang = 'it') => privilegeSection(cardBenefits(), pass, lang);
+/** A Pass-shaped context built by hand, stating ownership and liveness explicitly. */
+const held = (state, { live = true } = {}) => ({
+  state,
+  entitlements: [ENTITLEMENTS.privilege],
+  live_entitlements: live ? [ENTITLEMENTS.privilege] : [],
+});
 const count = (html, needle) => html.split(needle).length - 1;
 /** Venues in that state, not benefits: `data-access` is on both. */
 const venues = (html, access) => count(html, `class="partner" data-access="${access}"`);
@@ -128,7 +134,7 @@ test('B · the Pass carries the card, with the date it starts and no code', () =
 
 test('B · a guest who already paid is never asked to buy it again', () => {
   for (const lang of ['it', 'en']) {
-    const html = section({ state: 'not-started', entitlements: [ENTITLEMENTS.privilege] }, lang);
+    const html = section(held('not-started', { live: false }), lang);
 
     assert.equal(count(html, 'data-product='), 0, 'no second purchase');
     assert.equal(count(html, 'partner__lock'), 0, 'and nothing reads as not theirs');
@@ -149,7 +155,7 @@ test('C · during the stay the same card is active and everything is unlocked', 
   assert.equal(pass.card.state, 'active');
   assert.equal(pass.live, true);
 
-  const html = section({ state: pass.state, entitlements: pass.entitlements });
+  const html = section(pass);
   assert.equal(venues(html, 'available'), 2);
   assert.equal(count(html, 'partner__lock'), 0);
   assert.equal(count(html, 'data-product='), 0);
@@ -166,7 +172,7 @@ test('D · once the stay is over the Pass expires and the card goes with it', ()
   assert.equal(pass.card.state, 'expired');
   assert.equal(pass.live, false);
 
-  const html = section({ state: pass.state, entitlements: pass.entitlements });
+  const html = section(pass);
   assert.equal(venues(html, 'available'), 0, 'nothing is claimable');
   assert.equal(count(html, 'data-product='), 0,
     'and a stay that is over is not a reason to sell an upgrade for it');
@@ -202,6 +208,144 @@ test('E · and a revoked card is not even collected for the stay', async () => {
   assert.deepEqual(await cardsForReservation({ store, reservation }), []);
   const pass = await passForReservation({ store, reservation, now: DURING });
   assert.equal(pass.tier, PASS_TIER.pass);
+});
+
+/* ── A stay longer than the Privilege bought for it ──────────────────────── */
+
+/**
+ * The case that is easy to get wrong, and was.
+ *
+ * Privilege is sold by the day — two, five or eight — and a stay can be longer than
+ * the card bought for it. Book 1–6 November, buy two days starting on the 3rd, and
+ * one booking contains three different answers:
+ *
+ *   1–2 Nov   stay under way, Privilege owned, card not started. Not usable.
+ *   3–4 Nov   card running. Usable.
+ *   5–6 Nov   stay still under way, card over. Not usable again.
+ *
+ * Before this, eligibility asked only whether the Pass was live and whether the
+ * entitlement was owned, so all six days read as usable. The guest would have been
+ * sent to Le Firme on the 1st and turned away — and the venue would have been right
+ * to turn them away, because `validateCode` has always checked the card's own state
+ * at the door. The screen was the thing that was lying.
+ */
+const LONG_STAY = () => stay({ check_in: '2026-11-01', check_out: '2026-11-06' });
+const TWO_DAYS = () => card({ ...buildCard({
+  orderId: 'order_short', reservationId: 'res_pc', holderName: 'Irene Rossi',
+  startDate: '2026-11-03', days: 2, variantId: '2d', signingKey: KEY,
+}) });
+
+const at = (iso) => new Date(`${iso}T20:00:00Z`);
+
+test('A · a live stay whose Privilege has not started yet owns it and cannot use it', () => {
+  const pass = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at('2026-11-01') });
+
+  // Ownership, untouched: the gold card, the card screen, no second sale.
+  assert.equal(pass.tier, PASS_TIER.privilege);
+  assert.equal(pass.state, PASS_STATE.active, 'the stay itself is under way');
+  assert.deepEqual(pass.entitlements, [ENTITLEMENTS.privilege]);
+  assert.ok(pass.card, 'and the card she paid for is still reachable');
+  assert.equal(pass.card.state, 'not-started');
+
+  // Usability, correctly withheld.
+  assert.deepEqual(pass.live_entitlements, [], 'nothing is in force today');
+  const html = section(pass);
+  assert.equal(venues(html, 'available'), 0, 'no partner benefit may read as usable');
+  assert.equal(venues(html, 'unavailable'), 2);
+  assert.equal(count(html, 'partner__lock'), 0, 'owned, so never marked as an upgrade');
+  assert.equal(count(html, 'data-product='), 0, 'and never offered again');
+});
+
+test('A · and is told about the card, not about the stay it is already inside', () => {
+  const pass = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at('2026-11-01') });
+  const html = section(pass);
+
+  assert.ok(html.includes(UI.it.privilegeWhenCardActive), html.slice(0, 0));
+  assert.equal(html.includes(UI.it.privilegeWhenActive), false,
+    'she is in Florence with a live Pass: that condition is already met');
+  assert.equal(html.includes(UI.it.privilegeBenefitsNote), false);
+});
+
+test('B · on the days the card runs, everything is usable', () => {
+  for (const day of ['2026-11-03', '2026-11-04']) {
+    const pass = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at(day) });
+    assert.equal(pass.card.state, 'active', day);
+    assert.deepEqual(pass.live_entitlements, [ENTITLEMENTS.privilege], day);
+
+    const html = section(pass);
+    assert.equal(venues(html, 'available'), 2, day);
+    assert.ok(html.includes(UI.it.privilegeBenefitsNote), day);
+    assert.equal(count(html, 'data-product='), 0, day);
+  }
+});
+
+test('C · once the card is over the stay goes on and the benefits do not', () => {
+  for (const day of ['2026-11-05', '2026-11-06']) {
+    const pass = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at(day) });
+
+    assert.equal(pass.state, PASS_STATE.active, `${day}: the stay is still running`);
+    assert.equal(pass.card.state, 'expired');
+    assert.equal(pass.tier, PASS_TIER.privilege, 'it was still bought');
+    assert.deepEqual(pass.entitlements, [ENTITLEMENTS.privilege], 'and is still owned');
+    assert.deepEqual(pass.live_entitlements, [], 'and is over');
+
+    const html = section(pass);
+    assert.equal(venues(html, 'available'), 0, `${day}: nothing may read as usable`);
+    assert.equal(count(html, 'data-product='), 0,
+      'a card that has run its course is not a reason to sell another');
+    assert.ok(html.includes(UI.it.privilegeWhenCardActive), day);
+  }
+});
+
+test('D · a standard guest on the same stay is unaffected: locked, and buyable', () => {
+  const pass = passFor(LONG_STAY(), { now: at('2026-11-01') });
+
+  assert.equal(pass.tier, PASS_TIER.pass);
+  assert.deepEqual(pass.entitlements, []);
+  assert.deepEqual(pass.live_entitlements, []);
+
+  const html = section(pass);
+  assert.equal(count(html, 'partner__lock'), 2, 'marked as an upgrade');
+  assert.equal(count(html, 'data-product="privilege-card"'), 1, 'and still buyable');
+  assert.ok(html.includes(UI.it.privilegeBenefitsDiscover));
+});
+
+test('E · before the stay begins an owned card is owned and dormant', () => {
+  const pass = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at('2026-10-20') });
+
+  assert.equal(pass.state, PASS_STATE.notStarted);
+  assert.equal(pass.tier, PASS_TIER.privilege);
+  assert.deepEqual(pass.entitlements, [ENTITLEMENTS.privilege]);
+  assert.deepEqual(pass.live_entitlements, []);
+  assert.ok(pass.card, 'and still openable');
+
+  const html = section(pass);
+  assert.equal(venues(html, 'unavailable'), 2);
+  assert.equal(count(html, 'data-product='), 0);
+  assert.ok(html.includes(UI.it.privilegeWhenActive),
+    'here the stay is what has not started, and that is what it says');
+});
+
+test('what the stay includes is never gated on the card running', () => {
+  // Opera Caffè asks for no entitlement, so it cannot be dormant. A guest whose
+  // Privilege ran out on the 4th still gets their breakfast on the 6th.
+  for (const day of ['2026-11-01', '2026-11-03', '2026-11-06']) {
+    const pass = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at(day) });
+    const html = stayBenefitsSection(stayBenefits(), pass, 'it');
+    assert.ok(html.includes('class="partner" data-access="available"'), day);
+  }
+});
+
+test('the three states are ownership, the stay, and the card — and all three are published', () => {
+  const pass = passFor(LONG_STAY(), { card: TWO_DAYS(), now: at('2026-11-01') });
+
+  assert.equal(pass.tier, PASS_TIER.privilege, 'ownership');
+  assert.equal(pass.state, PASS_STATE.active, 'the stay');
+  assert.equal(pass.card.state, 'not-started', 'the card');
+
+  // The pair a screen needs, always both present on a Pass the server built.
+  assert.ok(Array.isArray(pass.entitlements) && Array.isArray(pass.live_entitlements),
+    'a Pass states ownership and liveness, so no screen has to infer one from the other');
 });
 
 /* ── The binding, and the hole it used to leave ──────────────────────────── */

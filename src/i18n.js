@@ -178,6 +178,7 @@ export const UI = {
     privilegeLocked: 'Disponibile con LunArt Privilege',
     privilegeGet: 'Attiva LunArt Privilege',
     privilegeWhenActive: 'I vantaggi valgono mentre la tua Pass è attiva.',
+    privilegeWhenCardActive: 'I vantaggi valgono mentre la tua Privilege Card è attiva.',
     directions: 'Indicazioni',
     // ── La Privilege Card ─────────────────────────────────────────────────
     privilegeCard: 'La tua Privilege Card',
@@ -370,6 +371,7 @@ export const UI = {
     privilegeLocked: 'Available with LunArt Privilege',
     privilegeGet: 'Get LunArt Privilege',
     privilegeWhenActive: 'The benefits apply while your Pass is active.',
+    privilegeWhenCardActive: 'The benefits apply while your Privilege Card is active.',
     directions: 'Directions',
     // ── The Privilege Card ────────────────────────────────────────────────
     privilegeCard: 'Your Privilege Card',

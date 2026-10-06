@@ -196,10 +196,26 @@ export function privilegeSection(views, pass, lang) {
    */
   const owns = rows.length > 0 && rows.every((row) => row.access.missing.length === 0);
   const live = context.passState === 'active';
+  /** Owned, and not in force today: the card's own dates have not arrived, or passed. */
+  const dormant = rows.some((row) => row.access.dormant.length > 0);
 
-  const lead = owns
-    ? (live ? UI[lang].privilegeBenefitsNote : UI[lang].privilegeWhenActive)
-    : UI[lang].privilegeBenefitsDiscover;
+  /**
+   * Four sentences, because there are four reasons a guest is looking at this.
+   *
+   * The two "not yet" cases are different and must not be run together. A Pass that
+   * has not started is about the stay; a card that has not started inside a stay
+   * already under way is about the card — a guest on a 1–6 November booking holding
+   * two Privilege days for the 3rd is in Florence, with a live Pass, and being told
+   * "while your Pass is active" would be telling them about a condition they have
+   * already met.
+   */
+  const lead = !owns
+    ? UI[lang].privilegeBenefitsDiscover
+    : !live
+      ? UI[lang].privilegeWhenActive
+      : dormant
+        ? UI[lang].privilegeWhenCardActive
+        : UI[lang].privilegeBenefitsNote;
 
   /**
    * Offered to a guest who does not own it and whose stay still has a future.

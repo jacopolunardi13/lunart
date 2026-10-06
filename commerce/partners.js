@@ -381,6 +381,15 @@ export const inclusionOf = (partner) => (entitlementsRequiredBy(partner).length 
 export const passContextOf = (pass) => ({
   passState: pass?.state ?? 'unknown',
   entitlements: pass?.entitlements ?? [],
+  /**
+   * Which of them are running today.
+   *
+   * A context that states only ownership is read as stating both, because the one
+   * screen that builds such a context — the card's own, where `passState` *is* the
+   * card's state — has already answered the question by the time it gets here. A
+   * Pass from the server always carries the pair, and a test insists on it.
+   */
+  liveEntitlements: pass?.live_entitlements ?? pass?.entitlements ?? [],
 });
 
 /**
@@ -392,24 +401,41 @@ export const passContextOf = (pass) => ({
  * is the narrow one — does the state it was handed match the state the rule wants,
  * and are the entitlements present.
  *
- * `missing` comes back even when the Pass state already fails, so a screen can say
- * both true things at once: this is a Privilege benefit, and your Pass is not active
- * today.
+ * Three things can be wrong, and they are reported separately because they lead to
+ * different sentences on a screen:
+ *
+ *   passState   the stay is not under way — not started, over, or called off.
+ *   missing     the entitlement was never bought. This is the one that locks a
+ *               benefit and offers the upgrade.
+ *   dormant     it was bought and is not in force today. The Privilege Card is sold
+ *               by the day and a stay can be longer than the card: a guest on a
+ *               1–6 November booking holding two days for the 3rd owns Privilege on
+ *               the 1st and cannot use it until the 3rd, and cannot use it again
+ *               after the 4th.
+ *
+ * `missing` and `dormant` both come back even when the Pass state already fails, so
+ * a screen can say two true things at once instead of picking one.
+ *
+ * Dormant is not missing. Collapsing them would take the upgrade away from a guest
+ * who paid for it — no gold card, no card screen, and the shop offering them a
+ * second one — which is the expensive half of this distinction.
  */
-export function benefitAccess(eligibility, { passState = 'unknown', entitlements = [] } = {}) {
+export function benefitAccess(eligibility, {
+  passState = 'unknown', entitlements = [], liveEntitlements,
+} = {}) {
   const needs = normaliseEligibility(eligibility);
   const held = Array.isArray(entitlements) ? entitlements : [];
-  const missing = needs.entitlementsAll.filter((name) => !held.includes(name));
+  const live = Array.isArray(liveEntitlements) ? liveEntitlements : held;
 
-  if (passState !== needs.passState) {
-    return { state: ACCESS.unavailable, missing, passState, requires: needs };
-  }
-  return {
-    state: missing.length ? ACCESS.locked : ACCESS.available,
-    missing,
-    passState,
-    requires: needs,
-  };
+  const missing = needs.entitlementsAll.filter((name) => !held.includes(name));
+  const dormant = needs.entitlementsAll.filter((name) => held.includes(name) && !live.includes(name));
+  const verdict = { missing, dormant, passState, requires: needs };
+
+  if (passState !== needs.passState) return { ...verdict, state: ACCESS.unavailable };
+  if (missing.length) return { ...verdict, state: ACCESS.locked };
+  // Owned, and not in force today. Not usable, and not a reason to sell it again.
+  if (dormant.length) return { ...verdict, state: ACCESS.unavailable };
+  return { ...verdict, state: ACCESS.available };
 }
 
 /** The same question asked about a whole partner, from a Pass rather than a context. */

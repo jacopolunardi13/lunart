@@ -111,7 +111,14 @@ function privileges(card, lang) {
   const views = card.benefits ?? [];
   if (views.length === 0) return '';
 
-  const pass = { state: CARD_AS_PASS[card.state] ?? 'unknown', entitlements: ['privilege'] };
+  const live = card.state === 'active';
+  const pass = {
+    state: CARD_AS_PASS[card.state] ?? 'unknown',
+    entitlements: ['privilege'],
+    // On this screen the card's state is the entitlement's state: there is nothing
+    // else it could be. Said rather than left to a default.
+    live_entitlements: live ? ['privilege'] : [],
+  };
 
   return `<details class="privileges" open>
     <summary class="privileges__summary">

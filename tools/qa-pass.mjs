@@ -287,7 +287,7 @@ for (const width of [360, 390, 430, 820]) {
    One reservation walked through all three states, because the states are about
    the stay and not about three different guests: in-house without the upgrade,
    in-house with it, then called off. */
-async function buyPrivilege(guideLink) {
+async function buyPrivilege(guideLink, { startIndex = 0 } = {}) {
   const token = guideLink.split('/g/')[1];
   const ctxJson = await (await fetch(`${B}/api/guide/${token}`)).json();
   const option = ctxJson.cardOptions?.[0];
@@ -299,7 +299,7 @@ async function buyPrivilege(guideLink) {
       productId: 'privilege-card',
       variantId: option?.variantId,
       quantity: 1,
-      date: option?.startDates?.[0],
+      date: option?.startDates?.[startIndex] ?? option?.startDates?.[0],
       fields: { holderName: 'QA Ospite' },
     }],
   });
@@ -336,6 +336,54 @@ async function buyPrivilege(guideLink) {
     `in the sheet: ${/opera caff/i.test(read.text)}, inside Privilege: ${/opera/i.test(read.privilegeText)}`);
   await probe.screenshot({path:'tools/.qa-screens/pass-privilege-unlocked.png', fullPage:true});
   await probe.close();
+}
+
+/* ── A stay longer than the Privilege bought for it ────────────────────────
+   The hole this was written for. Privilege is sold by the day and a stay can be
+   longer than the card: six nights, two Privilege days starting the day after
+   tomorrow, and today the Pass is live while the card is not. Before the fix, all
+   six days read as usable, so the guide would have sent a guest to Le Firme on a
+   day the door would have turned them away — and the door would have been right,
+   because `validateCode` has always checked the card's own state. */
+{
+  const longStay = await post('/api/staff/reservations', {
+    first_name: 'Long', last_name: `L${Date.now().toString(36).slice(-4)}`,
+    guest_email: 'l@example.invalid', check_in: inDays(0), check_out: inDays(6),
+    room: '305', adults: 2, booking_reference: `LONG-${Date.now()}`,
+  });
+  const longLink = (await post(`/api/staff/reservations/${longStay.reservation.id}/link`)).link;
+  // Two days, starting two days from now: inside the stay, and not today.
+  const order = await buyPrivilege(longLink, { startIndex: 2 });
+  step('a two-day Privilege can be bought to start later in a longer stay',
+    Boolean(order.accessToken), order.error ?? '');
+
+  const { probe, read } = await passSheetAt(390, longLink);
+  step('the stay is live and the card she bought has not started yet',
+    read.state==='active' && read.cardState==='not-started',
+    `pass ${read.state}, card ${read.cardState}`);
+  step('she still owns Privilege: the card is hers to open, and not sold to her again',
+    read.cardActions===1 && read.buy===0 && read.lockWords.length===0,
+    `${read.cardActions} card action(s), ${read.buy} buy button(s), ${read.lockWords.length} lock(s)`);
+  // One available across the whole sheet: Opera Caffè, which comes with the stay and
+  // asks for no entitlement. Both Privilege venues are not usable today.
+  step('but neither Privilege venue reads as usable today',
+    read.available===1 && read.unavailable===2,
+    `${read.available} available (the stay's own), ${read.unavailable} not usable`);
+  step('and it says the card is what has not started, not the stay she is standing in',
+    /Privilege Card è attiva/.test(read.lead) && !/tua Pass è attiva/.test(read.lead),
+    read.lead);
+  step('while what the stay includes is untouched by any of it',
+    read.text.includes('OPERA CAFFÈ'));
+
+  const card = await (await fetch(`${B}/api/card/${
+    (await (await fetch(`${B}/api/guide/${longLink.split('/g/')[1]}`)).json()).pass.card.access_token
+  }`)).json();
+  step('and the server issues no code for a card that has not started',
+    card.qr === null && card.state === 'not-started', `${card.state}, qr ${card.qr}`);
+
+  await probe.screenshot({ path: 'tools/.qa-screens/pass-privilege-dormant.png', fullPage: true });
+  await probe.close();
+  await post(`/api/staff/reservations/${longStay.reservation.id}/cancel`, { reason: 'QA' });
 }
 
 /* ── A Pass that is over, or was called off ────────────────────────────────

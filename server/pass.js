@@ -96,6 +96,29 @@ export function entitlementsOf(card) {
 }
 
 /**
+ * The same entitlements, narrowed to the ones that are actually running today.
+ *
+ * Owning Privilege and Privilege being in force are not the same day. The upgrade is
+ * sold by the day — two, five or eight — and a stay can be longer than the card
+ * bought for it: book 1–6 November, buy two days for the 3rd, and there are three
+ * states inside one stay. On the 1st the card has not started; on the 3rd it is
+ * running; on the 5th it is over, and the stay is still going.
+ *
+ * Which is why this is a second list rather than a narrower definition of the first.
+ * Taking `privilege` out of `entitlements` on the 1st would be the easy fix and the
+ * wrong one: the Pass would stop rendering as Privilege, the card the guest paid for
+ * would disappear from their screen, and they would be offered the upgrade they
+ * already own. Ownership is the first list and never moves; this one is what a door
+ * would honour tonight.
+ *
+ * The date comes from `cardState`, the card's own clock, which is Florence's. There
+ * is no second calendar here.
+ */
+export function liveEntitlementsOf(card, now = new Date()) {
+  return cardState(card, now) === 'active' ? entitlementsOf(card) : [];
+}
+
+/**
  * A short reference a guest can read down the phone.
  *
  * The staff reference the reservation already carries, not a new identifier: one
@@ -131,12 +154,19 @@ export function passFor(reservation, { card = null, now = new Date() } = {}) {
     live: state === PASS_STATE.active,
 
     /**
-     * What this reservation has bought, by name, for the screens that decide what
-     * a guest may use. Empty on a Pass that was never upgraded — which is not the
-     * same as hiding what the upgrade would unlock: see the Privilege section in
+     * What this reservation has bought, by name. Ownership, and nothing else: it
+     * does not narrow when the card's own dates have not started or have passed.
+     * Empty on a Pass that was never upgraded — which is not the same as hiding
+     * what the upgrade would unlock: see the Privilege section in
      * `src/commerce/ui/pass.js`, where the locked benefits are still shown.
      */
     entitlements,
+    /**
+     * And which of them a venue would honour tonight. The pair is what lets a
+     * screen say "this is yours, and it starts on Tuesday" instead of having to
+     * choose between the two halves of that sentence.
+     */
+    live_entitlements: liveEntitlementsOf(card, now),
 
     holder: upgraded && card.holder_name ? card.holder_name : (reservation.first_name ?? ''),
     room: reservation.room || null,
