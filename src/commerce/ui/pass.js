@@ -20,6 +20,7 @@
 import { esc } from '../../ui/dom.js';
 import { icon } from '../../ui/icons.js';
 import { UI, fill } from '../../i18n.js';
+import { roomsIn, roomList } from '../../../commerce/rooms.js';
 import { guestPass } from '../../guest.js';
 import { openCustomSheet } from '../../ui/sheet.js';
 import { stayBenefits, cardBenefits, partnerNetwork } from '../api.js';
@@ -429,9 +430,21 @@ export function openPassSheet({ lang }) {
     pass.check_out ? longDate(pass.check_out, lang) : '',
   ].filter(Boolean).join(' — ');
 
+  /**
+   * Which room, or which rooms.
+   *
+   * The card face above shows at most one room and so shows none for a booking
+   * across four — there is no honest way to pick one, and the artwork has a line
+   * for a number rather than a list. Here, where there is a line of text per fact,
+   * the whole set is named.
+   */
+  const passRooms = roomsIn(pass);
+
   const facts = [
     [UI[lang].passHolder, pass.holder || '—'],
-    pass.room ? [UI[lang].roomLabel, pass.room] : null,
+    passRooms.length
+      ? [passRooms.length === 1 ? UI[lang].roomLabel : UI[lang].roomsLabel, roomList(passRooms, lang)]
+      : null,
     validity ? [UI[lang].passValidity, validity] : null,
     [UI[lang].passState, STATE_TEXT[lang]?.[pass.state] ?? STATE_TEXT.it[pass.state] ?? ''],
   ].filter(Boolean);

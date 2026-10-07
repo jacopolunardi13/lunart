@@ -12,6 +12,7 @@
 
 import { ingestMessages } from './ingest/index.js';
 import { guideUrl } from './delivery.js';
+import { roomsIn, roomList } from '../commerce/rooms.js';
 import { propertyDate, addDays } from '../commerce/time.js';
 
 const notification = ({ kind, reference, first, last, email, room, from, to, adults, channel }) => ({
@@ -67,7 +68,8 @@ export async function seedPreview({ store, publicUrl }) {
     ...outcome,
     links: reservations.map((reservation) => ({
       guest: `${reservation.first_name} ${reservation.last_name}`,
-      room: reservation.room,
+      room: roomList(roomsIn(reservation)),
+      rooms: roomsIn(reservation).length,
       link: guideUrl(publicUrl, reservation),
     })),
   };

@@ -31,6 +31,7 @@
  */
 
 import { classifyQuovaiMessage } from './quovai-email.js';
+import { roomsIn, roomList } from '../../commerce/rooms.js';
 
 /** How far back to look, when nobody says. Long enough to cover a season. */
 export const DEFAULT_BACKFILL_DAYS = 365;
@@ -141,7 +142,7 @@ export async function backfillFromMailbox({
           summary.recovered.push({
             guest: [result.reservation.first_name, result.reservation.last_name].filter(Boolean).join(' '),
             booking_reference: result.reservation.booking_reference,
-            room: result.reservation.room || null,
+            room: roomList(roomsIn(result.reservation)) || null,
             check_in: result.reservation.check_in,
             check_out: result.reservation.check_out,
           });

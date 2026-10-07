@@ -20,6 +20,7 @@ import {
 import {
   priceAndBuild, stripeLineItems, fulfilOrder, orderView, orderReference, canTransition, appendEvent,
 } from './orders.js';
+import { roomsIn, roomList } from '../commerce/rooms.js';
 import { holderView, currentCode, validateCode, qrPayload, cardState, revoke } from './card.js';
 import {
   PRODUCTS, PLANNED_PRODUCTS, COMMERCE_CATEGORIES, WINES, WINE_KINDS, DELIVERY_SLOTS,
@@ -340,13 +341,32 @@ export async function createApp(overrides = {}) {
       ? `${settings.publicUrl}/g/${reservation.guide_token}`
       : `${settings.publicUrl}/`;
 
+    /**
+     * Which room, decided here rather than guessed at. See `roomForOrder`.
+     *
+     * Refused before the order exists and before Stripe is asked for anything: a
+     * room that is not on this booking is the browser telling us something we can
+     * check, and a session created against it would have to be cancelled.
+     */
+    const forRoom = roomForOrder({
+      claimed: built.order.customer.room,
+      lines: built.order.lines,
+      reservation,
+    });
+    if (!forRoom.ok) {
+      sendJson(res, 422, {
+        error: forRoom.reason, field: 'room', room: forRoom.room, rooms: forRoom.rooms,
+      });
+      return;
+    }
+
     const order = await store.orders.create({
       ...built.order,
       /** Which stay this belongs to, when the guest came in by their own link. */
       reservation_id: reservation?.id ?? null,
       customer: {
         ...built.order.customer,
-        room: built.order.customer.room || reservation?.room || '',
+        room: forRoom.room,
         booking_reference: built.order.customer.booking_reference || reservation?.booking_reference || '',
       },
     });
@@ -862,7 +882,8 @@ export async function createApp(overrides = {}) {
 
     const links = reservations.map((reservation) => ({
       guest: [reservation.first_name, reservation.last_name].filter(Boolean).join(' '),
-      room: reservation.room,
+      room: roomList(roomsIn(reservation)),
+      rooms: roomsIn(reservation).length,
       dates: `${reservation.check_in} → ${reservation.check_out}`,
       url: `${origin}/g/${reservation.guide_token}`,
     }));
@@ -1857,6 +1878,45 @@ export async function handleStripeEvent(event, { store, stripe, settings, push =
 
   await store.events.remember(event.id, { type: event.type, order_id: order.id });
   return outcome;
+}
+
+/**
+ * Which room an order belongs to, when the guest came in by their own link.
+ *
+ * The fallback used to be `customer.room || reservation.room || ''`, which was
+ * right while every reservation had exactly one room. For a booking across 302 to
+ * 305 it would have silently filed a breakfast against whichever room the parser
+ * happened to keep — so a tray would go to 305 for a guest sleeping in 303, and
+ * the order's record would say they asked for it.
+ *
+ * So for a multi-room stay nothing is guessed, and nothing the browser says is
+ * taken on trust:
+ *
+ *   - a room the guest named, in the customer details or on a line, has to be one
+ *     of the booking's own rooms, or the checkout is refused;
+ *   - a guest who named none keeps an empty room, because "we don't know which of
+ *     your four rooms" is a true answer and 305 is not.
+ *
+ * A single-room stay behaves exactly as it did: its one room fills the gap. With
+ * no reservation at all — the guide opened without a personal link — there is
+ * nothing to check against and the guest's own answer stands, which is the only
+ * thing it can be.
+ */
+export function roomForOrder({ claimed = '', lines = [], reservation = null }) {
+  const rooms = roomsIn(reservation);
+
+  if (rooms.length <= 1) {
+    return { ok: true, room: String(claimed ?? '').trim() || reservation?.room || '' };
+  }
+
+  const named = [claimed, ...lines.map((line) => line?.room)]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean);
+
+  const outside = named.find((value) => !rooms.includes(value));
+  if (outside) return { ok: false, reason: 'room-not-in-reservation', room: outside, rooms };
+
+  return { ok: true, room: named[0] ?? '', rooms };
 }
 
 /** Eurocents as a person reads them: "69,00 €". */

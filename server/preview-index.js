@@ -106,7 +106,7 @@ export function renderPreviewIndex({ origin, links = [], escapeHtml }) {
     ${links.map((entry) => link(
     entry.url,
     `Link personale · ${entry.guest}`,
-    `Camera ${entry.room} · ${entry.dates}`,
+    `${entry.rooms > 1 ? 'Camere' : 'Camera'} ${entry.room} · ${entry.dates}`,
   )).join('')}
     ${link(`${origin}/recover`, 'Ho perso il link', 'Cognome + numero di prenotazione')}
   </ul>

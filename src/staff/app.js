@@ -49,6 +49,8 @@ function writeToken(token) {
   } catch { /* private mode: it will work for this session */ }
 }
 
+import { roomsIn, roomList } from '../../commerce/rooms.js';
+
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -82,6 +84,21 @@ const LABELS = {
   none: 'nessuna',
 };
 const label = (value) => LABELS[value] ?? String(value ?? '');
+
+/**
+ * "Camera 303", or "Camere 302, 303, 304 e 305".
+ *
+ * A booking is not always one room, and the first version of this screen said
+ * "Camera 305 · 7 ospiti" for a party of seven spread across four of them — the
+ * one number it had, presented as the answer. Takes a reservation or any row that
+ * carries `rooms`, and answers with `none` when the room is genuinely not known
+ * yet, which is what a provisional stay from a calendar feed looks like.
+ */
+const roomsText = (entry, none = '') => {
+  const list = roomsIn(entry);
+  if (list.length === 0) return none;
+  return `${list.length === 1 ? 'Camera' : 'Camere'} ${roomList(list)}`;
+};
 
 const stamp = (iso) => (iso
   ? new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
@@ -295,7 +312,7 @@ function reservationRow(reservation) {
         <span class="row__amount">${esc(day(reservation.check_in))} → ${esc(day(reservation.check_out))}</span>
       </div>
       <p class="row__meta">
-        ${reservation.room ? `Camera ${esc(reservation.room)}` : 'camera da assegnare'}
+        ${esc(roomsText(reservation, 'camera da assegnare'))}
         · ${esc(reservation.guest_count ?? 0)} ospiti
         · <span class="pill" data-tone="${tone}">${esc(label(reservation.status))}</span>
         ${reservation.channel ? `<span class="pill">${esc(reservation.channel)}</span>` : ''}
@@ -454,7 +471,7 @@ function backfillSummary(result) {
 
   const recovered = (result.recovered ?? []).map((row) => `
     <li><strong>${esc(row.guest || row.booking_reference)}</strong>
-      ${row.room ? `· ${esc(UI_ROOM)} ${esc(row.room)}` : ''}
+      ${row.room ? `· ${esc(roomsText(row).toLowerCase())}` : ''}
       · ${esc(row.check_in)} → ${esc(row.check_out)}
       <span class="mono">${esc(row.booking_reference)}</span></li>`).join('');
 
@@ -468,8 +485,6 @@ function backfillSummary(result) {
     ${problems ? `<p class="note">Da guardare:</p><ul class="repair__list">${problems}</ul>` : ''}
   </div>`;
 }
-
-const UI_ROOM = 'camera';
 
 /** Why a reservation is not in the catch-up. Mirrors CATCHUP_SKIP on the server. */
 const CATCHUP_REASONS = {
@@ -500,7 +515,7 @@ function catchUpPreviewSummary(result) {
 
   const rows = (result.rows ?? []).map((r) => `
     <li><strong>${esc(r.guest || r.reference || '—')}</strong>
-      ${r.room ? `· ${esc(UI_ROOM)} ${esc(r.room)}` : ''}
+      ${r.rooms?.length ? `· ${esc(roomsText(r).toLowerCase())}` : ''}
       · ${esc(day(r.check_in))} → ${esc(day(r.check_out))}
       <span class="mono">${esc(r.email)}</span>
       <span class="mono">${esc(r.reference)} · ${esc(label(r.delivery_status))}</span></li>`).join('');

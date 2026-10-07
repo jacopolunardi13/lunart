@@ -29,6 +29,7 @@
 
 import { isLive } from './reservations.js';
 import { propertyDate } from '../commerce/time.js';
+import { roomsIn, roomList } from '../commerce/rooms.js';
 import { DELIVERY_STATUS, deliverGuideEmail, renderGuideEmail } from './delivery.js';
 
 /** Why a reservation is not in the catch-up. The breakdown staff read. */
@@ -85,7 +86,9 @@ function skipReason(reservation, delivery, today) {
 const row = (reservation, delivery) => ({
   reservation_id: reservation.id,
   guest: [reservation.first_name, reservation.last_name].filter(Boolean).join(' ').trim(),
-  room: reservation.room ?? '',
+  /** One room, or all of them: `302, 303, 304 e 305`. The label is the screen's. */
+  room: roomList(roomsIn(reservation)) || (reservation.room ?? ''),
+  rooms: roomsIn(reservation),
   check_in: reservation.check_in ?? '',
   check_out: reservation.check_out ?? '',
   reference: reservation.staff_ref ?? reservation.booking_reference ?? '',

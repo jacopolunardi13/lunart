@@ -24,6 +24,8 @@
 
 import { createHash } from 'node:crypto';
 
+import { roomsOf, roomFields } from '../../commerce/rooms.js';
+
 /** What kind of notification this is. */
 export const QUOVAI_KINDS = { new: 'new', modified: 'modified', cancelled: 'cancelled' };
 
@@ -446,8 +448,15 @@ export function parseQuovaiEmail({ subject = '', from = '', body = '', html = ''
   const adults = wholeNumber(get('adults'));
   const children = wholeNumber(get('children'));
   const notes = get('notes');
-  const room = roomOf(textBody, get('room'), { notes });
-  if (!room) warnings.push('no-room');
+  /**
+   * Every room on the booking, not the first one found.
+   *
+   * Booking.com sells a group of seven the whole floor and QuoVai sends one
+   * notification listing four rooms. Keeping the first and calling it *the* room
+   * made the guide tell that group they were in 305.
+   */
+  const rooms = roomsFromTable(textBody, get('room'), { notes });
+  if (rooms.length === 0) warnings.push('no-room');
 
   const event = {
     kind,
@@ -464,7 +473,11 @@ export function parseQuovaiEmail({ subject = '', from = '', body = '', html = ''
     adults: adults ?? 0,
     children: children ?? 0,
     guest_count: (adults ?? 0) + (children ?? 0),
-    room,
+    /**
+     * `rooms` is the truth and `room` is the compatibility shim: the one room, or
+     * empty when there are several. See `commerce/rooms.js`.
+     */
+    ...roomFields(rooms),
     rate: get('rate'),
     total_amount: parseMoney(get('total_amount')),
     notes,
@@ -479,66 +492,136 @@ export function parseQuovaiEmail({ subject = '', from = '', body = '', html = ''
   return { ok: true, kind, event, warnings };
 }
 
-/** The headers of QuoVai's room table, as they appear once the HTML is flattened. */
+/** The bare words that open QuoVai's principal room table once flattened. */
 const ROOM_TABLE_HEADERS = ['stanza', 'camera', 'room', 'alloggio', 'unità', 'unita', 'accommodation'];
 
 /**
- * The room, from the label or from the table.
+ * Every bare word that is a column heading in one of QuoVai's tables.
+ *
+ * Two jobs. Forward from the room table's first heading they are consumed as the
+ * header row, so collecting does not start until the data does. And after that,
+ * the first one that reappears is where this table ends — which is precisely what
+ * keeps the per-night price table out, because that table repeats the same room
+ * numbers under its own headings and would otherwise be read as more rooms.
+ */
+const TABLE_HEADERS = new Set([
+  ...ROOM_TABLE_HEADERS,
+  'tariffa', 'trattamento', 'rate', 'rate plan',
+  'check-in', 'check in', 'checkin', 'arrivo',
+  'check-out', 'check out', 'checkout', 'partenza',
+  'quantità', 'quantita', 'quantity', 'notti', 'nights',
+  'prezzo', 'prezzo totale', 'totale', 'total', 'total price', 'importo',
+  'stato', 'status',
+  /** The per-night breakdown that follows: its heading is the boundary. */
+  'data', 'date', 'giorno', 'day', 'notte', 'night', 'prezzo per notte', 'price per night',
+]);
+
+/**
+ * How far past the heading a room table could conceivably run.
+ *
+ * The real bound is the next heading above; this is only a guard against a
+ * notification laid out some way nobody has seen, so that a malformed message
+ * cannot turn the rest of the email into room numbers. Six rooms at a row apiece
+ * is nowhere near eighty lines.
+ */
+const ROOM_TABLE_MAX_LINES = 80;
+
+/**
+ * The rooms, from the label or from the table.
  *
  * The real emails do not put the number next to the word "Camera". The table
- * flattens into its headers and then its data, and the number is in the data:
+ * flattens into its headings and then its data, and the numbers are in the data:
  *
  *     Stanza | Tariffa | Camera | Check-in | Check-out | Quantità | Prezzo | Stato
+ *     305 sup
+ *     305 sup /NR BB OTA
+ *     25/10
+ *     27/10
+ *     2
+ *     1.218,00
+ *     new
  *     302 queen std
- *     302 queen std /NR BB OTA
- *     07/11
  *     ...
  *
- * So the number is read from a row that *begins* with it, inside the window that
- * starts at the table's own header. Two bounds, both deliberate: a row has to lead
- * with the number, which "we are three adults, 305 would be lovely" does not, and
- * the search never leaves the table, which is what keeps a note out of it. LunArt
- * lets 301 to 305, with 306 expected; nothing outside that range is a room.
+ * All of them, because a booking is not always one room: booking 5639466196 is
+ * seven adults across 302, 303, 304 and 305, and reading only the first gave that
+ * group a guide claiming they were in 305.
+ *
+ * Three bounds, each there for a specific way of getting this wrong:
+ *
+ *   1. **A row has to lead with the number.** "we are three adults, 305 would be
+ *      lovely" does not, and neither does a rate plan that mentions one.
+ *   2. **The number may not be followed by a digit, a dot or a comma.** A total of
+ *      `302,00` in the same table is not room 302 — which only became dangerous
+ *      once this collected every match instead of stopping at the first.
+ *   3. **The search never leaves the table.** It starts after the heading row and
+ *      stops at the next heading row, so the per-night price rows that repeat
+ *      these numbers are never counted, and prose below the table is never read.
+ *
+ * And the notes are excluded outright wherever they are known: whatever a guest
+ * typed into a request field is prose, and prose is the one place a number in this
+ * range means something else.
+ *
+ * LunArt lets 301 to 305 with 306 expected; `commerce/rooms.js` is the one place
+ * that decides what counts as a room id at all.
  */
-function roomOf(textBody, labelled, { notes = '' } = {}) {
-  const fromLabel = /\b(30[1-6])\b/.exec(labelled ?? '');
-  if (fromLabel) return fromLabel[1];
+function roomsFromTable(textBody, labelled, { notes = '' } = {}) {
+  // A labelled field, if QuoVai ever sends one. It may carry several.
+  const fromLabel = roomsOf(labelled);
+  if (fromLabel.length > 0) return fromLabel;
 
   const lines = textBody.split('\n');
   const bare = (line) => line.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  const noteLines = new Set(String(notes).split('\n').map((line) => line.trim()).filter(Boolean));
 
-  // The table's window: from its first header, far enough to cover the data rows.
-  const header = lines.findIndex((line) => ROOM_TABLE_HEADERS.includes(bare(line)));
-  if (header >= 0) {
-    for (const line of lines.slice(header, header + 30)) {
-      const match = /(?:^|\|)\s*(30[1-6])\b/.exec(line);
-      if (match) return match[1];
+  /** A room at the head of a table row — and not a price, a quantity or a total. */
+  const leadingRoom = (line) => {
+    const match = /^\s*\|?\s*(30[1-6])(?![\d.,])(?:\s|\||$)/.exec(line);
+    return match ? match[1] : null;
+  };
+
+  const heading = lines.findIndex((line) => ROOM_TABLE_HEADERS.includes(bare(line)));
+  if (heading >= 0) {
+    // Consume the heading row, however many columns it flattened into.
+    let i = heading;
+    while (i < lines.length && TABLE_HEADERS.has(bare(lines[i]))) i += 1;
+
+    const found = new Set();
+    const limit = Math.min(lines.length, heading + ROOM_TABLE_MAX_LINES);
+    for (; i < limit; i += 1) {
+      // The next table's heading row is where this one ends.
+      if (TABLE_HEADERS.has(bare(lines[i]))) break;
+      if (noteLines.has(lines[i].trim())) continue;
+      const room = leadingRoom(lines[i]);
+      if (room) found.add(room);
     }
+    if (found.size > 0) return roomsOf([...found]);
   }
 
   /**
-   * No table header: a plain-text notification, or one laid out some other way.
+   * No table heading: a plain-text notification, or one laid out some other way.
    *
-   * The leading-number rule still holds, and the notes are excluded outright —
-   * whatever a guest wrote in a request field is prose, and prose is the one place
-   * a number in this range would mean something else.
+   * The leading-number rule still holds and the notes are still excluded, but with
+   * no table to bound it this reads the whole message — so it requires the stricter
+   * shape of a row that leads with the number and continues with a word.
    */
-  const noteLines = new Set(String(notes).split('\n').map((line) => line.trim()).filter(Boolean));
+  const loose = new Set();
   for (const line of lines) {
     if (noteLines.has(line.trim())) continue;
-    const match = /^\s*\|?\s*(30[1-6])\b\s+\S/.exec(line);
-    if (match) return match[1];
+    const match = /^\s*\|?\s*(30[1-6])(?![\d.,])\s+\S/.exec(line);
+    if (match) loose.add(match[1]);
   }
+  if (loose.size > 0) return roomsOf([...loose]);
 
   // Last: a line that names a room and carries a number, which is the labelled
   // shape written without a colon.
+  const named = new Set();
   for (const line of lines) {
     if (noteLines.has(line.trim())) continue;
-    if (!/\b(camera|room|stanza|alloggio)\b/i.test(line)) continue;
-    const match = /\b(30[1-6])\b/.exec(line);
-    if (match) return match[1];
+    if (!/\b(camera|camere|room|rooms|stanza|stanze|alloggio)\b/i.test(line)) continue;
+    for (const room of roomsOf(line)) named.add(room);
   }
-  return '';
+  return roomsOf([...named]);
 }
 
 export { LABELS };

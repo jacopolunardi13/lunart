@@ -488,6 +488,86 @@ for (const number of ALL_ROOMS) {
   note(shown.phaseChips === 0, `${number} → no manual phase selector`);
 }
 
+/* ── A booking across four rooms ──────────────────────────────────
+   Booking.com sold seven adults the whole floor — 302, 303, 304 and 305 on one
+   booking number — and the guide greeted them with "Camera 305", the first number
+   in the notification. What is checked here is that nothing on the page now names
+   one of the four as the room: the header says all of them, no single room card is
+   presented as theirs, and the Staff list says Camere rather than Camera. */
+console.log('\n── one booking, four rooms ──');
+
+const group = await post('/api/staff/reservations', {
+  first_name: 'Gruppo', last_name: `G4x${Date.now().toString(36).slice(-4)}`,
+  guest_email: 'qa-group@example.invalid',
+  check_in: today, check_out: inDays(2), adults: 7,
+  /* The one Camera field, which normalises a list without needing a new control. */
+  room: '305, 302, 303, 304',
+  booking_reference: `QA-GROUP-${Date.now()}`,
+});
+throwaway.push(group.reservation.id);
+
+note(Array.isArray(group.reservation.rooms) && group.reservation.rooms.join(',') === '302,303,304,305',
+  `the booking holds all four rooms (${(group.reservation.rooms ?? []).join(', ') || 'none'})`);
+note(!group.reservation.room,
+  `and names none of them as the room (${JSON.stringify(group.reservation.room)})`);
+
+const groupLink = (await post(`/api/staff/reservations/${group.reservation.id}/link`)).link;
+await page.goto(groupLink, { waitUntil: 'networkidle' });
+await page.waitForTimeout(900);
+
+const groupLine = (await page.textContent('.stay__line')).replace(/\s+/g, ' ').trim();
+/* The guide follows the browser's language, so either plural form is the right
+   answer here — what must never appear is the singular with one of the four. */
+note(/Camere 302, 303, 304 e 305|Rooms 302, 303, 304 and 305/.test(groupLine),
+  `the guide names all four rooms (${groupLine})`);
+note(!/\b(Camera|Room) 30\d\b/.test(groupLine), 'and never one of them as "Camera 305"');
+
+const groupRooms = await page.evaluate(() => [...document.querySelectorAll('#main .room')]
+  .map((el) => el.querySelector('.room__number')?.textContent.replace(/\D/g, '')).filter(Boolean));
+note(groupRooms.length === 0,
+  `no single room is presented as theirs (${groupRooms.join(', ') || 'none'})`);
+
+/* The order room: nothing guessed, and nothing the browser claims taken on trust. */
+const quietOrder = await post('/api/checkout', {
+  guideToken: groupLink.split('/g/')[1], lang: 'it',
+  customer: { name: 'Gruppo QA', email: 'qa-group@example.invalid' },
+  lines: [{ productId: 'light-breakfast', quantity: 1, date: inDays(1), slotId: 'b-0900', room: '303' }],
+});
+note(Boolean(quietOrder.accessToken), `a room from the group can be ordered to (${quietOrder.error ?? 'ok'})`);
+
+const wrongRoom = await fetch(`${BASE}/api/checkout`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    guideToken: groupLink.split('/g/')[1], lang: 'it',
+    customer: { name: 'Gruppo QA', email: 'qa-group@example.invalid', room: '301' },
+    lines: [{ productId: 'light-breakfast', quantity: 1, date: inDays(1), slotId: 'b-0900', room: '301' }],
+  }),
+});
+const wrongBody = await wrongRoom.json().catch(() => ({}));
+note(wrongRoom.status === 422 && wrongBody.error === 'room-not-in-reservation',
+  `a room outside the group is refused (${wrongRoom.status} ${wrongBody.error ?? ''})`);
+
+/* And the Staff list, which is where the owner saw "Camera 305 · 7 ospiti". */
+await staffPage.goto(`${BASE}/staff`, { waitUntil: 'networkidle' });
+await staffPage.waitForTimeout(700);
+await staffPage.click('[data-view="reservations"]');
+await staffPage.waitForTimeout(900);
+const groupRow = (await staffPage.locator(`[data-reservation="${group.reservation.id}"]`).textContent())
+  .replace(/\s+/g, ' ').trim();
+note(/Camere 302, 303, 304 e 305/.test(groupRow), `Staff says Camere (${groupRow.slice(0, 90)})`);
+note(/7 ospiti/.test(groupRow), 'with the real number of guests');
+note(!/Camera 30\d · 7 ospiti/.test(groupRow), 'and never "Camera 305 · 7 ospiti"');
+
+/* A four-room booking is not a reservation missing its room. */
+await staffPage.click('[data-view="sync"]');
+await staffPage.waitForTimeout(900);
+const syncRows = await staffPage.evaluate(() => [...document.querySelectorAll('.row')]
+  .map((el) => el.innerText.replace(/\s+/g, ' ')));
+note(!syncRows.some((text) => /Gruppo/.test(text) && /no-room/.test(text)),
+  'the sync screen does not list it as missing a room');
+await staffPage.screenshot({ path: `${OUT}/staff-multiroom-390.png` });
+
 /* Room 304 shows its own bathroom — the owner's confirmed photograph — and never
    the desk-and-window shot, which is room 302's and is already in room 302. */
 const r304 = await post('/api/staff/reservations', {

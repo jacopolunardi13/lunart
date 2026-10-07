@@ -26,6 +26,7 @@
 
 import { propertyDate, isValidDate, endOfPropertyDay, propertyTimeToInstant } from '../commerce/time.js';
 import { stayDates } from '../commerce/stay.js';
+import { roomsIn } from '../commerce/rooms.js';
 import { stayBenefits, cardBenefits, ENTITLEMENTS } from '../commerce/partners.js';
 import { RESERVATION_STATUS } from './reservations.js';
 import { cardState } from './card.js';
@@ -169,7 +170,16 @@ export function passFor(reservation, { card = null, now = new Date() } = {}) {
     live_entitlements: liveEntitlementsOf(card, now),
 
     holder: upgraded && card.holder_name ? card.holder_name : (reservation.first_name ?? ''),
+    /**
+     * The room on the card, and the rooms on the booking.
+     *
+     * `room` stays null unless there is exactly one, so the card face shows the
+     * dates alone for a group across four rooms rather than picking one of them.
+     * The set travels alongside for the sheet underneath, which has room for a
+     * line of text. Neither changes what the Pass is worth or what it unlocks.
+     */
     room: reservation.room || null,
+    rooms: roomsIn(reservation),
     check_in: reservation.check_in,
     check_out: reservation.check_out,
     nights,

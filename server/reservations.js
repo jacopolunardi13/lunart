@@ -24,6 +24,7 @@
 import { opaqueToken, randomRef } from './store.js';
 import { propertyDate, isValidDate, addDays } from '../commerce/time.js';
 import { stayDates } from '../commerce/stay.js';
+import { roomsOf, roomsIn, roomFields, roomList } from '../commerce/rooms.js';
 
 export const RESERVATION_STATUS = {
   /** Live, and either coming or here. */
@@ -56,6 +57,20 @@ const digits = (value) => {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0;
 };
+
+/**
+ * The room pair, with room for a value nobody recognises.
+ *
+ * `roomFields` answers for anything that reads as LunArt rooms. When it reads as
+ * none and yet something was given — a hand-typed "Suite", a legacy row — that
+ * value stays in `room` untouched, because losing it would be worse than not
+ * understanding it.
+ */
+function roomsOrLegacy(input) {
+  const fields = roomFields(input.rooms ?? input.room);
+  if (fields.rooms.length > 0) return fields;
+  return { rooms: [], room: text(input.room, 20) };
+}
 
 /**
  * Build a canonical reservation.
@@ -92,7 +107,21 @@ export function buildReservation(input = {}) {
     adults,
     children,
     guest_count: digits(input.guest_count ?? adults + children) || adults + children,
-    room: text(input.room, 20),
+    /**
+     * Which rooms this booking is for, and the single-room field that came first.
+     *
+     * `rooms` is the truth: unique, valid, ascending, so two readings of the same
+     * booking compare equal however the notification happened to order them.
+     * `room` is kept because every record written before this existed has one and
+     * every screen reads it — but only when there is exactly one room to name. A
+     * party of seven across 302 to 305 is not in room 305, and a field saying so
+     * was the whole bug. See `commerce/rooms.js`.
+     *
+     * One deliberate escape hatch: a room string that is not a LunArt room id at
+     * all — something a staff member typed by hand — is kept verbatim in `room`
+     * with `rooms` empty, rather than being silently discarded.
+     */
+    ...roomsOrLegacy(input),
     rate: text(input.rate, 120),
     total_amount: Number.isFinite(Number(input.total_amount)) ? Math.trunc(Number(input.total_amount)) : null,
     currency: text(input.currency ?? 'EUR', 8),
@@ -139,12 +168,36 @@ const note = (reservation, type, detail = '') => ({
   history: [...(reservation.history ?? []), { at: new Date().toISOString(), type, detail: text(detail, 300) }].slice(-50),
 });
 
-/** Fields an inbound event is allowed to change on an existing reservation. */
+/**
+ * Fields an inbound event is allowed to change on an existing reservation.
+ *
+ * `room` and `rooms` are not in the list: they move together or not at all, which
+ * the generic loop cannot do. A multi-room booking has to be able to clear `room`,
+ * and "an empty value never overwrites a filled one" would otherwise forbid
+ * exactly that — leaving 305 on the record for a party of seven. See `roomChange`.
+ */
 const MUTABLE = [
   'first_name', 'last_name', 'guest_email', 'guest_phone', 'channel',
-  'check_in', 'check_out', 'adults', 'children', 'guest_count', 'room', 'rate',
+  'check_in', 'check_out', 'adults', 'children', 'guest_count', 'rate',
   'total_amount', 'currency', 'notes', 'source_reference', 'source_updated_at', 'booked_at',
 ];
+
+/**
+ * The room set, moved as one thing.
+ *
+ * Null when there is nothing to do: either the notification carried no room at
+ * all — a parser that lost the room is not evidence that there isn't one — or it
+ * carries the same set we already hold, in whatever order. When it does differ,
+ * both fields are returned together, so the pair can never end up disagreeing
+ * about how many rooms this booking has.
+ */
+export function roomChange(current, incoming) {
+  const next = roomsIn(incoming);
+  if (next.length === 0) return null;
+  const held = roomsIn(current);
+  if (held.join(',') === next.join(',')) return null;
+  return roomFields(next);
+}
 
 /** What actually differs between what we hold and what just arrived. */
 export function changesBetween(current, incoming) {
@@ -154,7 +207,7 @@ export function changesBetween(current, incoming) {
     if (next === undefined || next === null || next === '') continue;
     if (String(current[field] ?? '') !== String(next)) changed[field] = next;
   }
-  return changed;
+  return { ...changed, ...roomChange(current, incoming) };
 }
 
 const normaliseRef = (value) => String(value ?? '').replace(/\s+/g, '').toUpperCase();
@@ -203,19 +256,34 @@ export async function findProvisionalMatch({ store, incoming }) {
   const candidates = (await store.reservations.provisional()).filter((r) => isLive(r));
   if (candidates.length === 0) return { match: null, by: null, candidates: [] };
 
+  /**
+   * A multi-room booking is never matched on the room.
+   *
+   * A calendar feed holds one room per provisional reservation, so a booking
+   * across four rooms would find up to four of them and adopting any single one
+   * would attach seven guests to a quarter of their own stay — or, worse, to the
+   * occupancy of a room the merge then stops watching. The booking number still
+   * matches, because that is unambiguous; beyond it, this refuses to guess and
+   * leaves the occupancy for a person to resolve. iCal is not enabled in
+   * production, and inventing multi-room reconciliation here would be the kind of
+   * thing that looks right until the morning four guests arrive.
+   */
+  const incomingRooms = roomsIn(incoming);
+  const oneRoom = incomingRooms.length === 1 ? incomingRooms[0] : '';
+
   const tiers = [
     ['booking_reference', (r) => (
       normaliseRef(incoming.booking_reference)
       && normaliseRef(r.booking_reference) === normaliseRef(incoming.booking_reference)
     )],
     ['room-and-dates', (r) => (
-      incoming.room && incoming.check_in && incoming.check_out
-      && r.room === incoming.room
+      oneRoom && incoming.check_in && incoming.check_out
+      && roomsIn(r).length === 1 && roomsIn(r)[0] === oneRoom
       && r.check_in === incoming.check_in && r.check_out === incoming.check_out
     )],
     ['room-and-arrival', (r) => (
-      incoming.room && incoming.check_in
-      && r.room === incoming.room && r.check_in === incoming.check_in
+      oneRoom && incoming.check_in
+      && roomsIn(r).length === 1 && roomsIn(r)[0] === oneRoom && r.check_in === incoming.check_in
     )],
   ];
 
@@ -245,6 +313,7 @@ async function adoptProvisional({ store, reservation, incoming, by }) {
     if (String(reservation[field] ?? '') === String(next)) continue;
     patch[field] = next;
   }
+  Object.assign(patch, roomChange(reservation, incoming) ?? {});
   // The guide email was never scheduled for occupancy. Now there is somebody to
   // send it to, so it goes back on the ordinary footing and the caller schedules it.
   if (incoming.guest_email) patch.guide_email_status = 'pending';
@@ -330,7 +399,7 @@ export async function upsertReservation({ store, event, now = new Date() }) {
  */
 export const REPAIRABLE = [
   'first_name', 'last_name', 'guest_email', 'guest_phone', 'channel',
-  'adults', 'children', 'guest_count', 'room', 'rate', 'total_amount',
+  'adults', 'children', 'guest_count', 'rate', 'total_amount',
   'source_reference', 'booked_at', 'notes',
 ];
 
@@ -358,6 +427,18 @@ export async function repairReservation({ store, reservation, event, fields = RE
     if (String(reservation[field] ?? '') === String(next)) continue;
     changed[field] = next;
   }
+
+  /**
+   * The rooms, which are the reason this repair exists at all.
+   *
+   * Outside the loop above because this is the one correction that has to be able
+   * to *empty* a field: booking 5639466196 is filed as `room: '305'` and has to
+   * become `rooms: ['302','303','304','305']` with no single room at all. The
+   * loop's "an empty value never overwrites a filled one" rule — right for every
+   * other field, since a parser that lost a value is not evidence it is gone —
+   * would quietly keep 305 and leave the lie in place.
+   */
+  Object.assign(changed, roomChange(reservation, incoming) ?? {});
 
   /**
    * The booking number itself, when the parser mangled it.
@@ -437,7 +518,17 @@ export function guestContext(reservation, { now = new Date() } = {}) {
   const dates = stayDates(reservation);
   return {
     first_name: reservation.first_name,
+    /**
+     * The room, and the rooms.
+     *
+     * `room` is null unless there is exactly one, so every screen that already
+     * reads it keeps working and none of them can name a single room for a booking
+     * that has four. `rooms` is the whole set, for the places that say the stay's
+     * details out loud. Both are safe on a link that travels through group chats:
+     * a room number is not a credential, and the guest is standing in it.
+     */
     room: reservation.room || null,
+    rooms: roomsIn(reservation),
     check_in: reservation.check_in,
     check_out: reservation.check_out,
     nights: Math.max(0, dates.length - 1),
@@ -460,6 +551,23 @@ export function guestContext(reservation, { now = new Date() } = {}) {
     /** The days anything sold inside the stay may fall on. */
     stay_days: dates,
   };
+}
+
+/**
+ * How many rooms, and which — as one readable phrase.
+ *
+ * Exported because four surfaces have to agree: the Staff list, the guest's own
+ * header, the guide email and the Pass sheet. Each supplies its own two words
+ * ("Camera"/"Camere", "Room"/"Rooms") because those live with that surface's copy;
+ * the decision about singular against plural, and the order of the numbers, lives
+ * here. An empty set answers with nothing at all rather than a label with no
+ * number after it.
+ */
+export function roomPhrase(reservation, { one, many, lang = 'it' } = {}) {
+  const list = roomsIn(reservation);
+  if (list.length === 0) return '';
+  const label = list.length === 1 ? one : many;
+  return `${label ? `${label} ` : ''}${roomList(list, lang)}`;
 }
 
 /** Before, during, after — from the dates rather than from a guess. */
@@ -490,6 +598,7 @@ export function staffView(reservation) {
     children: reservation.children,
     guest_count: reservation.guest_count,
     room: reservation.room,
+    rooms: roomsIn(reservation),
     rate: reservation.rate,
     total_amount: reservation.total_amount,
     currency: reservation.currency,

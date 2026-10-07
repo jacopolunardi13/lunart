@@ -35,6 +35,7 @@
 
 import { isValidDate, addDays, propertyDate } from '../../commerce/time.js';
 import { isLive, buildReservation, incompleteFields, RESERVATION_SOURCES } from '../reservations.js';
+import { roomsIn } from '../../commerce/rooms.js';
 import { raiseAlert } from './index.js';
 
 /** Unfold the continuation lines iCal wraps long values onto. */
@@ -225,10 +226,28 @@ export function reconcile({ events = [], reservations = [], room = '', now = new
         event.booking_reference && r.booking_reference
         && normaliseRef(r.booking_reference) === normaliseRef(event.booking_reference)
       )],
-      ['room-and-dates', (r) => (
-        (!event.room || !r.room || event.room === r.room)
-        && r.check_in === event.check_in && r.check_out === event.check_out
-      )],
+      /**
+       * The same room over the same nights — and *the same* has to mean it.
+       *
+       * This used to accept a reservation with no room at all, on the reasoning
+       * that a feed entry and a stay agreeing on both dates is good enough. A
+       * booking across 302 to 305 deliberately has no single room, so it fell into
+       * that gap: one calendar entry for one room would match the whole four-room
+       * stay on dates alone, and the other three entries would then be held as
+       * fresh provisional stays for rooms that are already sold.
+       *
+       * So a booking that spans several rooms is never matched here. Its number
+       * still matches above, which is unambiguous; a single calendar entry is not
+       * evidence about which of its rooms this is, and the check below hands it to
+       * a person instead of guessing.
+       */
+      ['room-and-dates', (r) => {
+        if (r.check_in !== event.check_in || r.check_out !== event.check_out) return false;
+        const held = roomsIn(r);
+        if (held.length > 1) return false;
+        if (!event.room || held.length === 0) return true;
+        return held[0] === event.room;
+      }],
     ];
 
     let candidate = null;
@@ -251,6 +270,21 @@ export function reconcile({ events = [], reservations = [], room = '', now = new
         incomplete: incompleteFields(candidate),
       });
     } else {
+      /**
+       * Occupancy that belongs to a booking we already hold across several rooms.
+       *
+       * Not a match — one entry cannot say which of four rooms a seven-person
+       * booking is in — but emphatically not a new stay either: holding it would
+       * invent a second reservation for a room that is already sold, and the guest
+       * email, the Pass and the guide would then exist twice over. Flagged like any
+       * other ambiguity, which creates nothing and puts it in front of a person.
+       */
+      const spanning = event.room && free.some((r) => {
+        const held = roomsIn(r);
+        return held.length > 1 && held.includes(event.room)
+          && r.check_in === event.check_in && r.check_out === event.check_out;
+      });
+
       unmatched.push({
         uid: event.uid,
         check_in: event.check_in,
@@ -259,7 +293,7 @@ export function reconcile({ events = [], reservations = [], room = '', now = new
         room: event.room || room || null,
         booking_reference: event.booking_reference || null,
         summary: event.summary ?? '',
-        ambiguous: by ? by : null,
+        ambiguous: by || (spanning ? 'multi-room-booking' : null),
       });
     }
   }
@@ -411,7 +445,9 @@ export async function reconcileFeeds({
           kind: 'occupancy-ambiguous',
           severity: 'action',
           detail: {
-            message: 'Più prenotazioni corrispondono allo stesso evento del calendario: nessuna unione automatica.',
+            message: occupancy.ambiguous === 'multi-room-booking'
+              ? 'L’occupazione rientra in una prenotazione su più camere: nessuna unione e nessuna prenotazione provvisoria automatica.'
+              : 'Più prenotazioni corrispondono allo stesso evento del calendario: nessuna unione automatica.',
             ...occupancy,
             feed: feed.url,
           },

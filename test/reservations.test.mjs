@@ -106,7 +106,9 @@ test('a modification updates the same reservation rather than making another', a
   assert.equal(changed.reservation.status, RESERVATION_STATUS.modified);
   assert.equal(changed.reservation.check_out, '2026-10-17');
   assert.equal(changed.reservation.room, '305');
-  assert.deepEqual(Object.keys(changed.changed).sort(), ['adults', 'check_out', 'guest_count', 'room']);
+  assert.deepEqual(changed.reservation.rooms, ['305']);
+  // `room` and `rooms` are one fact, so a change to the room reports both.
+  assert.deepEqual(Object.keys(changed.changed).sort(), ['adults', 'check_out', 'guest_count', 'room', 'rooms']);
   assert.equal((await db.reservations.list({})).length, 1);
 
   // And the link did not change, because the guest may already have it open.

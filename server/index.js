@@ -43,7 +43,7 @@ console.log(`  staff app:  ${config.publicUrl}/staff`);
 if (app.previewSeed?.links?.length) {
   console.log('\n  preview guest links (invented reservations):');
   for (const entry of app.previewSeed.links) {
-    console.log(`    ${entry.guest} · camera ${entry.room}\n      ${entry.link}`);
+    console.log(`    ${entry.guest} · camer${entry.rooms > 1 ? 'e' : 'a'} ${entry.room}\n      ${entry.link}`);
   }
 }
 

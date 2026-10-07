@@ -21,6 +21,7 @@
 
 import { PAYMENT_STATUS, FULFILMENT_STATUS, canFulfilmentMove } from '../commerce/schema.js';
 import { canTransition, appendEvent, orderReference } from './orders.js';
+import { roomsIn, roomList } from '../commerce/rooms.js';
 import { getProduct, cancellableUntil } from '../commerce/ordering.js';
 import { propertyDate, addDays } from '../commerce/time.js';
 import {
@@ -271,13 +272,30 @@ export async function createManualReservation({ store, input, now = new Date() }
 export async function editReservation({ store, reservation, patch, now = new Date() }) {
   const allowed = [
     'first_name', 'last_name', 'guest_email', 'guest_phone', 'lang',
-    'check_in', 'check_out', 'adults', 'children', 'guest_count', 'room', 'rate', 'notes',
+    'check_in', 'check_out', 'adults', 'children', 'guest_count', 'room', 'rooms', 'rate', 'notes',
   ];
-  const clean = buildReservation({ ...reservation, ...patch });
+  /**
+   * A typed room replaces the set, rather than losing to it.
+   *
+   * `buildReservation` prefers `rooms` over `room`, which is right everywhere else
+   * — but here the reservation already has a set and the patch has the field a
+   * person just typed. Dropping the held set lets the typed value decide, and it
+   * also means the one Camera field already handles "302, 303": the normaliser
+   * reads both numbers and clears the single room by itself.
+   */
+  const base = patch.room !== undefined && patch.rooms === undefined
+    ? { ...reservation, rooms: undefined }
+    : reservation;
+  const clean = buildReservation({ ...base, ...patch });
   const update = {};
   for (const field of allowed) {
     if (patch[field] === undefined) continue;
     update[field] = clean[field];
+  }
+  // The pair is one fact, so a change to either writes both.
+  if (update.room !== undefined || update.rooms !== undefined) {
+    update.room = clean.room;
+    update.rooms = clean.rooms;
   }
   if (Object.keys(update).length === 0) return { ok: true, action: 'unchanged', reservation };
 
@@ -454,7 +472,15 @@ export async function syncOverview({ store, now = new Date() }) {
       const problems = [];
       if (reservation.provisional === true) problems.push('provisional');
       if (!reservation.guest_email) problems.push('no-guest-email');
-      if (!reservation.room) problems.push('no-room');
+      /**
+       * No room at all — which is not the same as more than one.
+       *
+       * Read off the set rather than the legacy field, because a booking across
+       * 302 to 305 deliberately has no single `room` and would otherwise sit on
+       * the sync screen under "da verificare" for ever, telling staff to go and
+       * find something that is already there.
+       */
+      if (roomsIn(reservation).length === 0) problems.push('no-room');
       if (!reservation.check_in || !reservation.check_out) problems.push('no-dates');
       if (delivery?.status === DELIVERY_STATUS.failed) problems.push('email-failed');
       if (isLive(reservation) && !delivery) problems.push('email-not-scheduled');
@@ -466,7 +492,9 @@ export async function syncOverview({ store, now = new Date() }) {
         source: reservation.source,
         channel: reservation.channel,
         status: reservation.status,
-        room: reservation.room,
+        /** `302, 303, 304 e 305` where there are several. The label is the screen's. */
+        room: roomList(roomsIn(reservation)) || (reservation.room ?? ''),
+        rooms: roomsIn(reservation),
         check_in: reservation.check_in,
         check_out: reservation.check_out,
         imported_at: reservation.created_at,

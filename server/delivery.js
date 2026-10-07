@@ -23,7 +23,7 @@
  */
 
 import { propertyTimeToInstant, propertyDate, addDays } from '../commerce/time.js';
-import { isLive } from './reservations.js';
+import { isLive, roomPhrase } from './reservations.js';
 import { createGmailMailer } from './mail/gmail.js';
 
 export const DELIVERY_STATUS = {
@@ -209,7 +209,8 @@ const COPY = {
     lead: 'ecco la tua guida personale per il soggiorno a LunArt: come entrare, il Wi-Fi, la colazione, il parcheggio e Firenze — tutto in una pagina, da aprire dal telefono.',
     cta: 'Apri la tua LunArt Guest Guide',
     stay: (from, to) => `Soggiorno: ${from} → ${to}`,
-    room: (room) => `Camera ${room}`,
+    room: 'Camera',
+    rooms: 'Camere',
     keep: 'Il link è personale: tienilo da parte, ti servirà anche durante il soggiorno.',
     extras: 'Dalla guida puoi anche ordinare colazione in camera, vino, il transfer dall’aeroporto e il resto.',
     signoff: 'A presto,\nLunArt — Vicolo del Canneto 2, Firenze',
@@ -220,7 +221,8 @@ const COPY = {
     lead: 'here is your personal guide for your stay at LunArt: how to get in, the Wi-Fi, breakfast, parking and Florence — all on one page, made for your phone.',
     cta: 'Open your LunArt Guest Guide',
     stay: (from, to) => `Stay: ${from} → ${to}`,
-    room: (room) => `Room ${room}`,
+    room: 'Room',
+    rooms: 'Rooms',
     keep: 'The link is personal: keep it, you will want it during the stay too.',
     extras: 'From the guide you can also order breakfast in your room, wine, the airport transfer and the rest.',
     signoff: 'See you soon,\nLunArt — Vicolo del Canneto 2, Florence',
@@ -234,6 +236,14 @@ export const guideUrl = (origin, reservation) =>
 export function renderGuideEmail({ reservation, origin = '', lang = 'it' }) {
   const copy = COPY[lang === 'en' ? 'en' : 'it'];
   const link = guideUrl(origin, reservation);
+  /**
+   * "Camera 303", or "Camere 302, 303, 304 e 305".
+   *
+   * One line either way. A group booked across four rooms used to be told they
+   * were in 305, which is the first thing they would have read about their own
+   * stay and the first thing they would have had to correct.
+   */
+  const rooms = roomPhrase(reservation, { one: copy.room, many: copy.rooms, lang });
   const lines = [
     copy.hello(reservation.first_name),
     '',
@@ -242,7 +252,7 @@ export function renderGuideEmail({ reservation, origin = '', lang = 'it' }) {
     link,
     '',
     copy.stay(reservation.check_in, reservation.check_out),
-    reservation.room ? copy.room(reservation.room) : '',
+    rooms,
     '',
     copy.keep,
     copy.extras,
@@ -263,7 +273,7 @@ export function renderGuideEmail({ reservation, origin = '', lang = 'it' }) {
           <a href="${esc(link)}" style="display:inline-block;background:#1a1a1a;color:#fff;text-decoration:none;padding:14px 22px;border-radius:999px;font-size:15px">${esc(copy.cta)}</a>
         </td></tr>
         <tr><td style="font-size:14px;line-height:1.7;color:#55504a">
-          ${esc(copy.stay(reservation.check_in, reservation.check_out))}${reservation.room ? `<br>${esc(copy.room(reservation.room))}` : ''}
+          ${esc(copy.stay(reservation.check_in, reservation.check_out))}${rooms ? `<br>${esc(rooms)}` : ''}
         </td></tr>
         <tr><td style="padding-top:16px;font-size:14px;line-height:1.7;color:#55504a">${esc(copy.keep)}<br>${esc(copy.extras)}</td></tr>
         <tr><td style="padding-top:20px;font-size:13px;line-height:1.7;color:#8a7f72">${esc(copy.signoff).replace(/\n/g, '<br>')}</td></tr>

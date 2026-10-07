@@ -104,7 +104,120 @@ export const IRENE_CANCELLED = {
   }),
 };
 
+/**
+ * Bina Kang — seven adults across four rooms, Booking.com, new.
+ *
+ * The notification that proved the parser was reading one room and calling it the
+ * room. Its principal table lists 305, 302, 303 and 304 in the order QuoVai sends
+ * them, and the per-night price table underneath repeats all four of those numbers
+ * once per night — so a reader that simply looked for room numbers after the first
+ * heading would find them twice, and one that stopped at the first would tell a
+ * party of seven they were in 305.
+ *
+ * The totals are in the same places as the single-room shape, including one that
+ * reads `302,00`: a number that is a price in this table and a room number
+ * anywhere else, which is exactly the collision the row rules have to survive.
+ */
+export const BINA = {
+  subject: '🔔 QuoVai — nuova prenotazione',
+  from: 'QuoVai <noreply@quovai.com>',
+  messageId: '<quovai-5639466196-new@quovai.com>',
+  body: `
+Numero prenotazione: 5639466196 NEW
+
+Bina Kang
+
+Struttura: LUNART
+Agenzia/Canale: BOOKING.COM
+Check-in: 25/10/2026
+Check-out: 27/10/2026
+Adulti: 7
+Bambini: 0
+
+Stanza
+Tariffa
+Camera
+Check-in
+Check-out
+Quantità
+Prezzo totale
+Stato
+
+305 sup
+305 sup /NR BB OTA
+25/10
+27/10
+2
+336,00
+new
+
+302 queen std
+302 queen std /NR BB OTA
+25/10
+27/10
+2
+302,00
+new
+
+303 sup
+303 sup /NR BB OTA
+25/10
+27/10
+2
+336,00
+new
+
+304 queen std
+304 queen std /NR BB OTA
+25/10
+27/10
+2
+308,00
+new
+
+Data
+Stanza
+Prezzo
+25/10/2026
+305
+168,00
+25/10/2026
+302
+151,00
+25/10/2026
+303
+168,00
+25/10/2026
+304
+154,00
+26/10/2026
+305
+168,00
+26/10/2026
+302
+151,00
+26/10/2026
+303
+168,00
+26/10/2026
+304
+154,00
+
+Prezzo totale: 1.282,00
+`.trim(),
+};
+
 export const REAL_RESERVATIONS = [MARTIN, KELLY, IRENE, FLORIAN];
+
+/** The same booking as a modification, with the rooms listed in another order. */
+export const BINA_MODIFIED = {
+  subject: '🔄 QuoVai — prenotazione modificata',
+  from: 'QuoVai <noreply@quovai.com>',
+  messageId: '<quovai-5639466196-mod@quovai.com>',
+  body: BINA.body
+    .replace('5639466196 NEW', '5639466196 MODIFIED')
+    .replace(/\bnew\b/g, 'modified'),
+};
 
 /* ── The same mailbox, carrying things that are not reservations ───────────── */
 

@@ -27,6 +27,7 @@ import { guest, isPersonal } from '../guest.js';
 import {
   PHASES, getEntry, property, rooms, roomsCommon,
 } from '../../data/index.js';
+import { roomsIn, roomList } from '../../commerce/rooms.js';
 
 /**
  * Filled in by `src/commerce/boot.js` once the shop has loaded. Until then — and
@@ -86,7 +87,7 @@ function stayDates(lang) {
 function welcome(lang) {
   const context = guest();
   const line = [
-    context?.room ? `${UI[lang].roomLabel} ${context.room}` : '',
+    guestRoomLine(lang),
     stayDates(lang),
   ].filter(Boolean).join(' · ');
 
@@ -152,10 +153,34 @@ function primaryActions(lang, phase) {
 
 /* --- A. Your stay ---------------------------------------------------------- */
 
-/** The room this guest is actually sleeping in, or nothing. */
+/**
+ * Which room, or which rooms, in one phrase.
+ *
+ * A booking is not always one room: Booking.com sells a group of seven the whole
+ * floor, and the guide used to greet them with "Camera 305" because that was the
+ * first number in the notification. So the plural is a real case rather than a
+ * defensive one — `Camere 302, 303, 304 e 305` — and the singular reads exactly
+ * as it always has. Nothing at all when the room is not known yet, which is what
+ * a provisional stay from a calendar feed looks like.
+ */
+function guestRoomLine(lang) {
+  const list = roomsIn(guest());
+  if (list.length === 0) return '';
+  const label = list.length === 1 ? UI[lang].roomLabel : UI[lang].roomsLabel;
+  return `${label} ${roomList(list, lang)}`;
+}
+
+/**
+ * The room this guest is actually sleeping in, or nothing.
+ *
+ * Deliberately nothing for a booking across several rooms: this picks the record
+ * whose photographs and description are shown, and there is no honest way to
+ * choose one of four. The header above still names them all, so the group is told
+ * which rooms are theirs without the page claiming one of them is *the* room.
+ */
 const roomOfGuest = () => {
-  const number = guest()?.room;
-  return number ? rooms.find((r) => r.number === String(number)) ?? null : null;
+  const list = roomsIn(guest());
+  return list.length === 1 ? rooms.find((r) => r.number === list[0]) ?? null : null;
 };
 
 /**

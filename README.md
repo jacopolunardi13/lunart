@@ -255,9 +255,60 @@ not how you find out what it does with one.
 Everything in here used to be true of any guest. This half knows *which* guest.
 
 A reservation is the spine: one canonical record in `server/reservations.js`, with
-a status (`active`, `modified`, `cancelled`, `completed`), the dates, the room, who
+a status (`active`, `modified`, `cancelled`, `completed`), the dates, the rooms, who
 is coming and how to reach them. Nothing downstream knows what Booking.com calls a
 field — the guide, the emails, the Staff app and the card all read this one shape.
+
+### A booking is not always one room
+
+Booking.com sold seven adults the whole floor: one booking number, 302, 303, 304
+and 305. QuoVai's notification lists all four; the parser kept the first number it
+found, and the record had one `room` field to put it in. From there everything
+believed it — the Staff app printed "Camera 305 · 7 ospiti", the guide email said
+Camera 305, and a breakfast ordered with no room named was filed against 305 as
+well. That is a tray at the wrong door with the order's own record saying the guest
+asked for it there.
+
+So a reservation holds `rooms`, and `commerce/rooms.js` is the one place that
+decides what a room id is and how to read a set of them out loud. The invariant:
+
+| booking | `rooms` | `room` |
+|---|---|---|
+| one room | `['303']` | `'303'` |
+| four rooms | `['302','303','304','305']` | `''` |
+
+`rooms` is normalised — unique, valid, ascending — so two readings of the same
+booking compare equal however QuoVai happened to order them, and a modification
+that reshuffles the list is not mistaken for a change. `room` is kept because every
+record written before this existed has one and every screen reads it, but it names
+a room **only when there is exactly one to name**: a party of seven is not in room
+305, and the field that said so was the bug. Reading is always `roomsIn(record)`,
+which falls back to the legacy field, so nothing had to be migrated.
+
+Four surfaces say it out loud, each with its own two words and the same decision
+behind them: `Camere 302, 303, 304 e 305` / `Rooms 302, 303, 304 and 305`. The Pass
+artwork has a line for a number rather than a list, so its face shows the dates
+alone for a multi-room stay and the sheet underneath names them all. On the guest's
+own guide the header names every room and no single room card is presented as
+theirs — there is no honest way to choose one of four.
+
+**Nothing is guessed at checkout.** The order's room used to fall back to
+`reservation.room`; for a multi-room stay it now falls back to nothing, and a room
+the browser names has to be one of that booking's own rooms or the checkout is
+refused with `room-not-in-reservation` before an order exists. A single-room stay
+behaves exactly as it did.
+
+**And the calendar does not adopt a quarter of a booking.** One iCal entry is one
+room, and it cannot say which of four a seven-person stay is in — so a multi-room
+booking is never matched on the room (its number still matches, which is
+unambiguous), and occupancy that falls inside one is flagged for a person rather
+than held as a second stay. Inventing multi-room reconciliation would be the kind
+of thing that looks right until the morning four guests arrive.
+
+A record already filed under the old parser is corrected by **Ripara prenotazioni
+QuoVai**, in place: same id, same guide token, same booking number, no second
+reservation and no email. It is the one correction allowed to *empty* a field,
+because `room: '305'` has to become no single room at all.
 
 ### Where they come from
 
