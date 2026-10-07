@@ -27,19 +27,31 @@
  * twice safe.
  */
 
-import { isLive } from './reservations.js';
+import { isLive, RESERVATION_STATUS } from './reservations.js';
 import { propertyDate } from '../commerce/time.js';
 import { roomsIn, roomList } from '../commerce/rooms.js';
-import { DELIVERY_STATUS, deliverGuideEmail, renderGuideEmail } from './delivery.js';
+import { DELIVERY_STATUS, deliverGuideEmail, renderGuideEmail, sendTimeFor } from './delivery.js';
 
-/** Why a reservation is not in the catch-up. The breakdown staff read. */
+/**
+ * Why a reservation is not in the catch-up. The breakdown staff read.
+ *
+ * Each one is a different thing to do about it, which is the only reason to have
+ * more than one. `cancelled` is somebody calling off a stay; `past` is a stay that
+ * finished; `not-due-yet` is a guest the ordinary scheduler is going to write to
+ * on its own, at the hour the product promises, and whom this operation must leave
+ * entirely alone.
+ */
 export const CATCHUP_SKIP = {
   alreadySent: 'already-sent',
   cancelled: 'cancelled',
   past: 'past',
+  /** Live, complete, and simply not owed the guide yet. Not backlog. */
+  notDueYet: 'not-due-yet',
   provisional: 'provisional',
   noEmail: 'no-email',
   noToken: 'no-token',
+  /** No check-in date, so there is no T-3 moment to be past. */
+  noDates: 'no-dates',
   other: 'other',
 };
 
@@ -70,20 +82,82 @@ const alreadyWritten = (reservation, delivery) =>
   delivery?.status === DELIVERY_STATUS.sent
   || reservation?.guide_email_status === DELIVERY_STATUS.sent;
 
-/** Why this reservation is not eligible, or null when it is. */
-function skipReason(reservation, delivery, today) {
-  if (!isLive(reservation)) return CATCHUP_SKIP.cancelled;
-  if (reservation.provisional === true) return CATCHUP_SKIP.provisional;
-  // Gone home. A guide arriving after checkout is worse than none.
+/**
+ * When this guest's guide is actually owed, in full.
+ *
+ * The rule is not restated here. It is `sendTimeFor` in `server/delivery.js` —
+ * three days before check-in at ten in the morning, Florence time, clamped to now
+ * once that moment has gone — and this operation has no business owning a second
+ * copy of it. Where a delivery row exists, its `send_at` is the schedule as the
+ * system actually holds it, and it is read rather than recomputed.
+ *
+ * Both, and the *later* of the two, for a reason worth spelling out. A `simulated`
+ * row keeps the `send_at` it was first given: `scheduleGuideEmail` deliberately
+ * does not move it, because for the ordinary scheduler a simulated row is
+ * finished. So a staging simulation from last week sitting on a stay in April 2027
+ * carries a `send_at` in the past, and trusting the row alone would make that
+ * guest look like backlog and write to them seven months early. Taking the later
+ * moment means neither source can accelerate the other, which is the one property
+ * this whole operation needs.
+ *
+ * Null only when there is no check-in date and no scheduled moment either — a
+ * record with no dates has no T-3 to be past.
+ */
+function dueAt(reservation, delivery, now) {
+  const moments = [
+    sendTimeFor(reservation, { now }),
+    delivery?.send_at ? new Date(delivery.send_at) : null,
+  ].filter((at) => at instanceof Date && !Number.isNaN(at.getTime()));
+
+  if (moments.length === 0) return null;
+  return new Date(Math.max(...moments.map((at) => at.getTime())));
+}
+
+/**
+ * Why this reservation is not eligible, or null when it is.
+ *
+ * The order is the answer. It used to open with `if (!isLive) return cancelled`,
+ * which folded every finished stay into the cancellation count — a production dry
+ * run reported "cancelled: 65" for a store whose cancellations were a handful and
+ * whose other sixty-odd were simply guests who had already gone home. So the
+ * non-live statuses are now told apart: an explicit cancellation is a cancellation,
+ * a checkout in the past is `past` whatever the status field has got round to
+ * saying, and anything else non-live says so rather than borrowing a word.
+ *
+ * Due-time comes last, so a guest who is also missing an address is reported for
+ * the address rather than for the clock, and a guest already written to stays
+ * `already-sent` even when their moment has passed. `due` is `dueAt`'s answer,
+ * passed in because the caller prints it on the row either way.
+ */
+function skipReason(reservation, delivery, { today, now, due }) {
+  if (reservation.status === RESERVATION_STATUS.cancelled) return CATCHUP_SKIP.cancelled;
+  // Gone home. A guide arriving after checkout is worse than none — and the
+  // checkout date is the fact, whether or not the nightly sweep has marked it.
   if (reservation.check_out && reservation.check_out < today) return CATCHUP_SKIP.past;
+  if (reservation.status === RESERVATION_STATUS.completed) return CATCHUP_SKIP.past;
+  if (!isLive(reservation)) return CATCHUP_SKIP.other;
+
+  if (reservation.provisional === true) return CATCHUP_SKIP.provisional;
   if (!reservation.guest_email) return CATCHUP_SKIP.noEmail;
   if (!reservation.guide_token) return CATCHUP_SKIP.noToken;
   if (alreadyWritten(reservation, delivery)) return CATCHUP_SKIP.alreadySent;
+
+  /**
+   * And the one this operation exists to get right.
+   *
+   * The catch-up is for guests whose moment went by while production mail was not
+   * running. A guest arriving in a fortnight has not been missed: the scheduler
+   * will write to them three days before they arrive, at ten, which is the
+   * promise. Pressing a launch button must not turn that into today.
+   */
+  if (!due) return CATCHUP_SKIP.noDates;
+  if (due.getTime() > now.getTime()) return CATCHUP_SKIP.notDueYet;
+
   return null;
 }
 
 /** One row as the Staff screen draws it. Never the whole address. */
-const row = (reservation, delivery) => ({
+const row = (reservation, delivery, due) => ({
   reservation_id: reservation.id,
   guest: [reservation.first_name, reservation.last_name].filter(Boolean).join(' ').trim(),
   /** One room, or all of them: `302, 303, 304 e 305`. The label is the screen's. */
@@ -103,6 +177,15 @@ const row = (reservation, delivery) => ({
    * two disagree that is itself the thing staff need to see.
    */
   guide_email_status: reservation.guide_email_status ?? 'pending',
+  /**
+   * When the ordinary rule says this guide is owed.
+   *
+   * On an eligible row it is the moment that has already gone; on a skipped one it
+   * is the morning the scheduler will write to them by itself. Printed so a person
+   * can check the rule rather than take the verdict on trust — "non ancora in
+   * scadenza" is much easier to believe next to "11 ott 10:00".
+   */
+  due_at: due ? due.toISOString() : null,
 });
 
 /**
@@ -122,13 +205,14 @@ export async function previewGuideCatchUp({ store, now = new Date() }) {
 
   for (const reservation of reservations) {
     const delivery = await store.deliveries.findByReservation(reservation.id);
-    const reason = skipReason(reservation, delivery, today);
+    const due = dueAt(reservation, delivery, now);
+    const reason = skipReason(reservation, delivery, { today, now, due });
     if (reason) {
       counts[reason] += 1;
-      skipped.push({ ...row(reservation, delivery), reason });
+      skipped.push({ ...row(reservation, delivery, due), reason });
       continue;
     }
-    eligible.push(row(reservation, delivery));
+    eligible.push(row(reservation, delivery, due));
   }
 
   // The earliest arrival first: the people it matters most to reach.
@@ -138,6 +222,8 @@ export async function previewGuideCatchUp({ store, now = new Date() }) {
     ok: true,
     dryRun: true,
     today,
+    /** The instant every due-time decision in this answer was made against. */
+    at: now.toISOString(),
     considered: reservations.length,
     eligible: eligible.length,
     excluded: skipped.length,
@@ -148,12 +234,21 @@ export async function previewGuideCatchUp({ store, now = new Date() }) {
 }
 
 /**
- * Send it, to exactly the guests the preview named.
+ * Send it, to exactly the guests who are owed it at the moment the button is pressed.
  *
  * `confirm` is required and is not a default. The whole reason this operation
  * exists is that it is irreversible — a guest cannot be un-emailed — so it must be
  * impossible to trigger by requesting a URL, by a retry, or by a client that forgot
  * to send a body.
+ *
+ * **The list is recomputed here, and the caller cannot supply one.** That is
+ * deliberate and it is the safeguard that matters most: a Staff phone left open
+ * since this morning is holding a list that was true this morning. If the rule has
+ * been corrected since, or a guest has been written to, or a stay has been called
+ * off, the browser does not know. So the request carries one word — `confirm` —
+ * and nothing that could be mistaken for a recipient. Whatever the screen is
+ * showing, what leaves is what `previewGuideCatchUp` says now; the answer reports
+ * `attempted`, so a person can see when it differed from what they were looking at.
  *
  * Idempotent by the same rule the preview uses: a row that is `sent` is not
  * eligible, and sending writes `sent`. Run it twice and the second run has nothing
@@ -184,6 +279,11 @@ export async function runGuideCatchUp({ store, mailer, origin, now = new Date(),
       reservation_id: reservation.id,
       to: reservation.guest_email,
       lang: reservation.lang ?? 'it',
+      /**
+       * Now, because this guest's own moment has already gone — that is what made
+       * them eligible — and the row is being written at the moment they are
+       * actually being sent to.
+       */
       send_at: now.toISOString(),
       status: DELIVERY_STATUS.scheduled,
       attempts: 0,
@@ -216,6 +316,10 @@ export async function runGuideCatchUp({ store, mailer, origin, now = new Date(),
   return {
     ok: true,
     dryRun: false,
+    /** The instant eligibility was judged against — here, not in the browser. */
+    at: now.toISOString(),
+    /** How many were owed the guide when the button was actually pressed. */
+    eligible: preview.eligible,
     provider: mailer?.id ?? null,
     /** False where no provider is configured: nothing actually left the building. */
     delivered: mailer?.configured !== false,

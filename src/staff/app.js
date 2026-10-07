@@ -491,9 +491,12 @@ const CATCHUP_REASONS = {
   'already-sent': 'guida già inviata',
   cancelled: 'annullate',
   past: 'soggiorno concluso',
+  /** Live and complete; the scheduler writes to them three days before they arrive. */
+  'not-due-yet': 'non ancora in scadenza',
   provisional: 'provvisorie',
   'no-email': 'senza indirizzo email',
   'no-token': 'senza link personale',
+  'no-dates': 'senza date',
   other: 'altro',
 };
 
@@ -520,6 +523,22 @@ function catchUpPreviewSummary(result) {
       <span class="mono">${esc(r.email)}</span>
       <span class="mono">${esc(r.reference)} · ${esc(label(r.delivery_status))}</span></li>`).join('');
 
+  /**
+   * The ones the scheduler is going to handle on its own.
+   *
+   * Listed with the morning each one is due, because "non ancora in scadenza" is a
+   * verdict and a date is a fact — and because the question a person will have
+   * when they see a short list is "then what happens to the others?". This is the
+   * answer: nothing, they go out by themselves at the usual hour.
+   */
+  const waiting = (result.skipped ?? [])
+    .filter((r) => r.reason === 'not-due-yet')
+    .sort((a, b) => String(a.due_at).localeCompare(String(b.due_at)))
+    .map((r) => `
+      <li><strong>${esc(r.guest || r.reference || '—')}</strong>
+        · ${esc(day(r.check_in))} → ${esc(day(r.check_out))}
+        <span class="mono">parte ${esc(stamp(r.due_at))}</span></li>`).join('');
+
   return `<div class="banner" data-tone="${result.eligible > 0 ? 'warn' : ''}">
     <p><strong>Nessuna email è stata inviata.</strong> Questo è solo il controllo.</p>
     <p>Prenotazioni lette: <strong>${Number(result.considered ?? 0)}</strong> ·
@@ -529,6 +548,10 @@ function catchUpPreviewSummary(result) {
     ${rows
       ? `<p class="note">Riceverebbero la guida:</p><ul class="repair__list">${rows}</ul>`
       : '<p class="note">Nessun ospite da recuperare: sono già tutti a posto.</p>'}
+    ${waiting ? `<p class="note">
+      Queste non sono in ritardo: la guida parte da sé tre giorni prima
+      dell’arrivo, alle 10:00. Questa operazione non le tocca.</p>
+      <ul class="repair__list">${waiting}</ul>` : ''}
     ${result.mailerConfigured === false && result.eligible > 0
       ? `<p class="note note--warn">Nessun provider email configurato: premendo
           “Invia” le email verrebbero preparate e registrate come
@@ -558,6 +581,10 @@ function catchUpSendSummary(result) {
     <p class="note">Provider: ${esc(result.provider ?? '—')}.${result.simulated
       ? ' Le simulate non sono partite: non c’è nessun provider configurato, e quegli ospiti restano da recuperare.'
       : ''}</p>
+    ${result.stale ? `<p class="note note--warn">
+      Il controllo che hai davanti diceva ${Number(result.expected)} ospiti; al momento
+      dell’invio erano ${Number(result.attempted ?? 0)}. Il server ha ricalcolato chi è
+      davvero in scadenza, e ha scritto solo a quelli.</p>` : ''}
     ${rows ? `<ul class="repair__list">${rows}</ul>` : '<p class="note">Nessun ospite da recuperare.</p>'}
   </div>`;
 }
@@ -1103,13 +1130,30 @@ document.addEventListener('click', async (event) => {
       if (!confirm(`Invio reale della Guest Guide a ${count} ospiti. Non si può annullare. Procedere?`)) return;
     }
 
+    /**
+     * What this screen believed, so the answer can say if it was out of date.
+     *
+     * Sent to nobody — the request carries one word and no recipients, because the
+     * server decides who is owed the guide at the moment the button is pressed and
+     * a browser left open since this morning is not evidence about anything. This
+     * is only here so that when the two numbers differ, the banner can say so
+     * instead of leaving a person to wonder why they saw nineteen and six went out.
+     */
+    const expected = Number(send.dataset.eligible ?? 0);
+
     catchUp.disabled = true;
     try {
       const result = what === 'preview'
         ? await api('/sync/guide-catchup', { keepBody: true })
         : await api('/sync/guide-catchup', { method: 'POST', body: { confirm: true }, keepBody: true });
 
-      out.innerHTML = what === 'preview' ? catchUpPreviewSummary(result) : catchUpSendSummary(result);
+      out.innerHTML = what === 'preview'
+        ? catchUpPreviewSummary(result)
+        : catchUpSendSummary({
+          ...result,
+          expected,
+          stale: result.ok !== false && Number(result.attempted ?? 0) !== expected,
+        });
 
       if (what === 'preview') {
         // The preview arms the send, with the number it found, and only when there

@@ -352,6 +352,17 @@ await staffPage.screenshot({ path: `${OUT}/staff-repair-390.png` });
    that the screen says the preview sends nothing, that the send starts out of
    reach, and that it is armed only by a preview that found somebody. The send
    itself is never pressed from QA; the unit tests cover what it does. */
+/* A stay far enough ahead that the ordinary scheduler owns it — so the dry run has
+   somebody to report as "non ancora in scadenza" rather than an empty category.
+   Six weeks out: its T-3 morning is nowhere near today, whenever QA runs. */
+const notDue = await post('/api/staff/reservations', {
+  first_name: 'Futura', last_name: `F6x${Date.now().toString(36).slice(-4)}`,
+  guest_email: 'qa-notdue@example.invalid',
+  check_in: inDays(42), check_out: inDays(45), room: '301', adults: 2,
+  booking_reference: `QA-NOTDUE-${Date.now()}`,
+});
+const notDueRow = notDue;
+
 await staffPage.click('[data-view="sync"]');
 await staffPage.waitForTimeout(800);
 const catchUpText = await staffPage.textContent('#main');
@@ -372,6 +383,28 @@ const dryRun = (await staffPage.textContent('#catchup-result')).replace(/\s+/g, 
 note(/Nessuna email \u00e8 stata inviata/.test(dryRun), `the dry run says so first (${dryRun.slice(0, 80)})`);
 note(/Prenotazioni lette:/.test(dryRun), 'and gives the three numbers');
 note(/Riceverebbero la guida|Nessun ospite da recuperare/.test(dryRun), 'then names who, or says nobody');
+
+/* ── The due-time rule, which is what the list is actually about ───────────
+   A production dry run once offered to write to a guest arriving in April 2027,
+   because eligibility asked whether somebody still needed the guide and never
+   whether they needed it yet. The catch-up is for moments that have gone by. */
+note(/non ancora in scadenza/.test(dryRun),
+  'the dry run names the guests the scheduler will handle by itself');
+note(/la guida parte da sé tre giorni prima/.test(dryRun),
+  'and says why they are not in the list, rather than only excluding them');
+note(/parte /.test(dryRun), 'with the morning each one is due');
+
+const catchUpApi = await (await fetch(`${BASE}/api/staff/sync/guide-catchup`)).json();
+const waitingRow = (catchUpApi.skipped ?? []).find((r) => r.reservation_id === notDueRow.reservation.id);
+note(waitingRow?.reason === 'not-due-yet',
+  `a stay six weeks out is not backlog (${waitingRow?.reason ?? 'missing from the answer'})`);
+note(!(catchUpApi.rows ?? []).some((r) => r.reservation_id === notDueRow.reservation.id),
+  'and is nowhere in the list that would be written to');
+note(waitingRow?.due_at && new Date(waitingRow.due_at) > new Date(),
+  `its own T-3 morning is still ahead (${waitingRow?.due_at ?? '—'})`);
+note(!Object.entries(catchUpApi.breakdown ?? {}).some(([reason, count]) => reason === 'cancelled' && count > 0)
+  || (catchUpApi.breakdown.cancelled ?? 0) < (catchUpApi.considered ?? 0),
+  'and a finished stay is not reported as a cancellation');
 
 const armed = Number(await staffPage.getAttribute('[data-catchup="send"]', 'data-eligible'));
 const sendDisabled = await staffPage.isDisabled('[data-catchup="send"]');
@@ -694,6 +727,7 @@ note(errors.length === 0, `no page errors in the guide (${errors.slice(0, 2).joi
 
 // Leave the preview as it was found: every throwaway reservation cancelled.
 await post(`/api/staff/reservations/${chosen.id}/cancel`, { reason: 'QA finita' });
+await post(`/api/staff/reservations/${notDueRow.reservation.id}/cancel`, { reason: 'QA finita' });
 for (const id of throwaway) await post(`/api/staff/reservations/${id}/cancel`, { reason: 'QA finita' });
 
 await browser.close();

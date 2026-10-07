@@ -462,11 +462,45 @@ Two buttons, because they are two different acts:
   `{"confirm": true}` and is refused with a 422 without it, so no retry, prefetch
   or mistyped URL can write to a guest. In the app it stays disabled until a
   preview has run and found somebody, and then asks once more, naming the number.
+  **The list is recomputed server-side on every send and the request carries no
+  recipients** — one word and nothing that could be mistaken for a name. A phone
+  left open since this morning is holding a list that was true this morning, and
+  the answer reports `attempted` so a person can see when the two differed.
 
-A reservation is in the catch-up when the stay is live or modified, is not
-provisional, has not checked out, has a real guest address and a guide token, and
-has not already had a real email. Everything else is excluded and counted under
-the reason: already sent, cancelled, past, provisional, no address, no token.
+A reservation is in the catch-up when the stay is live, is not provisional, has
+not checked out, has a real guest address and a guide token, has not already had a
+real email, **and is genuinely owed the guide now**.
+
+That last clause is the whole point and it was missing. The first production dry
+run offered to write to nineteen guests, among them somebody arriving in April
+2027: eligibility asked whether a guest still needed the guide and never whether
+they needed it *yet*. The catch-up exists for moments that have already gone by
+while production mail was not running. It must not pull one future email forward,
+ever — a guest arriving in a fortnight has not been missed, and the scheduler is
+going to write to them three days before they arrive, at ten, which is the
+promise.
+
+The rule is not restated: `sendTimeFor` in `server/delivery.js` owns T-3 at 10:00
+Florence, and the catch-up reads it. Where a delivery row exists its `send_at` is
+read too, and the **later** of the two decides. That asymmetry is deliberate. A
+`simulated` row keeps whatever `send_at` it was first given, because
+`scheduleGuideEmail` has no reason to move a row the ordinary scheduler considers
+finished — so a staging simulation from last week can sit on a stay in April 2027
+carrying a `send_at` in the past. Trusting the row alone would have written to that
+guest seven months early. Taking the later moment means neither source can
+accelerate the other.
+
+Everything excluded is counted under a reason that says what to do about it, and
+the order matters. The first dry run also reported `cancelled: 65` for a store
+whose real cancellations were five: `skipReason` opened with `if (!isLive) return
+cancelled`, so every finished stay was filed under a word that means somebody
+called it off. Now an explicit cancellation is `cancelled`, a checkout in the past
+is `past` whatever the status field has got round to saying, anything else non-live
+says `other`, and a live complete guest whose morning has not arrived is
+`not-due-yet` — listed on the screen with the date it will go out, because a
+verdict is worth less than a fact. Due-time is checked last, so a guest missing an
+address is reported for the address and a guest already written to stays
+`already-sent`.
 
 The distinction that makes it idempotent is `sent` versus `simulated`. For the
 ordinary scheduler both mean *finished*, which is right: it must not send twice,

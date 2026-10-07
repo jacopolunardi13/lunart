@@ -328,7 +328,15 @@ async function backlog() {
   await add('provvisoria', { provisional: true, guest_email: '' });
   await add('senzamail', { guest_email: '' });
   const done = await add('giafatta', {});
-  const simulata = await add('simulata', {});
+  /**
+   * Simulated, and genuinely owed: arriving tomorrow, so T-3 went by two days ago.
+   *
+   * The dates matter now. A simulated row on a stay still weeks away is not
+   * backlog at all — the scheduler will write to them at the proper hour — and
+   * `test/catchup-due.test.mjs` holds that case. This one is the pair to it: the
+   * row says simulated, the moment has passed, and nothing has reached the guest.
+   */
+  const simulata = await add('simulata', { check_in: addDays(today, 1), check_out: addDays(today, 4) });
 
   // One guest who really has had the email, and one whose "delivery" was a
   // staging simulation that never left the building.
@@ -379,9 +387,11 @@ test('C the dry run names who would be written to, and sends nothing', async () 
     [CATCHUP_SKIP.alreadySent]: 1,
     [CATCHUP_SKIP.cancelled]: 1,
     [CATCHUP_SKIP.past]: 1,
+    [CATCHUP_SKIP.notDueYet]: 0,
     [CATCHUP_SKIP.provisional]: 1,
     [CATCHUP_SKIP.noEmail]: 1,
     [CATCHUP_SKIP.noToken]: 0,
+    [CATCHUP_SKIP.noDates]: 0,
     [CATCHUP_SKIP.other]: 0,
   });
 
