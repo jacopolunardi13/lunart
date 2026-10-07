@@ -6,8 +6,8 @@
  * all of them over the street and the Arno — so the noise entry now says what is
  * actually true. And "Bambini benvenuti / età minima 18 anni" was self-contradictory;
  * the operational rule is now explicit: families are welcome, 0–2 can share the
- * parents' bed, cots and extra beds have fixed supplements, and unaccompanied
- * minors need prior written parental or guardian authorisation.
+ * parents' bed, a cot is an extra paid service, and an additional bed is charged
+ * only when a two-person Superior booking asks for a separate extra bed.
  */
 
 export const stay = [
@@ -181,12 +181,12 @@ export const stay = [
     priority: 10,
     title: { it: 'Bambini, culle e terzo letto', en: 'Children, cots and a third bed' },
     summary: {
-      it: 'Le famiglie sono benvenute. Fino a 2 anni i bambini possono dormire gratuitamente nel letto con i genitori; la culla costa 20 € a notte e va richiesta almeno il giorno prima.',
-      en: 'Families are welcome. Up to age 2, children may share their parents’ bed free of charge; a cot is €20 per night and should be requested at least the day before.',
+      it: 'Le famiglie sono benvenute. Fino a 2 anni i bambini possono dormire gratuitamente nel letto con i genitori; se serve una culla, è un servizio extra a pagamento da richiedere in anticipo.',
+      en: 'Families are welcome. Up to age 2, children may share their parents’ bed free of charge; if a cot is needed, it is a paid extra service that should be requested in advance.',
     },
     detail: {
-      it: 'Dai 3 anni serve un posto letto. Le camere 303 e 305, entrambe Superior, sono quelle che si allestiscono normalmente come triple.\n\nSe la camera è stata prenotata come tripla, il terzo letto è incluso. Se una prenotazione doppia aggiunge dopo un terzo letto nelle Superior, il supplemento è 30 € a notte.\n\nLa 304 può accettare un letto aggiuntivo solo quando è operativamente possibile: va chiesto prima e la sistemazione viene confermata dallo staff.\n\nI minori non accompagnati non soggiornano autonomamente senza preventiva autorizzazione scritta di un genitore o tutore.',
-      en: 'From age 3, a separate bed is required. Rooms 303 and 305, both Superior, are the rooms normally set up as triples.\n\nIf the room was booked as a triple, the third bed is included. If a double booking later adds a third bed in a Superior room, the supplement is €30 per night.\n\nRoom 304 can take an extra bed only when operationally practical: ask first and staff will confirm the arrangement.\n\nUnaccompanied minors cannot stay independently without prior written authorisation from a parent or legal guardian.',
+      it: 'Dai 3 anni serve un posto letto. Le camere 303 e 305, entrambe Superior, sono le camere normalmente utilizzate come triple.\n\nSe la prenotazione è per 3 persone, il terzo letto è già compreso nella tariffa. Se invece una Superior 303 o 305 è prenotata per 2 persone e gli ospiti chiedono di dormire separatamente aggiungendo un terzo letto, il letto extra è a pagamento con supplemento di 30 € a notte.',
+      en: 'From age 3, a separate bed is required. Rooms 303 and 305, both Superior, are the rooms normally used as triples.\n\nIf the booking is for 3 guests, the third bed is already included in the rate. If instead Superior room 303 or 305 is booked for 2 guests and they ask to sleep separately by adding a third bed, that extra bed is charged at €30 per night.',
     },
     actions: [{ kind: 'entry', label: { it: 'Richiedi una culla', en: 'Request a cot' }, value: 'contacts' }],
     intents: ['children'],
