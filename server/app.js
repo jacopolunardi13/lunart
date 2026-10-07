@@ -21,6 +21,7 @@ import {
   priceAndBuild, stripeLineItems, fulfilOrder, orderView, orderReference, canTransition, appendEvent,
 } from './orders.js';
 import { roomsIn, roomList } from '../commerce/rooms.js';
+import { reconcileExternalRefund, refundFromCharge, REFUND_SOURCES } from './refunds.js';
 import { holderView, currentCode, validateCode, qrPayload, cardState, revoke } from './card.js';
 import {
   PRODUCTS, PLANNED_PRODUCTS, COMMERCE_CATEGORIES, WINES, WINE_KINDS, DELIVERY_SLOTS,
@@ -61,7 +62,7 @@ import { freeSlots, freeDays, slotIsFree, verifySlotForCheckout } from './calend
 import { createScheduler } from './scheduler.js';
 import {
   STAFF_QUEUES, queueOf, staffOrderView, orderQueues, dashboard, syncOverview,
-  setFulfilment, requestSubstitution, assignOrder, cancelOrder, refundOrder,
+  setFulfilment, requestSubstitution, assignOrder, cancelOrder, refundOrder, reconcileRefundByHand,
   createManualReservation, editReservation, cancelReservationByStaff, guideLinkFor,
   groupReservations, syncJobStates,
 } from './staff.js';
@@ -1337,6 +1338,75 @@ export async function createApp(overrides = {}) {
     });
   }
 
+  /**
+   * A refund that already happened on a Stripe account this server cannot reach.
+   *
+   * Staff-only, behind `guard` like every other operation here, and never on a
+   * guest route. It calls no provider and moves no money — the name says what it
+   * is: reconciling a refund that has already been made. The order is named
+   * exactly, by its id or by the eight characters a guest would read out, and the
+   * body has to carry `confirm: true`, so no retry or prefetch can write a refund.
+   *
+   * Refused unless the order is in a state a full refund could have been made
+   * from, which is also what makes a second call safe: the first leaves it
+   * `refunded`, and the second finds nothing to change and says so.
+   */
+  async function postStaffOrderRefundReconcile(req, res) {
+    const body = await readJson(req).catch(() => ({}));
+    const wanted = String(body.order ?? body.reference ?? '').trim();
+    if (!wanted) { sendJson(res, 422, { ok: false, error: 'no-order-given' }); return; }
+
+    const order = await findOrderByIdOrReference(wanted);
+    if (!order) { sendJson(res, 404, { ok: false, error: 'not-found' }); return; }
+
+    if (body.confirm !== true) {
+      sendJson(res, 422, {
+        ok: false,
+        error: 'not-confirmed',
+        message: 'Serve una conferma esplicita.',
+        /** So a person can check they have named the right order before confirming. */
+        order: staffOrderView(order),
+      });
+      return;
+    }
+
+    const result = await reconcileRefundByHand({
+      store,
+      order,
+      confirm: true,
+      actor: String(body.by ?? 'staff').slice(0, 60),
+      reason: String(body.reason ?? body.note ?? '').slice(0, 300),
+      providerReference: String(body.providerReference ?? body.refundReference ?? '').slice(0, 120),
+    });
+
+    if (!result.ok) { sendJson(res, 409, result); return; }
+    sendJson(res, 200, {
+      ok: true,
+      action: result.action,
+      order: staffOrderView(result.order),
+      refunded_amount: result.refunded_amount,
+      revoked: result.revoked,
+    });
+  }
+
+  /**
+   * One order, named either way.
+   *
+   * A person reconciling by hand is reading a reference off a screen — `654C8AE9`
+   * — not retyping a uuid, and refusing the thing they actually have would push
+   * them towards pasting the wrong one. The reference is the first eight characters
+   * of the id, so it is matched by prefix and only ever accepted when exactly one
+   * order answers to it.
+   */
+  async function findOrderByIdOrReference(wanted) {
+    const direct = await store.orders.get(wanted);
+    if (direct) return direct;
+
+    const key = wanted.toUpperCase();
+    const matches = await store.orders.filter((order) => orderReference(order) === key);
+    return matches.length === 1 ? matches[0] : null;
+  }
+
   /* ── Launch day: the guests already in the system ──────────────────────
      Deliberately two handlers behind two verbs. The preview is a GET because it
      changes nothing, and the send is a POST that refuses without an explicit
@@ -1630,6 +1700,7 @@ export async function createApp(overrides = {}) {
     ['POST', '/api/staff/sync/ical/inspect', guard(postStaffIcalInspect)],
     ['POST', '/api/staff/sync/ingest', guard(postStaffIngest)],
     ['POST', '/api/staff/sync/send-emails', guard(postStaffSendEmails)],
+    ['POST', '/api/staff/orders/refund-reconcile', guard(postStaffOrderRefundReconcile)],
     ['GET',  '/api/staff/sync/guide-catchup', guard(getStaffGuideCatchUp)],
     ['POST', '/api/staff/sync/guide-catchup', guard(postStaffGuideCatchUp)],
     ['POST', '/api/staff/alerts/:id/resolve', guard(postStaffAlertResolve)],
@@ -1868,9 +1939,30 @@ export async function handleStripeEvent(event, { store, stripe, settings, push =
       outcome = await move(PAYMENT_STATUS.failed, {}, object.last_payment_error?.message ?? '');
       break;
 
-    case 'charge.refunded':
-      outcome = await move(PAYMENT_STATUS.refunded, {}, 'refunded');
+    /**
+     * Money given back at the provider, which this side has to catch up with.
+     *
+     * It used to move the status and stop there — no amount recorded, no
+     * difference between a full refund and a partial one, and nothing done about a
+     * Privilege Card that went on issuing a valid QR after the fifteen euros for it
+     * had been returned. `reconcileExternalRefund` is the one path that writes a
+     * refund; see `server/refunds.js` for why full and partial cannot be treated
+     * alike. `move` is not used because a partial refund must leave the status
+     * exactly where it is.
+     */
+    case 'charge.refunded': {
+      const refund = refundFromCharge(object);
+      outcome = await reconcileExternalRefund({
+        store,
+        order,
+        amount: refund.refunded,
+        full: refund.full,
+        reference: refund.reference,
+        source: REFUND_SOURCES.provider,
+      });
+      if (outcome.order) order = outcome.order;
       break;
+    }
 
     default:
       outcome = { ignored: true, reason: `unhandled:${event.type}` };

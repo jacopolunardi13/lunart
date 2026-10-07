@@ -590,6 +590,43 @@ function catchUpSendSummary(result) {
 }
 
 /**
+ * What the reconciliation did, in the two facts that matter.
+ *
+ * Which cards stopped working is the one a person has to be able to read back: a
+ * revoked Privilege Card is a guest whose QR will not open a door this evening, and
+ * if that was not meant, somebody needs to know tonight rather than next week.
+ */
+function refundReconcileSummary(result) {
+  if (result.ok === false) {
+    const why = {
+      'not-confirmed': 'Serviva una conferma esplicita: non \u00e8 stato cambiato niente.',
+      'not-reconcilable': `L\u2019ordine \u00e8 in stato \u201c${esc(label(result.status))}\u201d: solo un ordine pagato pu\u00f2 essere riconciliato.`,
+      'not-found': 'Nessun ordine con quel riferimento.',
+      'no-order-given': 'Nessun ordine indicato.',
+    }[result.error ?? result.reason] ?? esc(result.error ?? result.reason ?? 'non eseguito');
+    return `<div class="banner" data-tone="bad"><p>${why}</p></div>`;
+  }
+
+  if (result.action === 'unchanged') {
+    return `<div class="banner">
+      <p>Era gi\u00e0 riconciliato: niente da cambiare.</p>
+      <p class="note">Ordine <span class="mono">${esc(result.order?.reference ?? '')}</span>
+        \u00b7 ${esc(label(result.order?.status ?? ''))}</p>
+    </div>`;
+  }
+
+  return `<div class="banner" data-tone="warn">
+    <p>Ordine <span class="mono">${esc(result.order?.reference ?? '')}</span> segnato come
+      <strong>rimborsato</strong> per ${esc(money(result.refunded_amount, result.order?.currency))}.</p>
+    ${result.revoked?.length
+      ? `<p class="note">Card revocate: <span class="mono">${esc(result.revoked.join(', '))}</span>.
+          Il QR non funziona pi\u00f9 e i vantaggi partner non valgono pi\u00f9.</p>`
+      : '<p class="note">Nessuna card da revocare su questo ordine.</p>'}
+    <p class="note">Nessun soldo \u00e8 stato mosso: il rimborso era gi\u00e0 stato fatto su Stripe.</p>
+  </div>`;
+}
+
+/**
  * What the test notification actually did.
  *
  * Three things can be wrong and each needs a different person to do a different
@@ -753,6 +790,23 @@ async function renderSync() {
     <div class="actions">
       <button class="action" type="button" data-sync="backfill">Ricostruisci prenotazioni da QuoVai</button>
     </div>
+
+    <h2>Rimborso già effettuato su Stripe</h2>
+    <p class="note">
+      Solo per il caso raro di un rimborso fatto su un account Stripe diverso, il cui
+      webhook non arriva qui. <strong>Non chiama Stripe e non muove soldi</strong>:
+      il rimborso è già avvenuto e verificato, e questo serve solo a farlo sapere a
+      LunArt. Segna l’ordine come rimborsato per l’intero importo e revoca la
+      Privilege Card che quell’ordine aveva emesso — il QR smette di funzionare e i
+      vantaggi partner non valgono più. Lo storico resta. Si può rilanciare: la
+      seconda volta non cambia niente.
+    </p>
+    <div class="actions">
+      <button class="action action--danger" type="button" data-refund-reconcile>
+        Riconcilia un rimborso esterno
+      </button>
+    </div>
+    <div id="refund-reconcile-result"></div>
 
     <h2>Calendario iCal</h2>
     <p class="note">
@@ -959,6 +1013,8 @@ const alertTitle = (kind) => ({
   'occupancy-vanished': 'Evento sparito dal calendario',
   'ical-feed-unreachable': 'Calendario non raggiungibile',
   'unreadable-notification': 'Notifica non interpretabile',
+  'partial-refund-unallocated': 'Rimborso parziale da attribuire',
+  'refund-amount-unreadable': 'Rimborso senza importo leggibile',
 }[kind] ?? kind);
 
 /* ── Interaction ───────────────────────────────────────────────────────── */
@@ -1175,6 +1231,65 @@ document.addEventListener('click', async (event) => {
       if (what === 'send') hint.textContent = 'Rifare il controllo per sapere a chi è arrivata.';
     } finally {
       if (what === 'preview') catchUp.disabled = false;
+    }
+    return;
+  }
+
+  /**
+   * Reconcile a refund that already happened on another Stripe account.
+   *
+   * Two prompts and a confirmation, which is the right amount of friction for an
+   * operation that revokes a card on a person's word. The first asks which order,
+   * because naming it wrong is the only real mistake available here; the server
+   * then answers with the order it found, so the second prompt can quote the guest
+   * and the amount back before anything is written. Nothing is sent to Stripe.
+   */
+  const refundReconcile = event.target.closest('[data-refund-reconcile]');
+  if (refundReconcile) {
+    const out = $('#refund-reconcile-result');
+    const wanted = prompt('Riferimento o id dell\u2019ordine gi\u00e0 rimborsato su Stripe (es. 654C8AE9)');
+    if (!wanted?.trim()) return;
+
+    refundReconcile.disabled = true;
+    try {
+      /**
+       * A deliberate dry run: without `confirm` the server refuses and hands back
+       * the order it matched, so the question below can name a real guest and a
+       * real amount instead of an eight-character code.
+       */
+      const found = await api('/orders/refund-reconcile', {
+        method: 'POST', body: { order: wanted.trim() }, keepBody: true,
+      });
+
+      if (found.status === 404 || !found.order) {
+        out.innerHTML = `<div class="banner" data-tone="bad">
+          <p>Nessun ordine corrisponde a <span class="mono">${esc(wanted.trim())}</span>.</p></div>`;
+        return;
+      }
+
+      const order = found.order;
+      const sure = confirm(
+        `Segnare come rimborsato l\u2019ordine ${order.reference} di ${order.customer?.name ?? '\u2014'}`
+        + ` per ${money(order.amount, order.currency)}?\n\n`
+        + 'Il rimborso deve essere GI\u00c0 stato fatto su Stripe. Questo non muove soldi,'
+        + ' ma revoca la Privilege Card di quell\u2019ordine e non si pu\u00f2 annullare.',
+      );
+      if (!sure) return;
+
+      const reason = prompt('Motivo / nota (facoltativo, resta nello storico dell\u2019ordine)') ?? '';
+      const providerReference = prompt('Riferimento del rimborso su Stripe (facoltativo)') ?? '';
+
+      const result = await api('/orders/refund-reconcile', {
+        method: 'POST',
+        body: { order: order.id, confirm: true, reason, providerReference },
+        keepBody: true,
+      });
+      out.innerHTML = refundReconcileSummary(result);
+      await render();
+    } catch (error) {
+      if (!error.handled) out.innerHTML = `<div class="banner" data-tone="bad">${esc(error.message)}</div>`;
+    } finally {
+      refundReconcile.disabled = false;
     }
     return;
   }

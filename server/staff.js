@@ -22,6 +22,7 @@
 import { PAYMENT_STATUS, FULFILMENT_STATUS, canFulfilmentMove } from '../commerce/schema.js';
 import { canTransition, appendEvent, orderReference } from './orders.js';
 import { roomsIn, roomList } from '../commerce/rooms.js';
+import { reconcileExternalRefund, REFUND_SOURCES } from './refunds.js';
 import { getProduct, cancellableUntil } from '../commerce/ordering.js';
 import { propertyDate, addDays } from '../commerce/time.js';
 import {
@@ -238,12 +239,86 @@ export async function refundOrder({ store, stripe, order, note = '', by = 'staff
   } catch (error) {
     return { ok: false, reason: 'refund-failed', message: error.message };
   }
-  const updated = await store.orders.update(order.id, {
-    status: PAYMENT_STATUS.refunded,
-    fulfilment_status: FULFILMENT_STATUS.cancelled,
-    events: stamp(order, 'refunded', note, by),
+
+  /**
+   * The money is back. Now the records, through the one path that writes a refund.
+   *
+   * This used to move the status and stamp the log, which left the same hole the
+   * webhook had: a fully refunded Privilege Card went on issuing a valid QR, and a
+   * venue would have honoured it. The amount and the revocation belong to
+   * `reconcileExternalRefund`, so there is exactly one definition of what a full
+   * refund does to an order — whoever pressed the button.
+   */
+  const reconciled = await reconcileExternalRefund({
+    store,
+    order,
+    amount: Number(order.amount ?? 0),
+    full: true,
+    source: REFUND_SOURCES.staff,
+    actor: by,
+    reason: note,
   });
-  return { ok: true, order: updated };
+  if (!reconciled.ok) return reconciled;
+
+  /**
+   * The thing itself, which this action has always moved and still should.
+   *
+   * `reconcileExternalRefund` leaves `fulfilment_status` alone on purpose — it
+   * reconciles refunds it hears about after the fact, and overwriting a breakfast
+   * that really was delivered would erase something that happened. Here a person is
+   * standing at the screen refunding the whole order on purpose, so saying the
+   * thing is off is the honest reading, and it is what this button already did.
+   */
+  const updated = canFulfilmentMove(reconciled.order.fulfilment_status, FULFILMENT_STATUS.cancelled)
+    ? await store.orders.update(order.id, { fulfilment_status: FULFILMENT_STATUS.cancelled })
+    : reconciled.order;
+
+  return {
+    ok: true,
+    order: updated,
+    /** Which cards stopped working because of this, for the answer staff read. */
+    revoked: reconciled.revoked,
+  };
+}
+
+/**
+ * A refund that already happened somewhere this server cannot see.
+ *
+ * The rare case, and a real one. A card was bought for €15 while production was
+ * briefly pointed at a different live Stripe account; the charge was refunded from
+ * that account's dashboard, and that account had no webhook pointing here. The
+ * money is genuinely gone and the current Stripe credentials cannot even retrieve
+ * the payment intent to prove it — it belongs to another account.
+ *
+ * So this is the one operation that writes a refund on a person's word. It makes no
+ * provider call of any kind and moves no money: the refund has happened, somebody
+ * has verified it at the provider, and all that is left is for the records to say
+ * so. Which is also why it insists on being meant — an explicit confirmation, an
+ * exact order, and the actor and reason written into the order's own history
+ * alongside the provider's refund reference where there is one.
+ *
+ * Everything it then does is `reconcileExternalRefund`, unchanged: the same status,
+ * the same amount, the same revocation the webhook would have performed had it
+ * arrived. Run it twice and the second run reports `unchanged`.
+ */
+export async function reconcileRefundByHand({
+  store, order, confirm = false, actor = 'staff', reason = '', providerReference = '', now = new Date(),
+}) {
+  if (!order) return { ok: false, reason: 'not-found' };
+  if (confirm !== true) return { ok: false, reason: 'not-confirmed' };
+
+  return reconcileExternalRefund({
+    store,
+    order,
+    /** The whole order, because this operation exists only for a full refund. */
+    amount: Number(order.amount ?? 0),
+    full: true,
+    reference: String(providerReference ?? '').trim().slice(0, 120) || null,
+    source: REFUND_SOURCES.staff,
+    actor: String(actor ?? 'staff').slice(0, 60),
+    reason: String(reason ?? '').slice(0, 300),
+    now,
+  });
 }
 
 /* ── Reservations, by hand ─────────────────────────────────────────────── */
