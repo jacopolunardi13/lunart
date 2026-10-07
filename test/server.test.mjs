@@ -359,10 +359,23 @@ test('a refund is recorded', async () => {
   const stored = await app.store.orders.findByAccessToken(order.accessToken);
   await handleStripeEvent({
     id: `evt_${randomUUID()}`, type: 'charge.refunded',
-    data: { object: { id: 'ch_1', payment_intent: stored.stripe_payment_intent_id, metadata: { order_id: stored.id } } },
+    data: {
+      object: {
+        id: 'ch_1',
+        payment_intent: stored.stripe_payment_intent_id,
+        metadata: { order_id: stored.id },
+        // The amounts a real Stripe charge carries. Without them the event says
+        // money came back and refuses to say how much, which is a question for a
+        // person rather than a licence to assume the lot.
+        amount: stored.amount,
+        amount_refunded: stored.amount,
+        refunded: true,
+      },
+    },
   }, { store: app.store, stripe: app.stripe, settings: app.settings });
   const { body } = await api(`/api/orders/${order.accessToken}`);
   assert.equal(body.status, 'refunded');
+  assert.equal(body.refunded_amount, stored.amount, 'and for how much');
 });
 
 /* ── Signature verification ──────────────────────────────────────────────── */

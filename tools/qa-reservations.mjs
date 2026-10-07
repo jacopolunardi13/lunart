@@ -436,6 +436,45 @@ note(sendStatus === 422 || sendStatus === 401,
 note(confirmlessStatus === 422 || confirmlessStatus === 401,
   `and so is a send whose confirmation is not the word true (${confirmlessStatus})`);
 
+/* ── Reconciling a refund made on another Stripe account ───────────────────
+   The rare case: money given back from a dashboard whose webhook does not reach
+   here, so the order still reads paid and the card it issued still opens doors.
+   The button is never pressed from QA — it revokes a card and cannot be undone —
+   so what is checked is that it exists, says what it does and does not do, and
+   that the endpoint behind it refuses everything short of an explicit
+   confirmation. The unit tests cover what a confirmed call writes. */
+// Normalised, because the copy wraps and `textContent` keeps the line breaks.
+const refundText = (await staffPage.textContent('#main')).replace(/\s+/g, ' ');
+note(/Rimborso già effettuato su Stripe/.test(refundText),
+  'the external-refund reconciliation has a section of its own');
+note(/Non chiama Stripe e non muove soldi/.test(refundText),
+  'and says plainly that it calls no provider and moves no money');
+note(/revoca la Privilege Card/.test(refundText), 'and that it revokes the card');
+note(await staffPage.isVisible('[data-refund-reconcile]'), 'the action is offered to staff');
+
+const reconcilePost = (body) => fetch(`${BASE}/api/staff/orders/refund-reconcile`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+const [noOrderStatus, unknownStatus, unconfirmedStatus] = await Promise.all([
+  reconcilePost({ confirm: true }).then((r) => r.status),
+  reconcilePost({ order: 'NOSUCHREF', confirm: true }).then((r) => r.status),
+  reconcilePost({ order: 'NOSUCHREF' }).then((r) => r.status),
+]);
+note(noOrderStatus === 422 || noOrderStatus === 401,
+  `an unnamed order is refused (${noOrderStatus})`);
+note(unknownStatus === 404 || unknownStatus === 401,
+  `an order nobody holds is refused (${unknownStatus})`);
+note(unconfirmedStatus === 404 || unconfirmedStatus === 422 || unconfirmedStatus === 401,
+  `and nothing is written without a confirmation (${unconfirmedStatus})`);
+
+/* Never reachable as a guest, whatever the path looks like. */
+const guestReach = await Promise.all([
+  fetch(`${BASE}/api/orders/refund-reconcile`, { method: 'POST' }).then((r) => r.status),
+  fetch(`${BASE}/api/refund-reconcile`, { method: 'POST' }).then((r) => r.status),
+]);
+note(guestReach.every((status) => status === 404 || status === 401),
+  `no guest route reaches it (${guestReach.join(', ')})`);
+
 /* ── The push test ────────────────────────────────────────────────────── */
 note(await staffPage.isVisible('[data-push-test="now"]'), 'a test notification can be sent from here');
 await staffPage.click('[data-push-test="now"]');
@@ -560,11 +599,14 @@ const groupRooms = await page.evaluate(() => [...document.querySelectorAll('#mai
 note(groupRooms.length === 0,
   `no single room is presented as theirs (${groupRooms.join(', ') || 'none'})`);
 
-/* The order room: nothing guessed, and nothing the browser claims taken on trust. */
+/* The order room: nothing guessed, and nothing the browser claims taken on trust.
+   The breakfast is for the last day of the stay rather than tomorrow: breakfast
+   closes at noon the day before, so an afternoon QA run ordering tomorrow's would
+   be refused for the cut-off and tell us nothing about rooms. */
 const quietOrder = await post('/api/checkout', {
   guideToken: groupLink.split('/g/')[1], lang: 'it',
   customer: { name: 'Gruppo QA', email: 'qa-group@example.invalid' },
-  lines: [{ productId: 'light-breakfast', quantity: 1, date: inDays(1), slotId: 'b-0900', room: '303' }],
+  lines: [{ productId: 'light-breakfast', quantity: 1, date: inDays(2), slotId: 'b-0900', room: '303' }],
 });
 note(Boolean(quietOrder.accessToken), `a room from the group can be ordered to (${quietOrder.error ?? 'ok'})`);
 
@@ -574,7 +616,7 @@ const wrongRoom = await fetch(`${BASE}/api/checkout`, {
   body: JSON.stringify({
     guideToken: groupLink.split('/g/')[1], lang: 'it',
     customer: { name: 'Gruppo QA', email: 'qa-group@example.invalid', room: '301' },
-    lines: [{ productId: 'light-breakfast', quantity: 1, date: inDays(1), slotId: 'b-0900', room: '301' }],
+    lines: [{ productId: 'light-breakfast', quantity: 1, date: inDays(2), slotId: 'b-0900', room: '301' }],
   }),
 });
 const wrongBody = await wrongRoom.json().catch(() => ({}));

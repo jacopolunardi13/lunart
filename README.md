@@ -739,6 +739,73 @@ Webhooks are verified with a timing-safe compare and a timestamp tolerance, ever
 write carries an idempotency key, and each event id is processed once. Stripe
 retries; discovering that by issuing a second Privilege Card is not acceptable.
 
+### Refunds that happen somewhere else
+
+LunArt's own cancellations are `server/cancellation.js`: per line, with the policy
+deciding what comes back and whether that is a refund or a hold that shrinks. The
+other direction — money given back at Stripe, which this side has to catch up with
+— is `server/refunds.js`, and it exists because of a real gap.
+
+A Privilege Card was bought for €15 while production was briefly pointed at a
+different live Stripe account. The charge was refunded in full from that account's
+dashboard; that account had no webhook pointing here, so nothing arrived. The order
+still read `paid`, the card still issued a rotating QR, a venue would still have
+honoured it, and the guest's home still showed Privilege.
+
+The missing webhook was the smaller half. `charge.refunded` *was* handled — it moved
+the money status and did nothing else: no amount recorded, no difference between a
+full refund and a partial one, and no revocation. `revoke()` existed in
+`server/card.js` and nothing in the running system called it. The same button
+inside the Staff app had the same hole.
+
+So there is now one function that writes a refund, and three callers that go through
+it: the `charge.refunded` webhook, the Staff **Rimborsa** action, and the
+maintenance operation below.
+
+**A full refund** sets the money status to `refunded`, records the amount, and
+revokes every digital entitlement that order issued. A revoked card then fails
+everywhere a door would ask, because they all read `cardState`: no QR is issued to
+the holder, `validateCode` answers `revoked` to a venue, `entitlementsOf` returns
+nothing so partner benefits stop authorising, and `cardsForReservation` stops
+finding it so the Pass goes back to standard and the purchase renders as
+*Rimborsato*. The card is never deleted — the reference, the holder and the dates
+stay readable, and `revoked_at` says when.
+
+**A partial refund** is the opposite of unambiguous. Stripe knows an amount; it has
+no idea which LunArt line an operator had in mind, and guessing would mean revoking
+a card because somebody refunded a breakfast. So the figure is recorded, the status
+does not move, nothing is revoked, and a Staff alert asks a person to attribute it.
+The figure is a fact and the allocation is a judgement, and only one of them can be
+made here. A refund event carrying no readable amount is the third case: nothing is
+written and a person is told, because silence leaves a card working and assuming
+"full" revokes one on no evidence.
+
+**Idempotency is structural rather than a flag.** Every figure written is absolute:
+`amount_refunded` is Stripe's own running total for the charge, not the size of the
+latest refund, so applying the same event twice computes the same end state, finds
+it already there and writes nothing — no doubled total, no second line in the
+order's history, and no rewriting of the moment a guest's entitlement ended. Two
+genuine partial refunds each carry a higher total, and one arriving out of order
+cannot make it go backwards.
+
+### A refund made on an account this server cannot reach
+
+`POST /api/staff/orders/refund-reconcile`, on the Staff **Sincronizzazione** screen
+under *Rimborso già effettuato su Stripe*. The rare case, and a real one: the money
+is genuinely gone and the current Stripe credentials cannot even retrieve the
+payment intent to prove it, because it belongs to another account.
+
+It is the one operation that writes a refund on a person's word, so it is built to
+be meant. It makes **no provider call of any kind and moves no money**. It names the
+order exactly — by its id or by the eight characters a guest would read out — and
+without `confirm: true` it refuses and hands back the order it matched, so the screen
+can quote the guest and the amount before anything is written. It only accepts an
+order a full refund could have been made from. It records the actor, the reason and
+the provider's refund reference in the order's own history. And everything it then
+does is the same function the webhook calls, so there is one definition of what a
+full refund means — whoever pressed the button. Run it twice and the second run
+reports `unchanged`.
+
 ### The Pass, and the artwork it wears
 
 Every reservation has a LunArt Pass, derived from the stay on every read and never
