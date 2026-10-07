@@ -5,8 +5,9 @@
  * tranquille (cortile interno)" contradicted every room description, which places
  * all of them over the street and the Arno — so the noise entry now says what is
  * actually true. And "Bambini benvenuti / età minima 18 anni" was self-contradictory;
- * families are welcome per the September 2026 material, and the booking-side rule
- * about minors is left to the staff rather than half-stated here.
+ * the operational rule is now explicit: families are welcome, 0–2 can share the
+ * parents' bed, cots and extra beds have fixed supplements, and unaccompanied
+ * minors need prior written parental or guardian authorisation.
  */
 
 export const stay = [
@@ -180,17 +181,15 @@ export const stay = [
     priority: 10,
     title: { it: 'Bambini, culle e terzo letto', en: 'Children, cots and a third bed' },
     summary: {
-      it: 'Le famiglie sono benvenute. La culla si può avere su richiesta: chiedila almeno il giorno prima, non all’arrivo.',
-      en: 'Families are welcome. A cot is available on request: ask at least the day before, not on arrival.',
+      it: 'Le famiglie sono benvenute. Fino a 2 anni i bambini possono dormire gratuitamente nel letto con i genitori; la culla costa 20 € a notte e va richiesta almeno il giorno prima.',
+      en: 'Families are welcome. Up to age 2, children may share their parents’ bed free of charge; a cot is €20 per night and should be requested at least the day before.',
     },
     detail: {
-      it: 'Le camere 303 e 305, entrambe Superior, sono quelle che si allestiscono normalmente come triple.\n\nLa 304 può accettare un letto aggiuntivo se operativamente possibile, ma non è una tripla standard: va chiesto prima.\n\nSe la camera è stata prenotata come tripla, il terzo letto è incluso. Se la prenotazione è doppia e il terzo letto si aggiunge dopo, è un supplemento: il prezzo te lo confermiamo noi.',
-      en: 'Rooms 303 and 305, both Superior, are the ones normally set up as triples.\n\nRoom 304 can take an extra bed where it is practical, but it is not a standard triple: ask first.\n\nIf the room was booked as a triple, the third bed is included. If a double booking adds a third bed later, it is an extra, and we confirm the price with you.',
+      it: 'Dai 3 anni serve un posto letto. Le camere 303 e 305, entrambe Superior, sono quelle che si allestiscono normalmente come triple.\n\nSe la camera è stata prenotata come tripla, il terzo letto è incluso. Se una prenotazione doppia aggiunge dopo un terzo letto nelle Superior, il supplemento è 30 € a notte.\n\nLa 304 può accettare un letto aggiuntivo solo quando è operativamente possibile: va chiesto prima e la sistemazione viene confermata dallo staff.\n\nI minori non accompagnati non soggiornano autonomamente senza preventiva autorizzazione scritta di un genitore o tutore.',
+      en: 'From age 3, a separate bed is required. Rooms 303 and 305, both Superior, are the rooms normally set up as triples.\n\nIf the room was booked as a triple, the third bed is included. If a double booking later adds a third bed in a Superior room, the supplement is €30 per night.\n\nRoom 304 can take an extra bed only when operationally practical: ask first and staff will confirm the arrangement.\n\nUnaccompanied minors cannot stay independently without prior written authorisation from a parent or legal guardian.',
     },
     actions: [{ kind: 'entry', label: { it: 'Richiedi una culla', en: 'Request a cot' }, value: 'contacts' }],
     intents: ['children'],
-    verify: { level: 'blocker', field: 'supplemento terzo letto',
-      note: 'Il supplemento per un terzo letto aggiunto a una prenotazione doppia non è ancora definito: la guida dice che lo confermiamo noi. Da fissare prima della pubblicazione, altrimenti è una promessa senza numero. Resta aperta anche la vecchia contraddizione «Bambini: sì» / «età minima 18 anni»: confermare se esiste una regola sui minori.' },
   },
   {
     id: 'hair-in-room',
