@@ -13,7 +13,7 @@
     h1{font-family:Georgia,serif;font-size:clamp(34px,8vw,58px);line-height:1.02;margin:0 0 14px;font-weight:500}.lead{font-size:18px;color:var(--muted);max-width:620px;margin:0}
     .eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);font-weight:700;margin:0 0 10px}.grid{display:grid;gap:14px;margin:24px 0}
     .tier{display:block;text-decoration:none;color:inherit;background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;transition:.15s transform,.15s border-color}
-    .tier:hover{transform:translateY(-1px);border-color:var(--gold)}.tier strong{display:block;font-family:Georgia,serif;font-size:25px;font-weight:500}.tier small{color:var(--muted);display:block;margin-top:4px}
+    .tier{width:100%;font:inherit;cursor:pointer;text-align:left}.tier:disabled{opacity:.48;cursor:not-allowed}.tier:hover:not(:disabled){transform:translateY(-1px);border-color:var(--gold)}.tier strong{display:block;font-family:Georgia,serif;font-size:25px;font-weight:500}.tier small{color:var(--muted);display:block;margin-top:4px}
     .tier.featured{border:1.5px solid var(--gold);background:#fffaf0}.badge{display:inline-block;padding:4px 9px;border-radius:999px;background:#efe4d1;color:#725123;font-size:12px;font-weight:700;margin-bottom:8px}
     .terms{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:18px;margin-top:20px}.it{margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}.it h2{font-family:Georgia,serif;font-weight:500}
     .expired{display:none;background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;margin-top:20px}
@@ -27,21 +27,65 @@
     <h1>Come back to Florence.</h1>
     <p class="lead">Thank you for staying with us. For a limited number of past and current LunArt guests, we are offering extra value on a future direct stay.</p>
     <div id="offers" class="grid">
-      <a class="tier" href="https://buy.stripe.com/14AcN561o1bWcrUfRU0Ba0P"><strong>Pay €300 → receive €360</strong><small>€360 LunArt stay credit · valid 12 months</small></a>
-      <a class="tier" href="https://buy.stripe.com/9B66oH2Pcf2M3Vo8ps0Ba0Q"><strong>Pay €500 → receive €600</strong><small>€600 LunArt stay credit · valid 12 months</small></a>
-      <a class="tier featured" href="https://buy.stripe.com/3cIaEXexUdYI4Zs6hk0Ba0R"><span class="badge">Privilege</span><strong>Pay €750 → receive €900</strong><small>€900 stay credit + 2 days of LunArt Privilege Card on your future stay</small></a>
+      <button class="tier" type="button" data-tier="300" disabled><strong>Pay €300 → receive €360</strong><small>€360 LunArt stay credit · valid 12 months</small></button>
+      <button class="tier" type="button" data-tier="500" disabled><strong>Pay €500 → receive €600</strong><small>€600 LunArt stay credit · valid 12 months</small></button>
+      <button class="tier featured" type="button" data-tier="750" disabled><span class="badge">Privilege</span><strong>Pay €750 → receive €900</strong><small>€900 stay credit + 2 days of LunArt Privilege Card on your future stay</small></button>
     </div>
+    <p id="checkout-message" role="status" aria-live="polite" style="color:var(--muted);font-size:14px;margin:0 0 14px"></p>
     <div id="expired" class="expired">This private offer has ended. We would still love to welcome you back — contact LunArt directly for current availability.</div>
     <p class="terms">The promotion remains available until 16 October 2026 or until the campaign reaches €6,000 in total sales, whichever comes first. Credit is valid for 12 months from purchase, for direct LunArt bookings only, subject to availability. It is not redeemable for cash and cannot be combined with other offers. The €750 tier includes 2 days of Privilege Card benefits during the future stay.</p>
     <div class="it"><h2>Offerta privata per gli ospiti LunArt</h2><p>Paghi oggi e ricevi un credito maggiore da utilizzare su un futuro soggiorno prenotato direttamente con LunArt. La promozione resta disponibile fino al 16 ottobre 2026 o fino al raggiungimento di €6.000 complessivi di vendite. Il credito è valido 12 mesi, soggetto a disponibilità, non convertibile in denaro e non cumulabile con altre offerte.</p></div>
   </section>
 </main>
 <script>
-  const end = new Date('2026-10-17T00:00:00+02:00');
-  if (new Date() >= end) {
-    document.getElementById('offers').style.display='none';
-    document.getElementById('expired').style.display='block';
+  // Never expose the old Stripe Payment Links. The shared capacity is checked
+  // and reserved by LunArt before Stripe creates a new checkout.
+  const offers = document.getElementById('offers');
+  const expired = document.getElementById('expired');
+  const message = document.getElementById('checkout-message');
+  const buttons = [...document.querySelectorAll('[data-tier]')];
+  const params = new URLSearchParams(location.search);
+  if (params.get('success')) {
+    message.textContent = 'Thank you. Stripe is finalising your Return Pass payment; keep your payment confirmation.';
+  } else if (params.get('canceled')) {
+    message.textContent = 'Checkout cancelled. No Return Pass was purchased.';
   }
+  function closed() {
+    offers.style.display = 'none';
+    expired.style.display = 'block';
+  }
+  async function refreshStatus() {
+    if (Date.now() >= Date.parse('2026-10-17T00:00:00+02:00')) { closed(); return; }
+    try {
+      const response = await fetch('/api/return-pass/status', { cache: 'no-store' });
+      if (!response.ok) throw new Error('status');
+      const data = await response.json();
+      buttons.forEach((b) => { b.disabled = !data.tiers?.[b.dataset.tier]; });
+      if (!data.active || !Object.values(data.tiers ?? {}).some(Boolean)) closed();
+    } catch {
+      buttons.forEach((b) => { b.disabled = true; });
+      message.textContent = 'Secure checkout is temporarily unavailable. Please contact LunArt directly.';
+    }
+  }
+  buttons.forEach((button) => button.addEventListener('click', async () => {
+    buttons.forEach((b) => { b.disabled = true; });
+    message.textContent = 'Opening secure Stripe checkout…';
+    try {
+      const response = await fetch('/api/return-pass/checkout', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tier: button.dataset.tier }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok || !result.checkoutUrl) {
+        throw new Error(result.error === 'sold-out' ? 'This Return Pass is sold out.' : 'Checkout is unavailable. Please try again.');
+      }
+      location.assign(result.checkoutUrl);
+    } catch (error) {
+      message.textContent = error.message;
+      await refreshStatus();
+    }
+  }));
+  refreshStatus();
 </script>
 </body>
 </html>
