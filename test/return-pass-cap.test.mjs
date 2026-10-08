@@ -69,7 +69,7 @@ test('Stripe checkout uses card-only manual capture and campaign metadata', asyn
   assert.equal(s.ok, true);
   assert.match(s.checkoutUrl, /checkout.stripe.com/);
   const request = f.sessions[0].request;
-  assert.deepEqual(request.payment_method_types, ['card']);
+  assert.deepEqual(request.allowed_payment_method_types, ['card']);
   assert.equal(request.payment_intent_data.capture_method, 'manual');
   assert.equal(request.metadata.campaign, RETURN_PASS_CAMPAIGN);
   assert.equal(request.line_items[0].price_data.unit_amount, 30000);
