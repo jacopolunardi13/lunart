@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>LunArt Firenze — Private Return Offer</title>
+  <style>
+    :root{--ink:#191715;--muted:#6c665f;--paper:#f7f3ec;--card:#fffdf9;--gold:#a87937;--line:#e3d9cb}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{max-width:760px;margin:0 auto;padding:32px 18px 56px}.brand{font-family:Georgia,serif;font-size:28px;letter-spacing:.02em;margin-bottom:28px}.brand span{color:var(--gold)}
+    .hero{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:30px 24px;box-shadow:0 14px 40px rgba(40,30,18,.06)}
+    h1{font-family:Georgia,serif;font-size:clamp(34px,8vw,58px);line-height:1.02;margin:0 0 14px;font-weight:500}.lead{font-size:18px;color:var(--muted);max-width:620px;margin:0}
+    .eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);font-weight:700;margin:0 0 10px}.grid{display:grid;gap:14px;margin:24px 0}
+    .tier{display:block;text-decoration:none;color:inherit;background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;transition:.15s transform,.15s border-color}
+    .tier:hover{transform:translateY(-1px);border-color:var(--gold)}.tier strong{display:block;font-family:Georgia,serif;font-size:25px;font-weight:500}.tier small{color:var(--muted);display:block;margin-top:4px}
+    .tier.featured{border:1.5px solid var(--gold);background:#fffaf0}.badge{display:inline-block;padding:4px 9px;border-radius:999px;background:#efe4d1;color:#725123;font-size:12px;font-weight:700;margin-bottom:8px}
+    .terms{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:18px;margin-top:20px}.it{margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}.it h2{font-family:Georgia,serif;font-weight:500}
+    .expired{display:none;background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;margin-top:20px}
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand">Lun<span>Art</span> Firenze</div>
+  <section class="hero">
+    <p class="eyebrow">Private guest offer · until 16 October 2026</p>
+    <h1>Come back to Florence.</h1>
+    <p class="lead">Thank you for staying with us. For a limited number of past and current LunArt guests, we are offering extra value on a future direct stay.</p>
+    <div id="offers" class="grid">
+      <a class="tier" href="https://buy.stripe.com/14AcN561o1bWcrUfRU0Ba0P"><strong>Pay €300 → receive €360</strong><small>€360 LunArt stay credit · valid 12 months</small></a>
+      <a class="tier" href="https://buy.stripe.com/9B66oH2Pcf2M3Vo8ps0Ba0Q"><strong>Pay €500 → receive €600</strong><small>€600 LunArt stay credit · valid 12 months</small></a>
+      <a class="tier featured" href="https://buy.stripe.com/3cIaEXexUdYI4Zs6hk0Ba0R"><span class="badge">Privilege</span><strong>Pay €750 → receive €900</strong><small>€900 stay credit + 2 days of LunArt Privilege Card on your future stay</small></a>
+    </div>
+    <div id="expired" class="expired">This private offer has ended. We would still love to welcome you back — contact LunArt directly for current availability.</div>
+    <p class="terms">Only 4 passes are available in each tier. Credit is valid for 12 months from purchase, for direct LunArt bookings only, subject to availability. It is not redeemable for cash and cannot be combined with other offers. The €750 tier includes 2 days of Privilege Card benefits during the future stay.</p>
+    <div class="it"><h2>Offerta privata per gli ospiti LunArt</h2><p>Paghi oggi e ricevi un credito maggiore da utilizzare su un futuro soggiorno prenotato direttamente con LunArt. Il credito è valido 12 mesi, soggetto a disponibilità, non convertibile in denaro e non cumulabile con altre offerte.</p></div>
+  </section>
+</main>
+<script>
+  const end = new Date('2026-10-17T00:00:00+02:00');
+  if (new Date() >= end) {
+    document.getElementById('offers').style.display='none';
+    document.getElementById('expired').style.display='block';
+  }
+</script>
+</body>
+</html>

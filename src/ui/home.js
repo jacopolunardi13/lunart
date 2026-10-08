@@ -254,6 +254,52 @@ function duringTheStay(lang, phase) {
   </section>`;
 }
 
+/* --- C. Private return offer ---------------------------------------------- */
+
+const CASH_SPRINT_START = '2026-10-09';
+const CASH_SPRINT_END = '2026-10-16';
+
+function cashSprintActive() {
+  const today = guest()?.today;
+  return Boolean(isPersonal() && today && today >= CASH_SPRINT_START && today <= CASH_SPRINT_END);
+}
+
+function returnPassOffer(lang) {
+  if (!cashSprintActive()) return '';
+
+  const copy = lang === 'it'
+    ? {
+        title: 'Torna a Firenze',
+        blurb: 'Offerta privata LunArt, disponibile fino al 16 ottobre o esaurimento dei pass.',
+        p300: 'Paga €300 · ricevi €360 di credito',
+        p500: 'Paga €500 · ricevi €600 di credito',
+        p750: 'Paga €750 · ricevi €900 + 2 giorni Privilege',
+        note: 'Credito valido 12 mesi per prenotazioni dirette, soggetto a disponibilità, non convertibile in denaro e non cumulabile con altre offerte.',
+      }
+    : {
+        title: 'Come back to Florence',
+        blurb: 'A private LunArt offer, available until 16 October or until the passes sell out.',
+        p300: 'Pay €300 · receive €360 stay credit',
+        p500: 'Pay €500 · receive €600 stay credit',
+        p750: 'Pay €750 · receive €900 + 2 Privilege days',
+        note: 'Credit valid for 12 months on direct bookings, subject to availability, not redeemable for cash and not combinable with other offers.',
+      };
+
+  return `<section class="section" aria-labelledby="h-return-pass">
+    <div class="section__head">
+      <span style="color:var(--accent)">${icon('card', 20)}</span>
+      <h2 id="h-return-pass">${esc(copy.title)}</h2>
+    </div>
+    <p class="section__blurb">${esc(copy.blurb)}</p>
+    <div class="actions">
+      <a class="action action--wide" href="https://buy.stripe.com/14AcN561o1bWcrUfRU0Ba0P" target="_blank" rel="noopener">${esc(copy.p300)}${icon('chevron', 16)}</a>
+      <a class="action action--wide" href="https://buy.stripe.com/9B66oH2Pcf2M3Vo8ps0Ba0Q" target="_blank" rel="noopener">${esc(copy.p500)}${icon('chevron', 16)}</a>
+      <a class="action action--wide action--primary" href="https://buy.stripe.com/3cIaEXexUdYI4Zs6hk0Ba0R" target="_blank" rel="noopener">${esc(copy.p750)}${icon('chevron', 16)}</a>
+    </div>
+    <p class="hint" style="margin-top:10px">${esc(copy.note)}</p>
+  </section>`;
+}
+
 /* --- D. Florence ----------------------------------------------------------- */
 
 /**
@@ -390,9 +436,11 @@ export function homeView(lang, phase) {
     <div data-pass-block></div>
     <div data-purchases-block></div>
 
+    ${cashSprintActive() ? renderShopTeaser(lang) : ''}
+    ${returnPassOffer(lang)}
     ${yourStay(lang, phase)}
     ${duringTheStay(lang, phase)}
-    ${renderShopTeaser(lang)}
+    ${cashSprintActive() ? '' : renderShopTeaser(lang)}
     ${florenceCard(lang)}
 
     <button class="search-trigger" type="button" data-open-search>

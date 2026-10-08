@@ -46,8 +46,8 @@ export const MOMENTS = ['before', 'arrival', 'staying', 'leaving'];
  */
 export const PRIORITY = {
   before:   ['transfer-airport', 'celebration', 'wine-in-room', 'luggage-transfer', 'brunch', 'privilege-card'],
-  arrival:  ['wine-in-room', 'celebration', 'brunch', 'hair-service', 'transfer-airport', 'privilege-card'],
-  staying:  ['wine-in-room', 'hair-service', 'privilege-card', 'brunch', 'celebration', 'chianti-experience'],
+  arrival:  ['privilege-card', 'wine-in-room', 'celebration', 'brunch', 'hair-service', 'transfer-airport'],
+  staying:  ['privilege-card', 'wine-in-room', 'hair-service', 'brunch', 'celebration', 'chianti-experience'],
   leaving:  ['luggage-transfer', 'transfer-airport', 'wine-in-room', 'brunch', 'privilege-card'],
 };
 
