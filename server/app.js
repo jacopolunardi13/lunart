@@ -14,6 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { config, configWarnings } from './config.js';
 import { createStore } from './store.js';
 import { createStripe, createMockStripe, verifyWebhookSignature } from './stripe.js';
+import { createReturnPassCap, RETURN_PASS_CAMPAIGN } from './return-pass-cap.js';
 import {
   readJson, readRawBody, sendJson, sendHtml, sendText, redirect, serveStatic, matchRoute, escapeHtml,
 } from './http.js';
@@ -113,6 +114,7 @@ export async function createApp(overrides = {}) {
   const ctx = { settings, store, stripe, mailer, push, providerCalendar };
 
   const origin = settings.publicUrl;
+  const returnPassCap = createReturnPassCap({ stripe, origin, dataDir: settings.dataDir || '/var/data' });
 
   /**
    * Two invented reservations, so the Staff app and the personal link have
@@ -425,6 +427,23 @@ export async function createApp(overrides = {}) {
     });
   }
 
+  /* ── Limited Return Pass (shared across all three tiers) ─────────────── */
+
+  async function getReturnPassStatus(req, res) {
+    sendJson(res, 200, await returnPassCap.status());
+  }
+
+  async function postReturnPassCheckout(req, res) {
+    const limited = rateLimit(`return-pass:${clientKey(req)}`, { limit: 8, windowMs: 60_000 });
+    if (!limited.allowed) {
+      sendJson(res, 429, { ok: false, error: 'too-many-requests' });
+      return;
+    }
+    const body = await readJson(req);
+    const result = await returnPassCap.startCheckout(String(body.tier ?? ''));
+    sendJson(res, result.ok ? 200 : result.error === 'payments-not-configured' ? 503 : 409, result);
+  }
+
   /* ── Webhook ─────────────────────────────────────────────────────────── */
 
   async function postStripeWebhook(req, res) {
@@ -448,7 +467,17 @@ export async function createApp(overrides = {}) {
       }
     }
 
-    const result = await handleStripeEvent(event, ctx);
+    // The Return Pass has its own capture barrier. Never feed these checkouts
+    // into ordinary product fulfilment: the campaign ledger owns their money.
+    const obj = event?.data?.object;
+    let result;
+    if (obj?.metadata?.campaign === RETURN_PASS_CAMPAIGN && event.type === 'checkout.session.completed') {
+      result = await returnPassCap.completed(obj);
+    } else if (obj?.metadata?.campaign === RETURN_PASS_CAMPAIGN && event.type === 'checkout.session.expired') {
+      result = await returnPassCap.expired(obj);
+    } else {
+      result = await handleStripeEvent(event, ctx);
+    }
     sendJson(res, 200, { received: true, ...result });
   }
 
@@ -1654,6 +1683,8 @@ export async function createApp(overrides = {}) {
   }
 
   const routes = [
+    ['GET',  '/api/return-pass/status', getReturnPassStatus],
+    ['POST', '/api/return-pass/checkout', postReturnPassCheckout],
     ['GET',  '/api/catalog', getCatalog],
     ['POST', '/api/cart/price', postCartPrice],
     ['POST', '/api/checkout', postCheckout],

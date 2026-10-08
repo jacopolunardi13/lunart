@@ -292,9 +292,9 @@ function returnPassOffer(lang) {
     </div>
     <p class="section__blurb">${esc(copy.blurb)}</p>
     <div class="actions">
-      <a class="action action--wide" href="https://buy.stripe.com/14AcN561o1bWcrUfRU0Ba0P" target="_blank" rel="noopener">${esc(copy.p300)}${icon('chevron', 16)}</a>
-      <a class="action action--wide" href="https://buy.stripe.com/9B66oH2Pcf2M3Vo8ps0Ba0Q" target="_blank" rel="noopener">${esc(copy.p500)}${icon('chevron', 16)}</a>
-      <a class="action action--wide action--primary" href="https://buy.stripe.com/3cIaEXexUdYI4Zs6hk0Ba0R" target="_blank" rel="noopener">${esc(copy.p750)}${icon('chevron', 16)}</a>
+      <a class="action action--wide" href="https://lunart-production.onrender.com/return-pass.html?tier=300" target="_blank" rel="noopener">${esc(copy.p300)}${icon('chevron', 16)}</a>
+      <a class="action action--wide" href="https://lunart-production.onrender.com/return-pass.html?tier=500" target="_blank" rel="noopener">${esc(copy.p500)}${icon('chevron', 16)}</a>
+      <a class="action action--wide action--primary" href="https://lunart-production.onrender.com/return-pass.html?tier=750" target="_blank" rel="noopener">${esc(copy.p750)}${icon('chevron', 16)}</a>
     </div>
     <p class="hint" style="margin-top:10px">${esc(copy.note)}</p>
   </section>`;

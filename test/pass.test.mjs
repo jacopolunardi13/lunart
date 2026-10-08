@@ -370,8 +370,8 @@ test('the moment is read from the dates, not guessed', () => {
 test('each moment leads with what that moment is for', () => {
   const lead = (moment) => featuredProducts({ moment })[0]?.id;
   assert.equal(lead('before'), 'transfer-airport', 'getting here is the pre-arrival question');
-  assert.equal(lead('arrival'), 'wine-in-room', 'tonight, and nothing to plan');
-  assert.equal(lead('staying'), 'wine-in-room');
+  assert.equal(lead('arrival'), 'privilege-card', 'Privilege is prioritised for guests in residence');
+  assert.equal(lead('staying'), 'privilege-card', 'Privilege comes first during the stay');
   assert.equal(lead('leaving'), 'luggage-transfer', 'nothing else is happening today');
 });
 
