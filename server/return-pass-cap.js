@@ -43,7 +43,7 @@ export function createReturnPassCap({ stripe, origin, dataDir = '/var/data', clo
         if (error.code !== 'EEXIST') throw error;
         // Recover a lock left by a killed process; writes are fail-closed.
         const last = await stat(lock).catch(() => null);
-        if (last && clock() - last.mtimeMs > 45000) {
+        if (last && Date.now() - last.mtimeMs > 45000) {
           await rmdir(lock).catch(() => {});
         } else {
           await sleep(75);
@@ -62,7 +62,7 @@ export function createReturnPassCap({ stripe, origin, dataDir = '/var/data', clo
         throw new Error('Return Pass ledger invalid — refusing sales');
       }
       const result = await fn(state);
-      const temp = path + '.' + process.pid + '.tmp';
+      const temp = path + '.' + process.pid + '.' + randomUUID() + '.tmp';
       await writeFile(temp, JSON.stringify(state, null, 2));
       await rename(temp, path);
       return result;
@@ -157,7 +157,7 @@ export function createReturnPassCap({ stripe, origin, dataDir = '/var/data', clo
           capture_method: 'manual',
           metadata: { campaign: RETURN_PASS_CAMPAIGN, return_pass_reservation: r.id, tier },
         },
-        expires_at: Math.floor(clock() / 1000) + 1800,
+        expires_at: Math.floor(clock() / 1000) + 1860,
         success_url: `${origin}/return-pass.html?success=1&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/return-pass.html?canceled=1`,
         locale: 'auto',
