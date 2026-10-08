@@ -137,7 +137,7 @@ export function createReturnPassCap({ stripe, origin, dataDir = '/var/data', clo
       const session = await stripe.createCheckoutSession({
         mode: 'payment',
         currency: 'eur',
-        payment_method_types: ['card'],
+        allowed_payment_method_types: ['card'],
         customer_creation: 'always',
         name_collection: { individual: { enabled: true, optional: false } },
         phone_number_collection: { enabled: true },
