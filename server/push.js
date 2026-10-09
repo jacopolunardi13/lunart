@@ -21,6 +21,8 @@
  * about: an order is paid whether or not a phone buzzed.
  */
 
+import { createRelay } from './relay.js';
+
 const notifications = [];
 
 /** The events worth a buzz. The wording is the notification, so it lives here. */
@@ -134,8 +136,20 @@ export function createPushAdapter(settings = {}) {
   const { vapidPublicKey, vapidPrivateKey, vapidSubject, pushTransport = null } = settings;
   const configured = Boolean(vapidPublicKey && vapidPrivateKey && vapidSubject);
   const state = { sent: 0, failed: 0, removed: 0, lastError: null, lastSuccessAt: null };
+  /**
+   * The shared Staff console, when LunArt reports to one (`server/relay.js`).
+   * Every notification goes there too, signed; the console pushes it to the
+   * phones of the people who work here. Absent unless configured.
+   */
+  const relay = settings.relay ?? createRelay({
+    url: settings.console?.relayUrl,
+    secret: settings.console?.relaySecret,
+    propertyId: 'lunart',
+    fetchImpl: settings.relayFetch,
+  });
 
   return {
+    relay,
     id: configured ? 'web-push' : 'simulated',
     implemented: true,
     configured,
@@ -216,6 +230,9 @@ export async function notifyStaff({ store, push, event, data = {} }) {
   const payload = buildNotification(event, data);
   if (!payload) return { ok: false, reason: 'unknown-event' };
 
+  // To the console first, and never at the cost of the request that caused it.
+  const relayed = push.relay ? await push.relay.send(payload).catch((error) => ({ ok: false, error: error.message })) : null;
+
   const subscriptions = await store.subscriptions.list({ limit: 50 });
   const results = [];
 
@@ -237,6 +254,7 @@ export async function notifyStaff({ store, push, event, data = {} }) {
     removed: results.filter((r) => r.removed).length,
     simulated: !push.configured,
     devices: subscriptions.length,
+    relayed,
     payload,
     results,
   };

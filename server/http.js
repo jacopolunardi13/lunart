@@ -5,6 +5,7 @@
  * router that fits on one screen is easier to audit than one that does not.
  */
 
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 
@@ -26,6 +27,18 @@ const TYPES = {
 
 /** Bodies are capped: an unbounded read is a free denial of service. */
 export const MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * Two secrets compared in constant time, whatever their lengths (both are hashed
+ * first). An empty value never matches, so an unset variable cannot be "guessed"
+ * by sending nothing.
+ */
+export function sameSecret(given, expected) {
+  if (!given || !expected) return false;
+  const a = createHash('sha256').update(String(given)).digest();
+  const b = createHash('sha256').update(String(expected)).digest();
+  return timingSafeEqual(a, b);
+}
 
 export function readRawBody(req, limit = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
