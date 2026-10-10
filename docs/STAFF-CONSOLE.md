@@ -21,6 +21,7 @@ unless its variable is set**: deployed as is, production behaves exactly as toda
 | Staff answers | unchanged fields | plus `property: { id: 'lunart', … }`; the dashboard lists `rooms` |
 | Notifications | to the phones registered on `/staff` | also to the console (`CONSOLE_URL` + `CONSOLE_RELAY_SECRET`), signed HMAC-SHA256, never blocking the order or booking that caused them |
 | `/staff` | the LunArt Staff app | with `STAFF_TOKEN_RETIRED=1`: redirect to `CONSOLE_URL`, and `STAFF_TOKEN` stops working |
+| Phones registered on `/staff` | receive every notification | with `STAFF_TOKEN_RETIRED=1` and the relay wired: no longer pushed (the console pushes instead), so nothing arrives twice |
 | `/api/health` | — | `integrations.staffConsole`: what is wired, never a secret |
 
 ## Rolling it out without stopping anybody
@@ -32,7 +33,9 @@ unless its variable is set**: deployed as is, production behaves exactly as toda
    The console now reads and works LunArt; the old `/staff` still works.
 3. Everyone moves to the console and enables notifications there.
 4. Set `STAFF_TOKEN_RETIRED=1`. The shared token stops working, `/staff` sends
-   people to the console. Undo by removing the variable.
+   people to the console, and LunArt stops pushing to the phones of the old app
+   (the console does it), so no notification arrives twice. Undo by removing the
+   variable.
 
 Each step is a configuration change on the hosting, approved before it is made.
 

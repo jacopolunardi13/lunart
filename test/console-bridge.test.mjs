@@ -138,6 +138,33 @@ test('a console that is down never fails the order or reservation that triggered
   assert.equal(second.relayed.ok, false);
 });
 
+test('no notification twice: once the shared token is retired, phones are the console’s', async (t) => {
+  const console = await fakeConsole(t);
+  const store = createStore();
+  await store.subscriptions.create({ endpoint: 'https://push.example/old-staff-app', keys: { p256dh: 'k', auth: 'a' } });
+  const sent = [];
+  const transport = { async sendNotification(subscription) { sent.push(subscription.endpoint); return { statusCode: 201 }; } };
+  const keys = { vapidPublicKey: 'pub', vapidPrivateKey: 'priv', vapidSubject: 'mailto:x@example.invalid', pushTransport: transport };
+
+  // During the move both run: the old app still buzzes, and the console is told.
+  const during = createPushAdapter({ ...keys, console: { relayUrl: console.url, relaySecret: RELAY } });
+  const first = await notifyStaff({ store, push: during, event: 'order-new', data: { orderId: 'o1', title: 'Breakfast' } });
+  assert.equal(first.localDelivery, true);
+  assert.deepEqual(sent, ['https://push.example/old-staff-app']);
+
+  // Retired: only the console.
+  const after = createPushAdapter({ ...keys, staffTokenRetired: true, console: { relayUrl: console.url, relaySecret: RELAY } });
+  const second = await notifyStaff({ store, push: after, event: 'order-new', data: { orderId: 'o2', title: 'Wine' } });
+  assert.equal(second.localDelivery, false);
+  assert.equal(second.relayed.ok, true);
+  assert.deepEqual(sent, ['https://push.example/old-staff-app'], 'the old device is not pushed again');
+  assert.equal(console.received.length, 2);
+
+  // Retired but no console wired: the old devices keep their notifications.
+  const alone = createPushAdapter({ ...keys, staffTokenRetired: true });
+  assert.equal(alone.localDelivery, true);
+});
+
 test('the health check says what is wired, never the secrets', async (t) => {
   const { base } = await serve(t, { console: { serviceToken: SERVICE, relayUrl: 'http://127.0.0.1:9', relaySecret: RELAY } });
   const text = await fetch(`${base}/api/health`).then((r) => r.text());
